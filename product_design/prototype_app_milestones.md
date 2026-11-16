@@ -5,13 +5,15 @@
 An empty GUI application, except File -> Open to load an audio file.
 When loaded, some basic information is displayed about the file.
 
-Status: `criteria approved`
+Status: `verified`
 
 Acceptance criteria:
 
 Test audio is generated for the purpose (sine tones with known frequency, amplitude and duration):
 mono and stereo; 44.1 and 48 kHz; WAV (16- and 24-bit), AIFF, CAF, MP3, AAC/M4A, ALAC, FLAC. Plus
-invalid files: a text file renamed to `.wav`, and a truncated WAV.
+invalid files: a text file renamed to `.wav`, and a damaged M4A (cut inside its index).
+(Originally a truncated WAV; changed during implementation because AVFoundation loads the part of a
+truncated WAV that is there, see Decisions in prototype_app_spec.md.)
 
 1. A single command-line script builds the `.app` bundle without errors.
    Verified by: running the script (exit code 0, the bundle exists).
@@ -37,6 +39,18 @@ invalid files: a text file renamed to `.wav`, and a truncated WAV.
    loaded and displayed.
    Verified by: opening a valid file and then each invalid file, and checking the alert text and
    loaded file in the state dump.
+
+Verification results (`python3 prototype/verify/verify_m1.py`): 28/28 checks passed.
+
+1. Build script: exit code 0, bundle created.
+2. Empty launch: one window, title "Transcribe and Practice", hint shown (snapshot checked).
+3. File → Open… with ⌘O present. The open dialog itself still needs a manual check.
+4. All 11 valid files (WAV 16/24-bit, AIFF, CAF float, ALAC, FLAC ×2, AAC ×2, MP3 ×2; mono and
+   stereo; 44.1 and 48 kHz) load with correct values. Lossless: exact frame counts, levels
+   within 0.1 dB. Lossy: within the tolerances. Snapshot checked for one file.
+5. All 11 decoded buffers: float32, non-interleaved, all channels, native sample rate.
+6. Opening a second file replaces the first; the title shows its name.
+7. `not_audio.wav` and `damaged.m4a` show an alert; the previous file stays loaded.
 
 ## 2. Subwindows, wave form display
 

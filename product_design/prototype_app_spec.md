@@ -65,10 +65,27 @@ After loading, the window shows:
 
 ### Verification hooks
 
-For headless verification the app accepts launch arguments that open one or more files in order
+For headless verification the app accepts launch arguments (`--open=<file>`, `--dump-state=<file>`,
+`--snapshot=<file>`, `--quit`) that open one or more files in order
 (through the same code path as File → Open, minus the dialog), write the app's state to a JSON file
 (loaded file info, window title, error alert text, main menu structure), save a PNG snapshot of the
 window content, and quit. These are a development aid, not a user feature.
 
+To build and run the prototype: `prototype/build.sh`, then open `prototype/build/TranscribeAndPractice.app`.
+
 ## Decisions
 
+- Code lives in `prototype/`: a Swift package plus `build.sh`, which creates
+  `build/TranscribeAndPractice.app`. Verification scripts are in `prototype/verify/`.
+- Numbers in the info display use the system locale (e.g. "44.100 Hz" with a Hungarian locale).
+- Levels of a fully silent channel are shown as "-∞ dBFS".
+- A WAV file that is cut short loads the audio it contains (as audio players do); AVFoundation
+  doesn't report it as an error. Files that can't be decoded at all show the error alert.
+- Error alerts for unreadable files say "It is not a supported audio file, or it is damaged" with
+  the Core Audio error code, instead of the raw system message.
+- Snapshots are rendered from the window's SwiftUI view tree with `ImageRenderer`. Capturing the
+  real window from inside the process comes out blank on macOS 26, and capturing it from outside
+  would need Screen Recording permission. Consequence: window chrome isn't in the snapshots, and
+  AppKit views embedded in SwiftUI (from milestone 2 on) may need their own rendering path.
+- Hook options use the `--option=value` form; with a separate path argument, AppKit treated the
+  launch as opening a file and SwiftUI didn't create the main window.
