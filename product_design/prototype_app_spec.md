@@ -2,7 +2,7 @@
 
 The prototype application is a throwaway implementation to experiment with the basic functionality.
 
-## Features
+## Overview of features
 
 - Load audio file
 - Display navigator window (waveform)
@@ -18,4 +18,6 @@ The prototype application is a throwaway implementation to experiment with the b
 - Display note grid on spectrogram
 - Edit notes by clicking into the note grid, snap to desired beat division (1/4, 1/16, ...)
 - Play note corresponding to mouse location in the grid
+
+## Detailed specification
 
