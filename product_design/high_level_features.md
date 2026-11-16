@@ -80,19 +80,17 @@ Curated union of the features from the above apps.
   - Audio capture of other apps (browser playing from a streaming service)
   - Import from the Apple Music library
   - Cloud import from Dropbox, Drive, iCloud or a URL
-- Sync across devices (A, C); sharing projects, marks and loops (A, C)
+- Sync across devices; sharing projects, marks and loops
 
 ### Playback and navigation
 
 - Waveform with scroll and zoom, playhead
-- Various time-frequency distributions (TFDs)
 - Play from any point, freeze and scrub
 - Keyboard shortcuts
 - Count-in
 
 ### Speed and pitch
-- Fully flexible tempo and pitch shift (transpose, fine-tune)
-- Pitch shift and transpose (all), cent-level control (T)
+- Fully flexible tempo and pitch shift: transpose, cent-level fine-tuning
 - Transposing-instrument setting, virtual capo, alternate tunings
 
 ### Isolating parts of the audio
@@ -102,17 +100,18 @@ Curated union of the features from the above apps.
 
 ### Analysis
 - Beat and bar grid: detected (editable) or by hand
-- Tempo/BPM (C, M, S), key (C, M, S), time signature (S), tuning (S)
-- Chord detection, editable editable, bass notes when not the root (S), Roman / Nashville notation
+- Tempo/BPM, key, time signature, tuning
+- Chord detection (editable), bass notes when not the root, Roman / Nashville notation
 - Note and pitch detection
-- Various time-frequency distributions, spectrum, piano roll
-- Lyrics display (editable, importable), detection
+- Various time-frequency distributions (TFDs), spectrum, piano roll
+- Lyrics detection
 
 ### Annotation and structure
-- Custom markers (other than beat/measure/section), name regions
-- Text annotations, scrolling lyrics
+- Custom markers (other than beat/measure/section), named regions
+- Text annotations
+- Lyrics: importable, editable, scrolling display
 - Score and tabs
-- Chord diagrams for several instruments, left-handed option (C)
+- Chord diagrams for several instruments, left-handed option
 - Drawing notes on the TFD to generate tabs and score
 - Separate view modes, e.g. Chords, Tabbing, Structure, Practice
 
