@@ -72,11 +72,14 @@ For headless verification the app accepts launch arguments (`--open=<file>`, `--
 window content, and quit. These are a development aid, not a user feature.
 
 To build and run the prototype: `prototype/build.sh`, then open `prototype/build/TranscribeAndPractice.app`.
+Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from CLion).
 
 ## Decisions
 
 - Code lives in `prototype/`: a Swift package plus `build.sh`, which creates
   `build/TranscribeAndPractice.app`. Verification scripts are in `prototype/verify/`.
+- CMake build (for CLion): the root `CMakeLists.txt` includes `prototype/CMakeLists.txt`, which
+  globs `Sources/**/*.swift` into a `MACOSX_BUNDLE` target. `Info.plist` is shared by both builds.
 - Numbers in the info display use the system locale (e.g. "44.100 Hz" with a Hungarian locale).
 - Levels of a fully silent channel are shown as "-∞ dBFS".
 - A WAV file that is cut short loads the audio it contains (as audio players do); AVFoundation
