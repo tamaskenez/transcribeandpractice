@@ -63,7 +63,7 @@ Verification results (`python3 prototype/verify/verify_m1.py`): 28/28 checks pas
 - In vertical time mode it's split into a left, navigation pane, and a right, main pane
 - For now both in the navigation and main window we display a mono waveform mix
 
-Status: `criteria proposed`
+Status: `verified`
 
 Acceptance criteria:
 
@@ -109,6 +109,26 @@ interpolation, mono mix = channel average, ±1.0 = pane edges).
 
 Prerequisite: Screen Recording permission for the terminal running the verification (for
 `screencapture -l`).
+
+Verification results (`python3 prototype/verify/verify_m2.py`): 21/21 checks passed; screenshots in
+`prototype/verify/out/m2/` inspected.
+
+1. `build.sh` and the CMake (Ninja) build both exit 0 and create the bundle.
+2. Horizontal layout correct for both files: panes stacked, full width, navigator 20%, toolbar
+   toggle present and selected. Screenshots show toolbar, navigator, main pane, transport strip.
+3. Vertical layout correct for both files, same checks. Screenshots show navigator left, main
+   right.
+4. View menu: Horizontal Time ⌘1, Vertical Time ⌘2. Clicking the toggle, the menu items and
+   dragging the divider still need a manual check.
+5. Default horizontal; vertical and horizontal each remembered across a relaunch.
+6. Navigator and main polylines match the reference for both files in both orientations (8
+   comparisons, within 0.5 px).
+7. Screenshots: a 4-period sine running right / downwards; the stereo file offset by +0.2;
+   positive amplitude up (horizontal) and right (vertical).
+8. No file: both panes present and empty, hint in the main pane.
+9. After opening two files: summary "wave_stereo.wav · 0:04.000 (4.000 s) · 44.100 Hz ·
+   2 (stereo)" and the stereo waveform.
+10. `verify_m1.py`: 28/28 passed.
 
 ## 3. Basic navigation
 

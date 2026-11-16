@@ -108,8 +108,9 @@ window content, and quit.
 From milestone 2 on, also: `--orientation=horizontal|vertical` (sets the orientation through the
 same code path as the toggle, so it is also remembered); the dump adds the orientation, the window
 number, the frames of all panes, the divider position, and the polyline points of each waveform
-pane. Snapshots of the real window, including the toolbar, are taken from outside the app with
-`screencapture -l <window number>` (needs Screen Recording permission for the terminal). These are a development aid, not a user feature.
+pane. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
+`screencapture -l <window number>` (needs Screen Recording permission for the terminal that
+launches the app). These are a development aid, not a user feature.
 
 To build and run the prototype: `prototype/build.sh`, then open `prototype/build/TranscribeAndPractice.app`.
 Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from CLion).
@@ -126,9 +127,22 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
   doesn't report it as an error. Files that can't be decoded at all show the error alert.
 - Error alerts for unreadable files say "It is not a supported audio file, or it is damaged" with
   the Core Audio error code, instead of the raw system message.
-- Snapshots are rendered from the window's SwiftUI view tree with `ImageRenderer`. Capturing the
+- (Milestone 1; replaced in milestone 2 by `screencapture`, see below.) Snapshots are rendered from
+  the window's SwiftUI view tree with `ImageRenderer`. Capturing the
   real window from inside the process comes out blank on macOS 26, and capturing it from outside
   would need Screen Recording permission. Consequence: window chrome isn't in the snapshots, and
   AppKit views embedded in SwiftUI (from milestone 2 on) may need their own rendering path.
 - Hook options use the `--option=value` form; with a separate path argument, AppKit treated the
   launch as opening a file and SwiftUI didn't create the main window.
+- Waveform columns are screen points, not physical (Retina) pixels: a pane with a time-axis length
+  of L points gets L+1 polyline points at integer positions 0…L.
+- The navigator/main divider is a custom SwiftUI drag handle rather than `VSplitView`/`HSplitView`,
+  which can't set the initial 20% position. The position is clamped to 5–95% and isn't
+  remembered across launches (only the orientation is). Its drag area overlaps the panes by 3
+  points, so the waveform views don't take mouse events yet.
+- Colors: navigator on the under-page background, main pane on the text background, waveform in
+  the accent color, with a faint zero line.
+- Default window size 1000×700 points; minimum content size 600×400.
+- The mono mix is computed once, when the file is loaded.
+- The state dump keeps the `displayedRows` key (the milestone 1 info rows) although the full info
+  grid is no longer on screen.
