@@ -52,7 +52,64 @@ Verification results (`python3 prototype/verify/verify_m1.py`): 28/28 checks pas
 6. Opening a second file replaces the first; the title shows its name.
 7. `not_audio.wav` and `damaged.m4a` show an alert; the previous file stays loaded.
 
-## 2. Subwindows, wave form display
+## 2. Subwindows, waveform display
 
-Navigator + main + toolbar + transport windows, zoom, pan and H/V orientations
+- Split main window into subwindows (panes): toolbar and transport panes on the top and bottom
+- The middle section has 2 modes: horizontal and vertical orientation (of time axis)
+- In both modes, the middle section is split into two:
+  - a navigation window (which is a waveform display)
+  - main analysis window
+- In horizontal time mode the middle section is split into a top, navigation pane and a bottom main pane
+- In vertical time mode it's split into a left, navigation pane, and a right, main pane
+- For now both in the navigation and main window we display a mono waveform mix
 
+Status: `criteria proposed`
+
+Acceptance criteria:
+
+Test audio, in addition to the milestone 1 set: a mono 1 Hz sine (amplitude 0.8, 4 s), and a
+stereo file whose left channel is the same sine and whose right channel is a constant 0.4, so the
+mono mix is 0.4·sin + 0.2. At this frequency the point-sampled waveform is a smooth, recognizable
+curve.
+
+Waveform reference: a Python script computes the expected polyline from the generated signal,
+using the same rule as the app (column i of n maps to sample position i·(frames−1)/(n−1), linear
+interpolation, mono mix = channel average, ±1.0 = pane edges).
+
+1. Both builds (`build.sh` and CMake) still build the app without errors.
+   Verified by: running both (exit code 0, bundle exists).
+2. Horizontal layout: native toolbar with the orientation toggle, navigator pane above the main
+   pane with a divider between them, transport pane at the bottom. The navigator takes about 20%
+   (±2%) of the middle section at launch.
+   Verified by: pane frames and toolbar items in the state dump (order, no overlap, ratio), and a
+   screenshot of the real window, inspected visually.
+3. Vertical layout: navigator on the left, main pane on the right, same 20% default.
+   Verified by: as criterion 2, with `--orientation=vertical`.
+4. The View menu has Horizontal Time (⌘1) and Vertical Time (⌘2), and the toolbar toggle reflects
+   the current orientation.
+   Verified by: menu structure and toolbar state in the state dump. Clicking the toggle, using the
+   menu items and dragging the divider are checked by hand during review (driving real input would
+   need Accessibility permission).
+5. The orientation is remembered across launches.
+   Verified by: launching with `--orientation=vertical`, quitting, relaunching without the option
+   and checking the dump; then the same back to horizontal.
+6. Both panes show the mono mix of the whole file as specified, in both orientations.
+   Verified by: polyline points from the state dump compared to the Python reference for both test
+   files, both panes and both orientations (within 0.5 px).
+7. The waveforms look right on screen.
+   Verified by: screenshots of both test files in both orientations, inspected visually (a sine
+   running to the right / downwards, the stereo one offset by +0.2).
+8. With no file loaded, the panes are present and empty, and the main pane shows the hint.
+   Verified by: state dump (no waveform points, hint present) and a screenshot.
+9. The transport pane shows the one-line file summary; opening a second file replaces the waveform
+   and the summary.
+   Verified by: state dump after opening two files in sequence.
+10. Milestone 1 behavior still holds (loading all formats, file info values, error alerts).
+    Verified by: `verify_m1.py`, adapted to the moved info display.
+
+Prerequisite: Screen Recording permission for the terminal running the verification (for
+`screencapture -l`).
+
+## 3. Basic navigation
+
+- Zoom, pan, selection

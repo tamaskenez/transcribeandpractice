@@ -39,7 +39,37 @@ can call C++ directly. The prototype needs no heavy DSP, so everything stays in 
 
 - Single-window app. Opening a file replaces the currently loaded one.
 - The window title shows the loaded file's name; with no file loaded it shows the app name.
-- With no file loaded, the window shows a hint: "Open an audio file (⌘O)".
+- With no file loaded, the window shows a hint: "Open an audio file (⌘O)" (from milestone 2 on, in
+  the main pane).
+
+### Window layout (from milestone 2)
+
+The window is split into panes:
+
+- Toolbar: the native macOS window toolbar (merged into the title bar). For now it holds only the
+  time-orientation toggle (horizontal / vertical).
+- Middle section: a navigator pane and a main (analysis) pane, separated by a draggable divider.
+  - Horizontal time (time runs to the right): navigator on top, main pane below.
+  - Vertical time (time runs downwards): navigator on the left, main pane on the right.
+  - The navigator starts at about 20% of the middle section; the main pane gets the rest.
+- Transport pane: a strip at the bottom of the window. Playback controls come in a later
+  milestone. Until then it shows a one-line file summary (see File information display).
+
+Orientation:
+
+- Switched by the toolbar toggle, or View → Horizontal Time (⌘1) / Vertical Time (⌘2).
+- The choice is remembered across launches. The default is horizontal.
+
+### Waveform display (from milestone 2)
+
+- Both the navigator and the main pane show the whole file as a mono waveform: the average of all
+  channels. (Zoom and pan come in milestone 3.)
+- Drawing: for each pixel column (each pixel row in vertical mode), take the fractional sample
+  position of that column and linearly interpolate the mono signal there. The resulting points are
+  joined into a polyline. This aliases badly when zoomed out; that is accepted for now.
+- The amplitude axis is linear: full scale (±1.0) fills the pane's height (width in vertical mode),
+  with 0 in the middle. In vertical mode positive values go to the right.
+- With no file loaded the panes are empty, and the main pane shows the hint.
 
 ### Loading audio files
 
@@ -54,7 +84,7 @@ can call C++ directly. The prototype needs no heavy DSP, so everything stays in 
 
 ### File information display
 
-After loading, the window shows:
+After loading, the window shows (milestone 1):
 
 - file name
 - duration
@@ -63,13 +93,23 @@ After loading, the window shows:
 - length in sample frames
 - peak and RMS level per channel, in dBFS
 
+From milestone 2 on, the waveform panes take the window's space, and the transport pane shows a
+one-line summary instead: file name, duration, sample rate, channel count. The full details
+(including frames and levels) remain in the state dump.
+
 ### Verification hooks
 
 For headless verification the app accepts launch arguments (`--open=<file>`, `--dump-state=<file>`,
 `--snapshot=<file>`, `--quit`) that open one or more files in order
 (through the same code path as File → Open, minus the dialog), write the app's state to a JSON file
 (loaded file info, window title, error alert text, main menu structure), save a PNG snapshot of the
-window content, and quit. These are a development aid, not a user feature.
+window content, and quit.
+
+From milestone 2 on, also: `--orientation=horizontal|vertical` (sets the orientation through the
+same code path as the toggle, so it is also remembered); the dump adds the orientation, the window
+number, the frames of all panes, the divider position, and the polyline points of each waveform
+pane. Snapshots of the real window, including the toolbar, are taken from outside the app with
+`screencapture -l <window number>` (needs Screen Recording permission for the terminal). These are a development aid, not a user feature.
 
 To build and run the prototype: `prototype/build.sh`, then open `prototype/build/TranscribeAndPractice.app`.
 Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from CLion).
