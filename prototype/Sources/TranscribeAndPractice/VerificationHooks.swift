@@ -4,7 +4,8 @@ import SwiftUI
 /// Development aid for headless verification. Launch arguments:
 ///   --open=<file>         open a file (repeatable, in order; same code path as File → Open)
 ///   --dump-state=<file>   write the app state as JSON
-///   --snapshot=<file>     save a PNG of the window content
+///   --orientation=horizontal|vertical  set the time orientation (same path as the toggle)
+///   --snapshot=<file>     save a PNG of the real window (screencapture; needs Screen Recording)
 ///   --quit                quit when done
 /// Values must use the `=` form: a bare path argument can make AppKit treat the launch as
 /// "open this file", and then SwiftUI doesn't create the main window.
@@ -14,6 +15,7 @@ enum VerificationHooks {
         var open: [String] = []
         var dumpState: String?
         var snapshot: String?
+        var orientation: TimeOrientation?
         var quit = false
 
         init?(arguments: [String]) {
@@ -25,6 +27,7 @@ enum VerificationHooks {
                 case "--open": if let value { open.append(value); any = true }
                 case "--dump-state": dumpState = value; any = true
                 case "--snapshot": snapshot = value; any = true
+                case "--orientation": orientation = value.flatMap(TimeOrientation.init(rawValue:)); any = true
                 case "--quit": quit = true; any = true
                 default: break
                 }
@@ -40,6 +43,7 @@ enum VerificationHooks {
             for _ in 0..<100 where mainWindow == nil {
                 try? await Task.sleep(for: .milliseconds(100))
             }
+            if let o = options.orientation { state.orientation = o }
             for path in options.open {
                 state.open(url: URL(fileURLWithPath: path))
             }
@@ -63,6 +67,14 @@ enum VerificationHooks {
             "allWindows": NSApp.windows.map { "\($0.className) visible=\($0.isVisible) title=\($0.title)" },
             "hintVisible": state.audio == nil,
             "menu": menuDump(NSApp.mainMenu),
+            "orientation": state.orientation.rawValue,
+            "navigatorFraction": state.navigatorFraction,
+            "windowNumber": mainWindow?.windowNumber ?? NSNull(),
+            "contentSize": mainWindow?.contentView.map { size($0.bounds.size) } ?? NSNull(),
+            "paneFrames": state.paneFrames.mapValues(rect),
+            "transportText": state.transportSummary ?? NSNull(),
+            "toolbar": toolbarDump(state: state),
+            "waveforms": waveformDump(),
         ]
         if let audio = state.audio {
             let format = audio.buffer.format
@@ -100,6 +112,39 @@ enum VerificationHooks {
         }
     }
 
+    private static func rect(_ r: CGRect) -> [String: Double] {
+        ["x": r.minX, "y": r.minY, "width": r.width, "height": r.height]
+    }
+
+    private static func size(_ s: CGSize) -> [String: Double] { ["width": s.width, "height": s.height] }
+
+    private static func toolbarDump(state: AppState) -> [String: Any] {
+        let items = mainWindow?.toolbar?.items.map { item -> [String: Any] in
+            ["identifier": item.itemIdentifier.rawValue, "label": item.label]
+        } ?? []
+        return ["visible": mainWindow?.toolbar?.isVisible ?? false, "items": items,
+                "orientationSelection": state.orientation.rawValue]
+    }
+
+    /// The waveform views actually in the window, with the polyline each one draws.
+    private static func waveformDump() -> [String: Any] {
+        var result: [String: Any] = [:]
+        func visit(_ view: NSView) {
+            if let w = view as? WaveformNSView {
+                let points = waveformPoints(mono: w.mono, size: w.bounds.size, orientation: w.orientation)
+                result[w.name] = [
+                    "size": size(w.bounds.size),
+                    "orientation": w.orientation.rawValue,
+                    "frames": w.mono.count,
+                    "points": points.map { [$0.x, $0.y] },
+                ] as [String: Any]
+            }
+            view.subviews.forEach(visit)
+        }
+        if let root = mainWindow?.contentView?.superview ?? mainWindow?.contentView { visit(root) }
+        return result
+    }
+
     private static func menuDump(_ menu: NSMenu?) -> [[String: Any]] {
         guard let menu else { return [] }
         return menu.items.filter { !$0.isSeparatorItem }.map { item in
@@ -118,25 +163,22 @@ enum VerificationHooks {
         }
     }
 
-    /// Renders the window's SwiftUI content with ImageRenderer at the window's content size.
-    /// (Capturing the real window needs Screen Recording permission; cacheDisplay and
-    /// CALayer.render come out blank for SwiftUI content.)
-    @MainActor
+    /// Captures the real window, including the toolbar, with screencapture. Needs Screen Recording
+    /// permission for the responsible process (the terminal when launched from it).
     private static func snapshot(to path: String, state: AppState) {
-        let size = mainWindow?.contentView?.bounds.size ?? CGSize(width: 480, height: 300)
-        let content = ContentView()
-            .environment(state)
-            .frame(width: size.width, height: size.height)
-            .background(Color(nsColor: .windowBackgroundColor))
-        let renderer = ImageRenderer(content: content)
-        renderer.scale = mainWindow?.backingScaleFactor ?? 2
-        guard let image = renderer.cgImage else {
-            FileHandle.standardError.write(Data("snapshot failed: render\n".utf8))
+        guard let number = mainWindow?.windowNumber else {
+            FileHandle.standardError.write(Data("snapshot failed: no window\n".utf8))
             return
         }
-        let rep = NSBitmapImageRep(cgImage: image)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        p.arguments = ["-x", "-o", "-l", String(number), path]
         do {
-            try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+            try p.run()
+            p.waitUntilExit()
+            if p.terminationStatus != 0 {
+                FileHandle.standardError.write(Data("snapshot failed: screencapture exit \(p.terminationStatus)\n".utf8))
+            }
         } catch {
             FileHandle.standardError.write(Data("snapshot failed: \(error)\n".utf8))
         }
