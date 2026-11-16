@@ -130,3 +130,12 @@ Curated union of the features from the above apps.
 
 ### Other
 - Scripting
+
+## Platforms and technology
+
+- Target platforms: macOS, Windows, Linux, and possibly Web.
+- Architecture (most likely): a C++ core with the thinnest possible UI layer, reimplemented on each
+  platform with its native toolkit.
+- Qt is not preferred.
+- UI design may take its cues from macOS's native UI capabilities, since macOS has the most mature
+  GUI of the target platforms.
