@@ -2,10 +2,12 @@ import AppKit
 import SwiftUI
 
 /// Development aid for headless verification. Launch arguments:
-///   --open <file>         open a file (repeatable, in order; same code path as File → Open)
-///   --dump-state <file>   write the app state as JSON
-///   --snapshot <file>     save a PNG of the window content
+///   --open=<file>         open a file (repeatable, in order; same code path as File → Open)
+///   --dump-state=<file>   write the app state as JSON
+///   --snapshot=<file>     save a PNG of the window content
 ///   --quit                quit when done
+/// Values must use the `=` form: a bare path argument can make AppKit treat the launch as
+/// "open this file", and then SwiftUI doesn't create the main window.
 @MainActor
 enum VerificationHooks {
     struct Options {
@@ -15,13 +17,14 @@ enum VerificationHooks {
         var quit = false
 
         init?(arguments: [String]) {
-            var it = arguments.dropFirst().makeIterator()
             var any = false
-            while let arg = it.next() {
-                switch arg {
-                case "--open": if let v = it.next() { open.append(v); any = true }
-                case "--dump-state": dumpState = it.next(); any = true
-                case "--snapshot": snapshot = it.next(); any = true
+            for arg in arguments.dropFirst() {
+                let parts = arg.split(separator: "=", maxSplits: 1).map(String.init)
+                let value = parts.count == 2 ? parts[1] : nil
+                switch parts[0] {
+                case "--open": if let value { open.append(value); any = true }
+                case "--dump-state": dumpState = value; any = true
+                case "--snapshot": snapshot = value; any = true
                 case "--quit": quit = true; any = true
                 default: break
                 }
@@ -33,7 +36,10 @@ enum VerificationHooks {
     @MainActor
     static func run(_ options: Options, state: AppState) {
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(500)) // let the window appear
+            // Wait (up to 10 s) for the window to appear.
+            for _ in 0..<100 where mainWindow == nil {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
             for path in options.open {
                 state.open(url: URL(fileURLWithPath: path))
             }
@@ -54,6 +60,7 @@ enum VerificationHooks {
             "windowTitle": mainWindow?.title ?? NSNull(),
             "windowCount": NSApp.windows.filter { $0.isVisible && $0.sheetParent == nil }.count,
             "alertText": state.errorMessage ?? NSNull(),
+            "allWindows": NSApp.windows.map { "\($0.className) visible=\($0.isVisible) title=\($0.title)" },
             "hintVisible": state.audio == nil,
             "menu": menuDump(NSApp.mainMenu),
         ]

@@ -44,9 +44,27 @@ enum AudioLoader {
                                             frameCapacity: AVAudioFrameCount(length)) else {
             throw AudioLoadError.cannotAllocate
         }
-        try file.read(into: buffer)
-        if Int64(buffer.frameLength) < length {
-            throw AudioLoadError.truncated(expected: length, actual: Int(buffer.frameLength))
+        // A single read(into:) may return fewer frames than requested (e.g. CAF), so read in chunks.
+        let chunkSize: AVAudioFrameCount = 65536
+        guard let chunk = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: chunkSize),
+              let dst = buffer.floatChannelData, let src = chunk.floatChannelData else {
+            throw AudioLoadError.cannotAllocate
+        }
+        let channels = Int(file.processingFormat.channelCount)
+        var total = 0
+        while Int64(total) < length {
+            let want = AVAudioFrameCount(min(Int64(chunkSize), length - Int64(total)))
+            try file.read(into: chunk, frameCount: want)
+            let got = Int(chunk.frameLength)
+            if got == 0 { break }
+            for ch in 0..<channels {
+                (dst[ch] + total).update(from: src[ch], count: got)
+            }
+            total += got
+        }
+        buffer.frameLength = AVAudioFrameCount(total)
+        if Int64(total) < length {
+            throw AudioLoadError.truncated(expected: length, actual: total)
         }
         return LoadedAudio(url: url, buffer: buffer, channelStats: stats(of: buffer))
     }

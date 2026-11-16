@@ -60,10 +60,11 @@ for f in os.listdir(out):
 
 with open(os.path.join(out, 'not_audio.wav'), 'w') as f:
     f.write('This is a text file, not audio.\n')
-whole = open(os.path.join(out, 'stereo_48000_24bit.wav'), 'rb').read()
-with open(os.path.join(out, 'truncated.wav'), 'wb') as f:
-    f.write(whole[:len(whole) // 2])
-expected['invalid'] = ['not_audio.wav', 'truncated.wav']
+# Cut inside the container index (moov atom, at the start of the file): undecodable.
+whole = open(os.path.join(out, 'stereo_44100_aac.m4a'), 'rb').read()
+with open(os.path.join(out, 'damaged.m4a'), 'wb') as f:
+    f.write(whole[:2000])
+expected['invalid'] = ['not_audio.wav', 'damaged.m4a']
 
 with open(os.path.join(out, 'expected.json'), 'w') as f:
     json.dump(expected, f, indent=2)

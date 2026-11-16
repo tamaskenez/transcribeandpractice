@@ -29,9 +29,25 @@ final class AppState {
         do {
             audio = try AudioLoader.load(url: url)
         } catch {
-            errorMessage = "“\(url.lastPathComponent)” could not be opened. \(error.localizedDescription)"
+            errorMessage = "“\(url.lastPathComponent)” could not be opened. \(describe(error))"
         }
     }
+}
+
+/// AVAudioFile reports bad files as bare Core Audio OSStatus codes; turn those into a sentence.
+private func describe(_ error: Error) -> String {
+    if error is AudioLoadError { return error.localizedDescription }
+    let ns = error as NSError
+    if ns.domain == NSOSStatusErrorDomain || ns.domain.hasPrefix("com.apple.coreaudio") {
+        return "It is not a supported audio file, or it is damaged (error \(fourCC(ns.code)))."
+    }
+    return error.localizedDescription
+}
+
+private func fourCC(_ code: Int) -> String {
+    let bytes = (0..<4).map { UInt8(truncatingIfNeeded: code >> (8 * (3 - $0))) }
+    if bytes.allSatisfy({ $0 >= 32 && $0 < 127 }) { return "'" + String(decoding: bytes, as: UTF8.self) + "'" }
+    return String(code)
 }
 
 /// Label/value rows of the file information display. Shared by the view and the state dump.
