@@ -134,6 +134,10 @@ Selection:
 - Loading is blocking: the UI is unresponsive while the file is decoded.
 - If a file can't be opened or decoded, an alert shows the reason, and the previously loaded file
   (if any) stays loaded.
+- Known limitation: at most 2³⁰ − 1 sample frames (about 6 h 45 min at 44.1 kHz, 6 h 12 min at
+  48 kHz). Longer files show an alert stating the file's duration and the maximum at its sample
+  rate. (AVAudioPCMBuffer stores each channel's byte size in 32 bits, so a Float32 buffer can't
+  hold more frames; the machine's memory isn't the limit.)
 
 ### File information display
 
