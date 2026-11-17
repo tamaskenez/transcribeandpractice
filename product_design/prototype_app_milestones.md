@@ -257,7 +257,7 @@ passed.
   - the transport pane has 3 buttons corresponding to these actions, a loop-enable button and also
     displays the position of the playhead
 
-Status: `verified`
+Status: `done`
 
 Acceptance criteria:
 
@@ -387,3 +387,9 @@ Review verification results:
 Not checked automatically: that the playhead can't be grabbed during playback (a moving line
 can't be hit reliably with synthetic events; covered by the hover code path, which skips the
 playhead while playing).
+
+
+## Fine-tuning (to do later)
+
+- Don't drag playhead/last-playback-start when dragging selection edge
+- Revise follow-logic
