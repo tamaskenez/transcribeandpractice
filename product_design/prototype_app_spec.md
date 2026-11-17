@@ -175,7 +175,9 @@ Where playback ends:
 
 - The selection end only matters when the playback crosses it: the play position reaches it from
   before. If the selection end is moved before the play position during playback, it is not
-  crossed, and playback goes on to the file end.
+  crossed, and playback goes on to the file end. While the user is dragging a selection edge,
+  moving the selection or shift-extending it, the end is ignored (a drag sweeping the end back
+  past the playhead would otherwise "cross" it); the end at release counts.
 - Selection, loop off: playback stops at the selection end, and the playhead rewinds to the
   selection start, only if the playback started at the selection start (within one sample).
   This is decided when playback starts and holds even if the selection is changed or moved
@@ -335,3 +337,19 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
 - MP3 and AAC files usually start with encoder padding (tens of milliseconds of real zero
   samples). These are part of the decoded file, so they are drawn as a flat waveform line, not as
   margin.
+- (Milestone 4) The audio engine starts at the first playback and keeps running (rendering
+  silence while stopped), so starting playback has no engine start-up delay.
+- The render callback and the main thread share the playback state under a lock (not real-time
+  safe; fine for the prototype). The render block is created outside the main actor: Swift 6
+  checks actor isolation at run time and would trap on the audio thread otherwise.
+- The display refresh rate is `NSScreen.main.maximumFramesPerSecond` (on the development
+  machine's display: 100 Hz, giving a 30 ms buffer = 1440 frames at 48 kHz; the measured output
+  latency was 30.6 ms).
+- Playhead: a 1.5-point red line (system red) in both panes, a 2-point red mark on the scrollbar
+  track. Transport icons (SF Symbols): `backward.end.fill`, `play.fill` / `stop.fill`,
+  `arrow.counterclockwise`, `repeat`; follow button: `scope`.
+- Space, Left and Right Arrow work only without Command, Option, Control or Shift; they are
+  handled by the app-wide key monitor, so they don't reach focused buttons.
+- Follow eases the playhead's offset from the view center (rather than the center itself), so the
+  view doesn't lag behind the moving playhead.
+- `verify_m3.py`'s toolbar check allows the Follow Playhead button added in milestone 4.

@@ -21,7 +21,7 @@ class Session:
         self.n = 0
         args = [BIN] + [f'--open={os.path.abspath(o)}' for o in opens]
         args += [f'--orientation={orientation}', f'--commands={self.cmd}', *extra]
-        self.proc = subprocess.Popen(args)
+        self.proc = subprocess.Popen(args, stdout=subprocess.DEVNULL)
         self.state = self.dump()
         self.bring_to_front()
 

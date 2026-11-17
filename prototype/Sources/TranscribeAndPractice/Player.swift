@@ -20,6 +20,9 @@ final class PlaybackCore: @unchecked Sendable {
     private(set) var startFrame = 0
     private var selection: (lo: Int, hi: Int)?
     private var loop = false
+    /// True while the user drags a selection edge or moves the selection: its end then doesn't
+    /// stop or loop playback (the released position decides).
+    private var selectionDragging = false
     private var startedInside = false
     private var startedAtStart = false
     /// Set by the render thread when playback ended by itself; the target to rewind to.
@@ -54,6 +57,7 @@ final class PlaybackCore: @unchecked Sendable {
     func setLatency(frames: Int) { withLock { latencyFrames = frames } }
     func setLoop(_ on: Bool) { withLock { loop = on } }
     func setSelection(_ s: (lo: Int, hi: Int)?) { withLock { selection = s } }
+    func setSelectionDragging(_ on: Bool) { withLock { selectionDragging = on } }
 
     /// Starts playing at `frame`; decides the selection rules for this playback.
     func start(at frame: Int, selection sel: (lo: Int, hi: Int)?, loop: Bool) {
@@ -111,7 +115,7 @@ final class PlaybackCore: @unchecked Sendable {
                     // The selection end applies only when crossed from before it.
                     var limit = frames
                     var atSelectionEnd = false
-                    if let sel = selection, position < sel.hi,
+                    if !selectionDragging, let sel = selection, position < sel.hi,
                        (loop && startedInside) || (!loop && startedAtStart) {
                         limit = sel.hi
                         atSelectionEnd = true

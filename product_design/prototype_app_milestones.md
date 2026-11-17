@@ -257,7 +257,7 @@ passed.
   - the transport pane has 3 buttons corresponding to these actions, a loop-enable button and also
     displays the position of the playhead
 
-Status: `criteria approved`
+Status: `verified`
 
 Acceptance criteria:
 
@@ -308,3 +308,29 @@ Accessibility. Each check runs in horizontal mode; the mouse and display checks 
     during playback turns follow off. (synthetic events + dumps)
 13. Loop and follow flags remembered across a relaunch. Opening a file stops playback and
     resets the playhead to 0. (hooks + dumps)
+
+Verification results (`python3 verify/verify_m4.py`, all criteria passed):
+
+1. `verify_m3.py` (with `verify_m2.py`, `verify_m1.py`, `build.sh`, CMake): its toolbar check
+   first failed because of the new Follow Playhead button; after allowing it, 54/54.
+   `verify_m1.py` 28/28.
+2. Transport buttons and the follow button found and enabled via Accessibility; after load
+   playhead 0, loop and follow off.
+3. I/O buffer 1440 frames at 48 kHz = 30.0 ms, 3 × the 100 Hz refresh period.
+4. Rendered audio from 1.0 s sample-exact; playhead slope 0.996; lag = latency (30.6 ms) + less
+   than one buffer; one playhead update per callback; Space stops and keeps the playhead.
+5–7. File end, selection end (loop off) and loop: rendered audio sample-exact, rewinds as
+   specified.
+8. All five cases pass (stop + continue, start outside, moved selection, end dragged behind the
+   playhead with loop off and on). The drag case needed the rule that the end is ignored while
+   being dragged (see Playback in the spec).
+9. Rewind-and-play and play-again, keys and buttons.
+10–11. Both orientations: click / new selection / Escape stop playback as specified; edge drag and
+   move during a loop keep playing with the new bounds (rendered audio); playhead line and
+   scrollbar mark at the expected positions (screenshots `mouse_*_playhead.png`).
+12. Follow off: view unchanged; on: 4.97 s view, playhead 8.8% from the center after 2 s
+    (screenshot `c12_follow.png`); a manual scroll during playback turns it off.
+13. Loop and follow remembered; opening a file stops playback, playhead 0.
+
+Not checked automatically: how playback sounds on other output devices (Bluetooth latency) and
+on displays with other refresh rates.

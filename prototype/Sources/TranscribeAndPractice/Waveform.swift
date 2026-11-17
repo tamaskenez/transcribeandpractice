@@ -231,6 +231,10 @@ final class WaveformNSView: NSView {
         if !dragged, hypot(p.x - pressPoint.x, p.y - pressPoint.y) >= 2 {
             dragged = true
             if case .select(_, false) = drag { state.newSelectionStarted() }
+            switch drag {
+            case .edge, .move, .select(_, true): state.player.core.setSelectionDragging(true)
+            default: break
+            }
             if case .pan = drag { state.manualViewChange() }
         }
         switch drag {
@@ -257,6 +261,7 @@ final class WaveformNSView: NSView {
         let p = location(event)
         dragTo(p)
         // A click without a drag clears the selection (also on its edges or inside it).
+        state.player.core.setSelectionDragging(false)
         let clicked = time(atAxis: axisPosition(p))
         switch drag {
         case let .select(_, extend): if !dragged && !extend { state.clickedToClear(at: clicked) }
