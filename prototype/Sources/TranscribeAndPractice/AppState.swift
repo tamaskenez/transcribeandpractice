@@ -4,6 +4,12 @@ import UniformTypeIdentifiers
 
 let appName = "Transcribe and Practice"
 
+/// Direction of the time axis in the navigator and main panes.
+enum TimeOrientation: String, CaseIterable {
+    case horizontal // time runs to the right
+    case vertical   // time runs downwards
+}
+
 @MainActor @Observable
 final class AppState {
     static let shared = AppState()
@@ -12,7 +18,29 @@ final class AppState {
     /// Text of the error alert; non-nil while the alert is shown.
     var errorMessage: String?
 
+    var orientation: TimeOrientation {
+        didSet { UserDefaults.standard.set(orientation.rawValue, forKey: Self.orientationKey) }
+    }
+    /// Navigator share of the middle section (0...1).
+    var navigatorFraction: CGFloat = 0.2
+    /// Pane frames in window content coordinates (top-left origin), for the state dump.
+    var paneFrames: [String: CGRect] = [:]
+
+    private static let orientationKey = "timeOrientation"
+
+    init() {
+        orientation = UserDefaults.standard.string(forKey: Self.orientationKey)
+            .flatMap(TimeOrientation.init(rawValue:)) ?? .horizontal
+    }
+
     var windowTitle: String { audio?.fileName ?? appName }
+
+    /// One-line summary in the transport pane.
+    var transportSummary: String? {
+        guard let audio else { return nil }
+        let rows = Dictionary(infoRows(for: audio).map { ($0.label, $0.value) }, uniquingKeysWith: { a, _ in a })
+        return ["File", "Duration", "Sample rate", "Channels"].compactMap { rows[$0] }.joined(separator: "  ·  ")
+    }
 
     func showOpenPanel() {
         let panel = NSOpenPanel()

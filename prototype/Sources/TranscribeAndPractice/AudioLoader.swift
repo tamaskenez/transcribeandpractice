@@ -12,6 +12,8 @@ struct LoadedAudio {
     let url: URL
     let buffer: AVAudioPCMBuffer
     let channelStats: [ChannelStats]
+    /// Mono mix: the average of all channels.
+    let mono: [Float]
 
     var fileName: String { url.lastPathComponent }
     var sampleRate: Double { buffer.format.sampleRate }
@@ -66,7 +68,18 @@ enum AudioLoader {
         if Int64(total) < length {
             throw AudioLoadError.truncated(expected: length, actual: total)
         }
-        return LoadedAudio(url: url, buffer: buffer, channelStats: stats(of: buffer))
+        return LoadedAudio(url: url, buffer: buffer, channelStats: stats(of: buffer), mono: monoMix(of: buffer))
+    }
+
+    private static func monoMix(of buffer: AVAudioPCMBuffer) -> [Float] {
+        guard let data = buffer.floatChannelData else { return [] }
+        let n = Int(buffer.frameLength)
+        let channels = Int(buffer.format.channelCount)
+        var sum = [Float](repeating: 0, count: n)
+        for ch in 0..<channels {
+            sum = vDSP.add(sum, UnsafeBufferPointer(start: data[ch], count: n))
+        }
+        return vDSP.multiply(1 / Float(channels), sum)
     }
 
     private static func stats(of buffer: AVAudioPCMBuffer) -> [ChannelStats] {
