@@ -134,7 +134,7 @@ Verification results (`python3 prototype/verify/verify_m2.py`): 21/21 checks pas
 
 - Zoom, pan, selection
 
-Status: `verified` (review changes applied, see below)
+Status: `done`
 
 Acceptance criteria:
 
