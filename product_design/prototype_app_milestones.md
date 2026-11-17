@@ -169,8 +169,9 @@ scale; polylines within 0.5 px. Each input criterion is checked in both orientat
 8. Scrolling along the time axis while zoomed to 1.0–2.0 pans by the scrolled distance (pixel
    scroll events); it stops 50 ms beyond the file's ends. Horizontal mode: both axes pan; vertical mode:
    only the vertical axis. (synthetic events + dump)
-9. ⌘ + scroll zooms in/out around the pointer: the time under the pointer stays put; zooming
-   stops at 100 ms and at the whole file plus margins. (synthetic events + dump)
+9. ⌘ + scroll along the time axis zooms time in/out around the pointer: the time under the
+   pointer stays put; zooming stops at 100 ms and at the whole file plus margins; the amplitude
+   zoom doesn't change. (synthetic events + dump)
 10. Pinch zooms around the pointer. (synthetic magnify events if macOS accepts them; otherwise
     manual check)
 11. Option-drag and middle-button drag pan: the time under the press point ends up under the
@@ -184,6 +185,17 @@ scale; polylines within 0.5 px. Each input criterion is checked in both orientat
     manual check in milestone 2.
 15. Opening a second file while zoomed and with a selection shows the whole new file (plus
     margins) with no selection. (hooks + dump)
+16. (review) ⌘ + scroll across the time axis zooms amplitude: 100 points = +8.7 dB, the time view
+    doesn't change, limited to 0–60 dB. At +20 dB both polylines match the reference ×10
+    (screenshot). Zoom Out Full and opening a file reset it to 0 dB. (synthetic events + dump +
+    screenshot)
+17. (review) Cursor, after moving the pointer over the main pane with selection 1–3 s: the
+    resize arrow along the time axis on both edges and 3 points from an edge, an open hand
+    inside, the arrow outside. (synthetic events + dump of the app's current cursor)
+18. (review) Dragging the end edge 75%→90% gives 1–3.6; the start edge 25%→10% then gives
+    0.4–3.6; dragging an edge past the other flips the selection. Dragging inside moves it
+    (1–3 → 1.4–3.4), stops at the file end, works in the navigator too; a click inside still
+    clears it. (synthetic events + dump)
 
 Verification results (`python3 verify/verify_m3.py`, 37/37 checks passed):
 
@@ -210,3 +222,10 @@ Review changes (2026-11-17): maximum zoom 100 ms instead of 1 ms; the visible ra
 50 ms (half the maximum zoom) beyond both ends of the file, and fully zoomed out shows −50 ms …
 end + 50 ms. Criteria 2–4, 8, 9, 11–13, 15 adjusted accordingly. Re-verified: `verify_m3.py`
 40/40 passed (new: the margin check in criterion 3/4, with screenshots `c3b_*.png`).
+
+Review changes 2 (2026-11-17): amplitude zoom with ⌘ + scroll across the time axis (time zoom
+only along it; pinch stays time zoom); selection edges and the whole selection can be dragged,
+with matching cursors; files longer than 2³⁰ − 1 frames get a clear error (see Loading audio
+files). Criteria 9 adjusted, 16–18 added. Margins: already drawn with only the zero axis line
+(criterion 4); see the encoder-padding note in Decisions. Re-verified: `verify_m3.py` 54/54
+passed.

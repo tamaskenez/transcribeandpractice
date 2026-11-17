@@ -58,7 +58,32 @@ final class AppState {
     /// Limits of the visible range: the file plus a margin at both ends.
     var viewLimits: (lower: Double, upper: Double) { (-Self.viewMargin, duration + Self.viewMargin) }
     var isFullView: Bool { viewStart <= viewLimits.lower && viewEnd >= viewLimits.upper }
-    var canZoomOutFull: Bool { audio != nil && !isFullView }
+    var canZoomOutFull: Bool { audio != nil && (!isFullView || amplitudeZoomDB > 0) }
+
+    /// Amplitude zoom of both waveform panes, in dB (0 = full scale fills the pane).
+    private(set) var amplitudeZoomDB: Double = 0
+    static let maxAmplitudeZoomDB = 60.0
+    /// Multiplier applied to sample values when drawing.
+    var amplitudeGain: Double { pow(10, amplitudeZoomDB / 20) }
+
+    /// Sets the amplitude zoom, limited to 0…60 dB.
+    func setAmplitudeZoom(dB: Double) {
+        guard dB.isFinite else { return }
+        amplitudeZoomDB = min(max(dB, 0), Self.maxAmplitudeZoomDB)
+    }
+
+    /// Multiplies the amplitude gain by `factor` (> 1 zooms in).
+    func zoomAmplitude(by factor: Double) {
+        guard factor > 0 else { return }
+        setAmplitudeZoom(dB: amplitudeZoomDB + 20 * log10(factor))
+    }
+
+    /// Moves the selection by `seconds`, keeping its length; it stays within the file.
+    func moveSelection(from original: ClosedRange<Double>, by seconds: Double) {
+        let length = original.upperBound - original.lowerBound
+        let start = min(max(original.lowerBound + seconds, 0), duration - length)
+        selection = start...(start + length)
+    }
     var canZoomToSelection: Bool { audio != nil && selection != nil }
 
     /// Sets the visible range, applying the limits: length at least minViewLength and at most
@@ -94,7 +119,11 @@ final class AppState {
         setView(start: viewStart + seconds, end: viewEnd + seconds)
     }
 
-    func zoomOutFull() { setView(start: viewLimits.lower, end: viewLimits.upper) }
+    /// Whole file plus margins, amplitude zoom 0 dB.
+    func zoomOutFull() {
+        setView(start: viewLimits.lower, end: viewLimits.upper)
+        amplitudeZoomDB = 0
+    }
 
     func zoomToSelection() {
         guard let s = selection else { return }

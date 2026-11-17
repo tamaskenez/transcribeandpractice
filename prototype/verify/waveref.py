@@ -2,7 +2,7 @@
 import numpy as np
 
 
-def reference_points(mono, sr, w, h, orientation, start, end):
+def reference_points(mono, sr, w, h, orientation, start, end, gain=1.0):
     """Axis position i of L+1 at time start + i·(end−start)/L; positions outside the file are omitted."""
     length, cross = (w, h) if orientation == 'horizontal' else (h, w)
     n = int(length) + 1
@@ -13,7 +13,7 @@ def reference_points(mono, sr, w, h, orientation, start, end):
     i0 = pos.astype(int)
     i1 = np.minimum(i0 + 1, len(mono) - 1)
     f = pos - i0
-    v = mono[i0].astype(np.float64) * (1 - f) + mono[i1].astype(np.float64) * f
+    v = (mono[i0].astype(np.float32) * (1 - f).astype(np.float32) + mono[i1].astype(np.float32) * f.astype(np.float32)).astype(np.float64) * gain
     a = i * length / (n - 1)
     if orientation == 'horizontal':
         return np.stack([a, cross / 2 * (1 - v)], axis=1)

@@ -193,22 +193,25 @@ for orientation in ['horizontal', 'vertical']:
     check(8, f'{orientation}: scrolling pans by the scrolled distance ({"both axes" if o == "h" else "vertical axis only"}); stops 50 ms beyond the ends',
           ok and close(r3, (-M, 1 - M), 1e-9) and close(r4, (3 + M, 4 + M), 1e-9), f'{r1} {r2} {r3} {r4}')
 
-    # 9. ⌘ + scroll zooms around the pointer
+    # 9. ⌘ + scroll along the time axis zooms time around the pointer
+    def tscroll(d):  # (dx, dy) of a scroll of d points along the time axis
+        return f'{d} 0' if o == 'h' else f'0 {d}'
     s.command('view 1,2'); s.dump()
     anchor = 1 + .3
-    s.input(f'scroll {P(s.at("main", .3))} 0 100 cmd')
+    s.input(f'scroll {P(s.at("main", .3))} {tscroll(100)} cmd')
     v1 = s.view()
     t_after = v1[0] + .3 * (v1[1] - v1[0])
-    s.input(f'scroll {P(s.at("main", .3))} 0 -100 cmd')
+    s.input(f'scroll {P(s.at("main", .3))} {tscroll(-100)} cmd')
     v2 = s.view()
     zoomed_in = v1[1] - v1[0] < 0.5 and v1[1] - v1[0] >= MIN_VIEW - 1e-9 and abs(t_after - anchor) <= (v1[1] - v1[0]) / L
     zoomed_out = abs(v2[0] - 1) < 1e-6 and abs(v2[1] - 2) < 1e-6
-    s.input(*[f'scroll {P(s.at("main", .3))} 0 300 cmd'] * 12)
+    s.input(*[f'scroll {P(s.at("main", .3))} {tscroll(300)} cmd'] * 12)
     vmax = s.view()
-    s.input(*[f'scroll {P(s.at("main", .3))} 0 -300 cmd'] * 12)
+    s.input(*[f'scroll {P(s.at("main", .3))} {tscroll(-300)} cmd'] * 12)
     vmin = s.view()
-    check(9, f'{orientation}: ⌘+scroll zooms in/out around the pointer; stops at 100 ms and the whole file plus margins',
-          zoomed_in and zoomed_out and abs(vmax[1] - vmax[0] - MIN_VIEW) < 1e-9 and close(vmin, FULL, 1e-9),
+    check(9, f'{orientation}: ⌘+scroll along the time axis zooms time in/out around the pointer (amplitude unchanged); stops at 100 ms and the whole file plus margins',
+          zoomed_in and zoomed_out and abs(vmax[1] - vmax[0] - MIN_VIEW) < 1e-9 and close(vmin, FULL, 1e-9)
+          and s.state['amplitudeZoomDB'] == 0,
           f'{v1} anchor@{t_after:.6f} {v2} {vmax} {vmin}')
 
     # 10. Pinch
@@ -289,6 +292,78 @@ for orientation in ['horizontal', 'vertical']:
     check(15, f'{orientation}: opening a second file shows the whole file, no selection',
           s.state['loaded']['fileName'] == 'wave_stereo.wav' and close(s.view(), FULL, 1e-9) and s.sel() is None,
           f'{s.view()} {s.sel()}')
+    # 16. Amplitude zoom: ⌘ + scroll across the time axis
+    def ascroll(d):
+        return f'0 {d}' if o == 'h' else f'{d} 0'
+    s.command(f'open {os.path.abspath(MONO)}')  # criterion 15 left the stereo file open
+    s.command('view 1,2'); s.command('amplitude 0'); s.dump()
+    s.input(f'scroll {P(s.at("main", .3))} {ascroll(100)} cmd')
+    a1, v1 = s.state['amplitudeZoomDB'], s.view()
+    s.input(f'scroll {P(s.at("main", .3))} {ascroll(-50)} cmd')
+    a2 = s.state['amplitudeZoomDB']
+    s.input(*[f'scroll {P(s.at("main", .3))} {ascroll(300)} cmd'] * 4)
+    amax = s.state['amplitudeZoomDB']
+    s.input(*[f'scroll {P(s.at("main", .3))} {ascroll(-300)} cmd'] * 4)
+    amin = s.state['amplitudeZoomDB']
+    db = 20 * np.log10(np.e)  # 100 points = factor e
+    check(16, f'{orientation}: ⌘+scroll across the time axis zooms amplitude (time view unchanged); 0–60 dB',
+          abs(a1 - db) < 1e-6 and v1 == (1, 2) and abs(a2 - db / 2) < 1e-6 and amax == 60 and amin == 0,
+          f'{a1} {v1} {a2} {amax} {amin}')
+    s.command('amplitude 20'); s.dump()
+    s.snapshot('amp20')
+    errs = []
+    for pane in ['navigator', 'main']:
+        w = s.state['waveforms'][pane]
+        ref = waveref.reference_points(mono, SR, w['size']['width'], w['size']['height'], orientation, 1, 2, 10.0)
+        got = np.array(w['points'])
+        err = np.abs(got - ref).max() if got.shape == ref.shape else float('inf')
+        if err > 0.5:
+            errs.append(f'{pane} {err}')
+    check(16, f'{orientation}: at +20 dB both panes draw the samples ×10 (polyline reference)', not errs, errs)
+    en = s.input(f'enabled {pid} Zoom Out Full')
+    s.input(f'press {pid} Zoom Out Full')
+    a_full = s.state['amplitudeZoomDB']
+    s.command('amplitude 20'); s.command(f'open {os.path.abspath(MONO)}'); s.dump()
+    check(16, f'{orientation}: Zoom Out Full and opening a file reset the amplitude zoom to 0 dB',
+          en == ['true'] and a_full == 0 and s.state['amplitudeZoomDB'] == 0, f'{en} {a_full} {s.state["amplitudeZoomDB"]}')
+
+    # 17. Cursor over the selection
+    s.command('view 0,4'); s.command('select 1,3'); s.dump()
+    edge_cursor = 'columnResize' if o == 'h' else 'rowResize'
+    cur = {}
+    for label, f in [('start edge', .25), ('end edge', .75), ('inside', .5), ('outside', .1), ('start edge+3', .25 + 3 / L)]:
+        s.input(f'move {P(s.at("main", f))}', 'sleep 50')
+        cur[label] = (s.state['currentCursor'], s.state['waveforms']['main']['cursor'])
+    want = {'start edge': edge_cursor, 'end edge': edge_cursor, 'inside': 'openHand', 'outside': 'arrow',
+            'start edge+3': edge_cursor}
+    check(17, f'{orientation}: cursor: {edge_cursor} on the selection edges (±4 pt), open hand inside, arrow outside',
+          all(cur[k] == (v, v) for k, v in want.items()), cur)
+
+    # 18. Dragging an edge / the whole selection
+    s.input(f'drag {P(s.at("main", .75))} {P(s.at("main", .9))}')
+    e1 = s.sel()
+    s.input(f'drag {P(s.at("main", .25))} {P(s.at("main", .1))}')
+    e2 = s.sel()
+    s.command('select 1,3'); s.dump()
+    s.input(f'drag {P(s.at("main", .75))} {P(s.at("main", .1))}')
+    e3 = s.sel()
+    check(18, f'{orientation}: dragging the end edge 75%→90% gives 1–3.6, the start edge 25%→10% 0.4–3.6; '
+          'dragging an edge past the other flips (0.4–1)',
+          close(e1, (1, 3.6), tol) and close(e2, (0.4, 3.6), tol) and close(e3, (0.4, 1), tol), f'{e1} {e2} {e3}')
+    s.command('select 1,3'); s.dump()
+    s.input(f'drag {P(s.at("main", .5))} {P(s.at("main", .6))}')
+    m1 = s.sel()
+    s.input(f'drag {P(s.at("main", .6))} {P(s.at("main", 1.2))}')
+    m2 = s.sel()
+    s.input(f'drag {P(s.at("navigator", .75))} {P(s.at("navigator", .25))}')
+    m3 = s.sel()
+    tol_nav = D / s.length('navigator')
+    check(18, f'{orientation}: dragging inside moves the selection (1–3 → 1.4–3.4), stops at the file end (2–4); also in the navigator',
+          close(m1, (1.4, 3.4), tol) and close(m2, (2, 4), 1e-9) and close(m3, (0, 2), tol_nav), f'{m1} {m2} {m3}')
+    s.command('select 1,3'); s.dump()
+    s.input(f'click {P(s.at("main", .5))}')
+    check(18, f'{orientation}: a click inside the selection (no drag) still clears it', s.sel() is None, s.sel())
+
     s.command('resize 1000,700')  # the window frame is restored on the next launch
     s.quit()
 

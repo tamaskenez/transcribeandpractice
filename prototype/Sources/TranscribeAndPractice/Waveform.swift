@@ -5,10 +5,11 @@ import SwiftUI
 /// A pane with time-axis length L has L+1 axis positions; position i is at time
 /// start + i·(end−start)/L, i.e. sample position time·sampleRate, linearly interpolated.
 /// Positions outside the file (sample position < 0 or > frames−1) get no point.
-/// Amplitude ±1.0 maps to the pane edges, 0 to the middle; positive is up (horizontal) or right
-/// (vertical).
+/// Values are multiplied by `gain` (amplitude zoom); amplitude ±1.0 then maps to the pane edges,
+/// 0 to the middle; positive is up (horizontal) or right (vertical). Points beyond the pane edges
+/// are kept (drawing clips them).
 func waveformPoints(mono: [Float], sampleRate: Double, start: Double, end: Double,
-                    size: CGSize, orientation: TimeOrientation) -> [CGPoint] {
+                    size: CGSize, orientation: TimeOrientation, gain: Double = 1) -> [CGPoint] {
     let frames = mono.count
     let length = orientation == .horizontal ? size.width : size.height
     let cross = orientation == .horizontal ? size.height : size.width
@@ -24,7 +25,7 @@ func waveformPoints(mono: [Float], sampleRate: Double, start: Double, end: Doubl
         let i0 = Int(pos)
         let i1 = min(i0 + 1, frames - 1)
         let f = Float(pos - Double(i0))
-        let v = CGFloat(mono[i0] * (1 - f) + mono[i1] * f)
+        let v = CGFloat(Double(mono[i0] * (1 - f) + mono[i1] * f) * gain)
         let t = CGFloat(i) * length / CGFloat(n - 1)
         points.append(orientation == .horizontal
                       ? CGPoint(x: t, y: cross / 2 * (1 - v))
@@ -44,7 +45,18 @@ final class WaveformNSView: NSView {
     private enum Drag {
         case select(anchor: Double, extend: Bool)
         case pan(grabbedTime: Double)
+        /// Moving one edge: `anchor` is the other edge; `offset` = edge time − press time.
+        case edge(anchor: Double, offset: Double)
+        /// Moving the whole selection.
+        case move(original: ClosedRange<Double>, pressTime: Double)
     }
+
+    /// What a plain press at a point would do; also decides the cursor.
+    private enum Hover { case none, startEdge, endEdge, inside }
+    /// Distance (points) from a selection edge within which the edge can be grabbed.
+    private static let edgeTolerance: CGFloat = 4
+    /// Name of the cursor the view last set, for the state dump.
+    private(set) var cursorName = "arrow"
     private var drag: Drag?
     private var pressPoint: CGPoint = .zero
     private var dragged = false
@@ -57,7 +69,8 @@ final class WaveformNSView: NSView {
     func points() -> [CGPoint] {
         guard let state, let audio = state.audio else { return [] }
         return waveformPoints(mono: audio.mono, sampleRate: audio.sampleRate, start: state.viewStart,
-                              end: state.viewEnd, size: bounds.size, orientation: orientation)
+                              end: state.viewEnd, size: bounds.size, orientation: orientation,
+                              gain: state.amplitudeGain)
     }
 
     /// Position along the time axis (points from the pane's start) of a point in view coordinates.
@@ -103,6 +116,7 @@ final class WaveformNSView: NSView {
 
         let points = points()
         guard let first = points.first else { return }
+        NSBezierPath(rect: bounds).setClip() // amplitude zoom can push the polyline past the edges
         let path = NSBezierPath()
         path.move(to: first)
         for p in points.dropFirst() { path.line(to: p) }
@@ -114,6 +128,51 @@ final class WaveformNSView: NSView {
     // MARK: Mouse
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    private func hover(at p: CGPoint) -> Hover {
+        guard let sel = state?.selection else { return .none }
+        let pos = axisPosition(p), a = axis(ofTime: sel.lowerBound), b = axis(ofTime: sel.upperBound)
+        let da = abs(pos - a), db = abs(pos - b)
+        if min(da, db) <= Self.edgeTolerance { return da <= db ? .startEdge : .endEdge }
+        return pos > a && pos < b ? .inside : .none
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .cursorUpdate, .mouseEnteredAndExited,
+                                                              .activeAlways, .inVisibleRect],
+                                       owner: self))
+    }
+
+    /// Edge: resize arrows along the time axis; inside the selection: open hand (closed while
+    /// moving); otherwise the arrow. Modifier drags (pan, extend) keep the arrow.
+    private func updateCursor(at p: CGPoint, flags: NSEvent.ModifierFlags) {
+        let cursor: NSCursor, name: String
+        if case .move = drag {
+            (cursor, name) = (.closedHand, "closedHand")
+        } else if case .edge = drag {
+            (cursor, name) = orientation == .horizontal ? (.columnResize, "columnResize") : (.rowResize, "rowResize")
+        } else if drag != nil || !flags.intersection([.option, .shift, .command]).isEmpty {
+            (cursor, name) = (.arrow, "arrow")
+        } else {
+            switch hover(at: p) {
+            case .startEdge, .endEdge:
+                (cursor, name) = orientation == .horizontal ? (.columnResize, "columnResize") : (.rowResize, "rowResize")
+            case .inside: (cursor, name) = (.openHand, "openHand")
+            case .none: (cursor, name) = (.arrow, "arrow")
+            }
+        }
+        cursor.set()
+        cursorName = name
+    }
+
+    override func cursorUpdate(with event: NSEvent) { updateCursor(at: location(event), flags: event.modifierFlags) }
+    override func mouseMoved(with event: NSEvent) { updateCursor(at: location(event), flags: event.modifierFlags) }
+    override func mouseExited(with event: NSEvent) { if drag == nil { NSCursor.arrow.set(); cursorName = "arrow" } }
+    override func flagsChanged(with event: NSEvent) {
+        if let w = window { updateCursor(at: convert(w.mouseLocationOutsideOfEventStream, from: nil), flags: event.modifierFlags) }
+    }
 
     override func mouseDown(with event: NSEvent) {
         guard let state, state.audio != nil else { return }
@@ -127,9 +186,17 @@ final class WaveformNSView: NSView {
             // Keep the end farther from the click; the nearer one follows the pointer.
             let anchor = abs(t - sel.lowerBound) < abs(t - sel.upperBound) ? sel.upperBound : sel.lowerBound
             drag = .select(anchor: anchor, extend: true)
+        } else if let sel = state.selection, case let h = hover(at: p), h != .none {
+            let pt = time(atAxis: axisPosition(p))
+            switch h {
+            case .startEdge: drag = .edge(anchor: sel.upperBound, offset: sel.lowerBound - pt)
+            case .endEdge: drag = .edge(anchor: sel.lowerBound, offset: sel.upperBound - pt)
+            default: drag = .move(original: sel, pressTime: pt)
+            }
         } else {
             drag = .select(anchor: t, extend: false)
         }
+        updateCursor(at: p, flags: event.modifierFlags)
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -152,14 +219,29 @@ final class WaveformNSView: NSView {
             guard timeLength > 0 else { return }
             let start = grabbed - Double(axisPosition(p) / timeLength) * state.viewLength
             state.setView(start: start, end: start + state.viewLength)
+        case let .edge(anchor, offset):
+            // The edge keeps its offset from the pointer, limited to the visible range.
+            guard dragged else { return }
+            let t = time(atAxis: axisPosition(p)) + offset
+            state.select(anchor, min(max(t, state.viewStart), state.viewEnd))
+        case let .move(original, pressTime):
+            guard dragged else { return }
+            state.moveSelection(from: original, by: time(atAxis: axisPosition(p)) - pressTime)
         }
     }
 
     override func mouseUp(with event: NSEvent) {
         guard let state, let drag else { return }
-        dragTo(location(event))
-        if case let .select(_, extend) = drag, !dragged, !extend { state.selection = nil }
+        let p = location(event)
+        dragTo(p)
+        // A click without a drag clears the selection (also on its edges or inside it).
+        switch drag {
+        case let .select(_, extend): if !dragged && !extend { state.selection = nil }
+        case .edge, .move: if !dragged { state.selection = nil }
+        case .pan: break
+        }
         self.drag = nil
+        updateCursor(at: p, flags: event.modifierFlags)
     }
 
     override func otherMouseUp(with event: NSEvent) {
@@ -175,8 +257,12 @@ final class WaveformNSView: NSView {
         let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
         let dx = event.scrollingDeltaX * scale, dy = event.scrollingDeltaY * scale
         if event.modifierFlags.contains(.command) {
-            let d = dy != 0 ? dy : dx
-            state.zoom(by: exp(Double(d) * 0.01), anchor: time(atAxis: clampedAxis(location(event))))
+            // Scrolling along the time axis zooms time; across it, amplitude. Positive zooms in.
+            let (dTime, dAmp) = orientation == .horizontal ? (dx, dy) : (dy, dx)
+            if dTime != 0 {
+                state.zoom(by: exp(Double(dTime) * 0.01), anchor: time(atAxis: clampedAxis(location(event))))
+            }
+            if dAmp != 0 { state.zoomAmplitude(by: exp(Double(dAmp) * 0.01)) }
         } else {
             // Content follows the scroll: a positive delta brings earlier times into view.
             let d = orientation == .horizontal ? dx + dy : dy
@@ -202,7 +288,8 @@ struct WaveformView: NSViewRepresentable {
         view.state = state
         view.background = background
         // Read the observed properties here so SwiftUI calls this again when they change.
-        _ = (state.audio?.mono.count, state.orientation, state.viewStart, state.viewEnd, state.selection)
+        _ = (state.audio?.mono.count, state.orientation, state.viewStart, state.viewEnd, state.selection,
+             state.amplitudeZoomDB)
         view.needsDisplay = true
     }
 }

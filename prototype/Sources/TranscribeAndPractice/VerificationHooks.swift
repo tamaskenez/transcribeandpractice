@@ -11,6 +11,7 @@ import SwiftUI
 ///   --commands=<file>     keep running and execute lines appended to <file>:
 ///                         dump <path> | snapshot <path> | quit | view <s>,<e> | select <s>,<e>
 ///                         | orientation <o> | open <path> | resize <w>,<h> | activate
+///                         | amplitude <dB>
 ///   --quit                quit when done
 /// Values must use the `=` form: a bare path argument can make AppKit treat the launch as
 /// "open this file", and then SwiftUI doesn't create the main window.
@@ -97,6 +98,7 @@ enum VerificationHooks {
                     case "resize":
                         if let (w, h) = pair(arg), let win = mainWindow { win.setContentSize(NSSize(width: w, height: h)) }
                     case "activate": NSApp.activate(); mainWindow?.makeKeyAndOrderFront(nil)
+                    case "amplitude": if let v = Double(arg) { state.setAmplitudeZoom(dB: v) }
                     default: break
                     }
                     done += 1
@@ -140,6 +142,8 @@ enum VerificationHooks {
             "view": ["start": state.viewStart, "end": state.viewEnd],
             "selection": state.selection.map { ["start": $0.lowerBound, "end": $0.upperBound] } ?? NSNull(),
             "selectionText": state.selectionText,
+            "amplitudeZoomDB": state.amplitudeZoomDB,
+            "currentCursor": cursorName(NSCursor.current),
             "buttons": ["zoomOutFull": state.canZoomOutFull, "zoomToSelection": state.canZoomToSelection],
             "scrollbar": scrollerDump(),
             "screenFrames": screenFrames(state: state),
@@ -204,6 +208,7 @@ enum VerificationHooks {
                     "size": size(w.bounds.size),
                     "orientation": w.orientation.rawValue,
                     "frames": w.state?.audio?.mono.count ?? 0,
+                    "cursor": w.cursorName,
                     "points": points.map { [$0.x, $0.y] },
                 ] as [String: Any]
             }
@@ -218,6 +223,12 @@ enum VerificationHooks {
         func visit(_ v: NSView) { out.append(v); v.subviews.forEach(visit) }
         if let root = mainWindow?.contentView?.superview ?? mainWindow?.contentView { visit(root) }
         return out
+    }
+
+    private static func cursorName(_ c: NSCursor) -> String {
+        let known: [(NSCursor, String)] = [(.arrow, "arrow"), (.openHand, "openHand"), (.closedHand, "closedHand"),
+                                           (.columnResize, "columnResize"), (.rowResize, "rowResize")]
+        return known.first { $0.0 == c }?.1 ?? "other"
     }
 
     private static func scrollerDump() -> Any {

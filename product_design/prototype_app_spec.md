@@ -82,19 +82,28 @@ Visible range:
   either pane changes both.
 - The visible range can't be shorter than 100 ms (maximum zoom). It may extend beyond the file
   by a margin of half of that (50 ms) at both ends: it always lies within −50 ms … file end +
-  50 ms, and fully zoomed out it is exactly that range. No waveform is drawn in the margins.
+  50 ms, and fully zoomed out it is exactly that range. No waveform is drawn in the margins: only
+  the faint zero axis line, which is distinct from the accent-colored line of zero-valued samples.
   (Changed in the milestone 3 review; originally 1 ms and limited to the file.)
 - Resizing the window, dragging the divider or switching orientation keeps the visible time range
   (only the scale changes).
 - Opening a file shows the whole file and clears the selection.
 
-Zoom (time axis only; the amplitude scale doesn't change):
+Zoom:
 
-- Trackpad pinch: zooms around the pointer (the time under the pointer stays under the pointer).
-- ⌘ + scroll (wheel or two-finger scroll along either axis): zooms around the pointer. Scrolling
-  up / away zooms in.
-- Toolbar Zoom Out Full: shows the whole file plus the margins. Disabled when that is already
-  shown.
+- Trackpad pinch: zooms time around the pointer (the time under the pointer stays under the
+  pointer). A pinch has no direction, so it always zooms time.
+- ⌘ + scroll along the time axis (horizontal scroll in horizontal mode, vertical scroll in
+  vertical mode): zooms time around the pointer.
+- ⌘ + scroll across the time axis (vertical scroll in horizontal mode, e.g. a plain mouse wheel;
+  horizontal scroll in vertical mode): amplitude zoom. A positive scroll delta zooms in, in both
+  directions. (Changed in the milestone 3 review; originally any ⌘ + scroll zoomed time.)
+- Amplitude zoom: a multiplier applied to the sample values of both waveform panes, between
+  0 dB (×1, full scale fills the pane) and +60 dB (×1000). The zero line stays in the middle; the
+  waveform is clipped at the pane edges. It is reset to 0 dB by Zoom Out Full and by opening a
+  file.
+- Toolbar Zoom Out Full: shows the whole file plus the margins, at 0 dB amplitude zoom. Disabled
+  when that is already the case.
 - Toolbar Zoom to Selection: makes the visible range equal to the selection (widened to 100 ms
   around its center if shorter, then shifted inside the limits). Disabled when there is no
   selection.
@@ -119,7 +128,17 @@ Selection:
   release positions (either direction), limited to the visible range (no autoscroll).
 - Shift-click / shift-drag extends the existing selection: the end nearer to the click moves to
   the pointer. With no selection, shift-drag acts as a plain drag.
-- A click without a drag, or Escape, clears the selection.
+- Dragging a selection edge (within 4 points of it along the time axis, in either pane) moves
+  that edge; it keeps its offset from the pointer, stays within the visible range, and dragging it
+  past the other edge flips the selection. The cursor over an edge is the left-right resize arrow
+  (horizontal mode) or the up-down one (vertical mode).
+- Dragging inside the selection moves the whole selection (the same offset added to start and
+  end); it stops at the file's start and end. The cursor inside the selection is an open hand,
+  a closed hand while moving.
+- With Option or Shift held, the cursor stays the arrow and the press acts as described above
+  (pan, extend).
+- A click without a drag, or Escape, clears the selection (also when the click is on an edge or
+  inside the selection).
 - The selection is drawn as a translucent accent-colored band across both panes.
 - Toolbar selection indicator (read-only): `start – end (length)` in the duration format of the
   transport summary (e.g. `0:01.250 – 0:02.000 (0:00.750)`), or `–` with no selection.
@@ -235,3 +254,11 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
   whatever window is under the pointer, and the scroller and divider ignore the first click on an
   inactive window. Pinch is synthesized with undocumented gesture event fields (type 29, zoom
   subtype, magnification), which macOS 26 accepts.
+- (Milestone 3 review) Amplitude zoom rate: the same as time zoom, e^(0.01·d) for a scroll of
+  d points (100 points ≈ 8.7 dB). It applies to both panes, like the time range. There is no
+  on-screen readout of the amplitude zoom yet (it is in the state dump).
+- Selection edge grab distance: 4 points. Where both edges are within reach (a very narrow
+  selection), the nearer one is grabbed.
+- MP3 and AAC files usually start with encoder padding (tens of milliseconds of real zero
+  samples). These are part of the decoded file, so they are drawn as a flat waveform line, not as
+  margin.
