@@ -26,6 +26,7 @@ enum AudioLoadError: LocalizedError {
     case empty
     case cannotAllocate
     case truncated(expected: Int64, actual: Int)
+    case tooLong(frames: Int64, sampleRate: Double)
 
     var errorDescription: String? {
         switch self {
@@ -33,15 +34,32 @@ enum AudioLoadError: LocalizedError {
         case .cannotAllocate: return "Not enough memory to decode the file."
         case let .truncated(expected, actual):
             return "The file is truncated or damaged (expected \(expected) frames, decoded \(actual))."
+        case let .tooLong(frames, sampleRate):
+            return "The file is too long (\(hoursMinutes(Double(frames) / sampleRate))). At its sample rate "
+                + "(\(sampleRate.formatted(.number.precision(.fractionLength(0...2)))) Hz) the prototype can load "
+                + "at most \(hoursMinutes(Double(AudioLoader.maxFrames) / sampleRate))."
         }
     }
 }
 
+/// e.g. "6 h 45 min 49 s"; rounded down to whole seconds.
+private func hoursMinutes(_ seconds: Double) -> String {
+    let t = Int(seconds)
+    return "\(t / 3600) h \(t / 60 % 60) min \(t % 60) s"
+}
+
 enum AudioLoader {
+    /// AVAudioPCMBuffer stores each channel's byte size in 32 bits, so with Float32 samples it
+    /// holds at most 2^30 − 1 frames (about 6 h 45 min at 44.1 kHz).
+    static let maxFrames: Int64 = (1 << 30) - 1
+
     static func load(url: URL) throws -> LoadedAudio {
         let file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false)
         let length = file.length
         guard length > 0 else { throw AudioLoadError.empty }
+        guard length <= maxFrames else {
+            throw AudioLoadError.tooLong(frames: length, sampleRate: file.processingFormat.sampleRate)
+        }
         guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
                                             frameCapacity: AVAudioFrameCount(length)) else {
             throw AudioLoadError.cannotAllocate

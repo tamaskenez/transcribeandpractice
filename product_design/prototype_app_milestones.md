@@ -133,3 +133,99 @@ Verification results (`python3 prototype/verify/verify_m2.py`): 21/21 checks pas
 ## 3. Basic navigation
 
 - Zoom, pan, selection
+
+Status: `done`
+
+Acceptance criteria:
+
+Test audio: the milestone 2 files (mono and stereo 1 Hz sines, 4 s). Input handling is verified
+with synthetic events: a driver script posts real mouse, scroll and (if possible) magnify events
+to the window with Quartz `CGEventPost`, then asks the running app (`--commands`) for a state dump
+or screenshot. This needs Accessibility permission for the terminal. Positions are computed from
+the pane frames in the dump. Tolerances: times within the duration of 1 point at the current
+scale; polylines within 0.5 px. Each input criterion is checked in both orientations.
+
+1. `build.sh` and the CMake build succeed; `verify_m1.py` and `verify_m2.py` still pass. (CLI)
+2. Toolbar contains Zoom Out Full, Zoom to Selection, the selection indicator and the orientation
+   toggle. After load: whole file shown, no selection, indicator `–`, both zoom buttons disabled.
+   (dump)
+3. `--view=1.0,2.0`: navigator and main polylines match the reference for that range (each point
+   i of a pane with time-axis length L at time 1.0 + i/L s, interpolated). Scrollbar knob at
+   25% with proportion 25%; Zoom Out Full enabled. Screenshot shows a quarter period of the sine
+   in both panes and the scrollbar along the navigator's time axis (bottom / right edge). (dump +
+   screenshot)
+4. Limits via hooks: `--view=1.0,1.0002` gives a 100 ms range centered at 1.0001; `--view=-1,10`
+   gives −0.05–4.05 (whole file plus margins); `--view=3.5,4.5` gives 3.05–4.05;
+   `--view=-0.5,0.5` gives −0.05–0.95, with no waveform points before the file start. (dump +
+   screenshot)
+5. Plain drag in the main pane from 25% to 75% of the time axis selects 1.0–3.0 s (full view);
+   reverse drag gives the same; a drag in the navigator selects likewise; a drag that leaves the
+   pane is limited to the visible range. Indicator shows `0:01.000 – 0:03.000 (0:02.000)`, Zoom to
+   Selection enabled. Screenshot shows the band in both panes. (synthetic events + dump +
+   screenshot)
+6. Shift-click at 90% with selection 1.0–3.0 gives 1.0–3.6; shift-click at 10% then gives
+   0.4–3.6; shift-drag with no selection acts as a plain drag. (synthetic events + dump)
+7. A click without drag clears the selection; Escape clears it. (synthetic events + dump)
+8. Scrolling along the time axis while zoomed to 1.0–2.0 pans by the scrolled distance (pixel
+   scroll events); it stops 50 ms beyond the file's ends. Horizontal mode: both axes pan; vertical mode:
+   only the vertical axis. (synthetic events + dump)
+9. ⌘ + scroll along the time axis zooms time in/out around the pointer: the time under the
+   pointer stays put; zooming stops at 100 ms and at the whole file plus margins; the amplitude
+   zoom doesn't change. (synthetic events + dump)
+10. Pinch zooms around the pointer. (synthetic magnify events if macOS accepts them; otherwise
+    manual check)
+11. Option-drag and middle-button drag pan: the time under the press point ends up under the
+    release point; panning stops 50 ms beyond the file's ends. (synthetic events + dump)
+12. Dragging the scrollbar knob pans proportionally; clicking the track pans. (synthetic events +
+    dump)
+13. Zoom to Selection (with selection 1.0–3.0) shows 1.0–3.0; then Zoom Out Full shows the whole
+    file plus margins. Buttons pressed via the Accessibility API. (dump)
+14. Resizing the window, dragging the divider and switching orientation keep the visible range and
+    the selection. (synthetic events / hooks + dump) This also covers the divider drag left to a
+    manual check in milestone 2.
+15. Opening a second file while zoomed and with a selection shows the whole new file (plus
+    margins) with no selection. (hooks + dump)
+16. (review) ⌘ + scroll across the time axis zooms amplitude: 100 points = +8.7 dB, the time view
+    doesn't change, limited to 0–60 dB. At +20 dB both polylines match the reference ×10
+    (screenshot). Zoom Out Full and opening a file reset it to 0 dB. (synthetic events + dump +
+    screenshot)
+17. (review) Cursor, after moving the pointer over the main pane with selection 1–3 s: the
+    resize arrow along the time axis on both edges and 3 points from an edge, an open hand
+    inside, the arrow outside. (synthetic events + dump of the app's current cursor)
+18. (review) Dragging the end edge 75%→90% gives 1–3.6; the start edge 25%→10% then gives
+    0.4–3.6; dragging an edge past the other flips the selection. Dragging inside moves it
+    (1–3 → 1.4–3.4), stops at the file end, works in the navigator too; a click inside still
+    clears it. (synthetic events + dump)
+
+Verification results (`python3 verify/verify_m3.py`, 37/37 checks passed):
+
+1. `verify_m2.py` (including `build.sh`, the CMake build and `verify_m1.py`) and `verify_m1.py`
+   pass.
+2. Toolbar items: Zoom Out Full, Zoom to Selection, the selection indicator, Time Orientation.
+   After load: 0–4 s, no selection, `–`, both buttons disabled (dump and AXEnabled).
+3. `--view=1,2`: polylines within 0.5 px in both panes, both orientations. Scrollbar legacy style,
+   at the navigator's bottom / right edge, proportion 0.25, knob at 25%. Screenshots
+   (`c3_*.png`) show a quarter period in both panes.
+4. Limits: 0.9996–1.0006, 0–4, 3–4.
+5–12. Passed in both orientations with synthetic events, including pinch (no manual check
+   needed). Screenshots `in_*_selection.png` show the band in both panes.
+13. Buttons pressed via the Accessibility API: 1–3 s, then 0–4 s; Zoom Out Full disabled again.
+14. Resize to 800×600, divider drag (navigator fraction 0.2 → ~0.3) and orientation switch keep
+    1–2 s and selection 1.2–1.5. This also covers the divider drag left to a manual check in
+    milestone 2.
+15. Opening `wave_stereo.wav` while zoomed with a selection shows 0–4 s, no selection.
+
+Not checked automatically: clicking the orientation toggle and the View menu items (unchanged
+since milestone 2), and how gestures feel on a real trackpad and mouse (zoom and scroll rates).
+
+Review changes (2026-11-17): maximum zoom 100 ms instead of 1 ms; the visible range may extend
+50 ms (half the maximum zoom) beyond both ends of the file, and fully zoomed out shows −50 ms …
+end + 50 ms. Criteria 2–4, 8, 9, 11–13, 15 adjusted accordingly. Re-verified: `verify_m3.py`
+40/40 passed (new: the margin check in criterion 3/4, with screenshots `c3b_*.png`).
+
+Review changes 2 (2026-11-17): amplitude zoom with ⌘ + scroll across the time axis (time zoom
+only along it; pinch stays time zoom); selection edges and the whole selection can be dragged,
+with matching cursors; files longer than 2³⁰ − 1 frames get a clear error (see Loading audio
+files). Criteria 9 adjusted, 16–18 added. Margins: already drawn with only the zero axis line
+(criterion 4); see the encoder-padding note in Decisions. Re-verified: `verify_m3.py` 54/54
+passed.

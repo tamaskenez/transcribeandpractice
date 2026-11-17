@@ -7,6 +7,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
 from gen_test_audio_m2 import signals  # noqa: E402
+import waveref  # noqa: E402
 
 OUT = 'verify/out/m2'
 AUDIO = f'{OUT}/audio'
@@ -64,19 +65,10 @@ def layout_ok(s, orientation):
     return not problems, '; '.join(problems)
 
 
-def reference_points(mono, w, h, orientation):
-    frames = len(mono)
-    length, cross = (w, h) if orientation == 'horizontal' else (h, w)
-    n = int(length) + 1
-    pos = np.arange(n) * ((frames - 1) / (n - 1))
-    i0 = np.minimum(pos.astype(int), frames - 1)
-    i1 = np.minimum(i0 + 1, frames - 1)
-    f = pos - i0
-    v = mono[i0].astype(np.float64) * (1 - f) + mono[i1].astype(np.float64) * f
-    t = np.arange(n) * length / (n - 1)
-    if orientation == 'horizontal':
-        return np.stack([t, cross / 2 * (1 - v)], axis=1)
-    return np.stack([cross / 2 * (1 + v), t], axis=1)
+def reference_points(mono, w, h, orientation, view):
+    # Milestone 3 changed the mapping and the full view (margins around the file); use the
+    # shared reference with the dumped visible range.
+    return waveref.reference_points(mono, 44100, w, h, orientation, view['start'], view['end'])
 
 
 # 1. Builds
@@ -116,7 +108,7 @@ for orientation in ['horizontal', 'vertical']:
         mono = data.astype(np.float32).sum(axis=1, dtype=np.float32) * np.float32(1 / data.shape[1])
         for pane in ['navigator', 'main']:
             w = s['waveforms'][pane]
-            ref = reference_points(mono, w['size']['width'], w['size']['height'], orientation)
+            ref = reference_points(mono, w['size']['width'], w['size']['height'], orientation, s['view'])
             got = np.array(w['points'])
             err = np.abs(got - ref).max() if got.shape == ref.shape else float('inf')
             check(6, f'{pane} waveform matches reference ({orientation}, {name})',
@@ -136,7 +128,7 @@ expected_text = 'wave_stereo.wav  ·  0:04.000 (4.000 s)  ·  44.100 Hz  ·  2 (
 ok = s['transportText'] == expected_text and s['loaded']['fileName'] == 'wave_stereo.wav'
 mono = sigs['wave_stereo.wav'].astype(np.float32).sum(axis=1, dtype=np.float32) * np.float32(0.5)
 w = s['waveforms']['main']
-ref = reference_points(mono, w['size']['width'], w['size']['height'], s['orientation'])
+ref = reference_points(mono, w['size']['width'], w['size']['height'], s['orientation'], s['view'])
 ok = ok and np.abs(np.array(w['points']) - ref).max() <= 0.5
 check(9, 'second file replaces waveform and transport summary', ok, s['transportText'])
 

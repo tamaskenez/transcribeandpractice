@@ -46,8 +46,10 @@ can call C++ directly. The prototype needs no heavy DSP, so everything stays in 
 
 The window is split into panes:
 
-- Toolbar: the native macOS window toolbar (merged into the title bar). For now it holds only the
-  time-orientation toggle (horizontal / vertical).
+- Toolbar: the native macOS window toolbar (merged into the title bar). It is dedicated to
+  view- and selection-related tools and indicators. Milestone 2: the time-orientation toggle
+  (horizontal / vertical). From milestone 3 also: Zoom Out Full and Zoom to Selection buttons, and
+  the selection indicator (see Navigation and selection).
 - Middle section: a navigator pane and a main (analysis) pane, separated by a draggable divider.
   - Horizontal time (time runs to the right): navigator on top, main pane below.
   - Vertical time (time runs downwards): navigator on the left, main pane on the right.
@@ -62,14 +64,84 @@ Orientation:
 
 ### Waveform display (from milestone 2)
 
-- Both the navigator and the main pane show the whole file as a mono waveform: the average of all
-  channels. (Zoom and pan come in milestone 3.)
+- Both the navigator and the main pane show a mono waveform: the average of all channels.
+  Milestone 2: both show the whole file. From milestone 3 on, both show the same visible time
+  range (see Navigation and selection).
 - Drawing: for each pixel column (each pixel row in vertical mode), take the fractional sample
   position of that column and linearly interpolate the mono signal there. The resulting points are
   joined into a polyline. This aliases badly when zoomed out; that is accepted for now.
 - The amplitude axis is linear: full scale (±1.0) fills the pane's height (width in vertical mode),
   with 0 in the middle. In vertical mode positive values go to the right.
 - With no file loaded the panes are empty, and the main pane shows the hint.
+
+### Navigation and selection (from milestone 3)
+
+Visible range:
+
+- The navigator and the main pane always show the same visible time range. Zooming or panning in
+  either pane changes both.
+- The visible range can't be shorter than 100 ms (maximum zoom). It may extend beyond the file
+  by a margin of half of that (50 ms) at both ends: it always lies within −50 ms … file end +
+  50 ms, and fully zoomed out it is exactly that range. No waveform is drawn in the margins: only
+  the faint zero axis line, which is distinct from the accent-colored line of zero-valued samples.
+  (Changed in the milestone 3 review; originally 1 ms and limited to the file.)
+- Resizing the window, dragging the divider or switching orientation keeps the visible time range
+  (only the scale changes).
+- Opening a file shows the whole file and clears the selection.
+
+Zoom:
+
+- Trackpad pinch: zooms time around the pointer (the time under the pointer stays under the
+  pointer). A pinch has no direction, so it always zooms time.
+- ⌘ + scroll along the time axis (horizontal scroll in horizontal mode, vertical scroll in
+  vertical mode): zooms time around the pointer.
+- ⌘ + scroll across the time axis (vertical scroll in horizontal mode, e.g. a plain mouse wheel;
+  horizontal scroll in vertical mode): amplitude zoom. A positive scroll delta zooms in, in both
+  directions. (Changed in the milestone 3 review; originally any ⌘ + scroll zoomed time.)
+- Amplitude zoom: a multiplier applied to the sample values of both waveform panes, between
+  0 dB (×1, full scale fills the pane) and +60 dB (×1000). The zero line stays in the middle; the
+  waveform is clipped at the pane edges. It is reset to 0 dB by Zoom Out Full and by opening a
+  file.
+- Toolbar Zoom Out Full: shows the whole file plus the margins, at 0 dB amplitude zoom. Disabled
+  when that is already the case.
+- Toolbar Zoom to Selection: makes the visible range equal to the selection (widened to 100 ms
+  around its center if shorter, then shifted inside the limits). Disabled when there is no
+  selection.
+
+Pan:
+
+- Scrolling along the time axis (two-finger trackpad scroll, scroll wheel) pans, following the
+  system's scroll direction setting. In horizontal mode both scroll axes pan time (so a plain
+  mouse wheel works); in vertical mode only the vertical scroll axis does.
+- Option + drag and middle-button drag grab the waveform: the time under the pointer follows the
+  pointer.
+- The navigator has a scrollbar along its time axis: at the navigator's bottom edge in horizontal
+  mode, at its right edge (next to the main pane) in vertical mode. The knob shows the visible
+  range's position and size within the whole file; dragging it, or clicking the track, pans. The
+  scrollbar is always visible (legacy style, not the auto-hiding overlay style).
+- Panning stops 50 ms beyond the start and end of the file. The scrollbar spans the same range.
+
+Selection:
+
+- One selection at a time: a time range in the file.
+- Plain drag along the time axis in either pane selects the range between the press and the
+  release positions (either direction), limited to the visible range (no autoscroll).
+- Shift-click / shift-drag extends the existing selection: the end nearer to the click moves to
+  the pointer. With no selection, shift-drag acts as a plain drag.
+- Dragging a selection edge (within 4 points of it along the time axis, in either pane) moves
+  that edge; it keeps its offset from the pointer, stays within the visible range, and dragging it
+  past the other edge flips the selection. The cursor over an edge is the left-right resize arrow
+  (horizontal mode) or the up-down one (vertical mode).
+- Dragging inside the selection moves the whole selection (the same offset added to start and
+  end); it stops at the file's start and end. The cursor inside the selection is an open hand,
+  a closed hand while moving.
+- With Option or Shift held, the cursor stays the arrow and the press acts as described above
+  (pan, extend).
+- A click without a drag, or Escape, clears the selection (also when the click is on an edge or
+  inside the selection).
+- The selection is drawn as a translucent accent-colored band across both panes.
+- Toolbar selection indicator (read-only): `start – end (length)` in the duration format of the
+  transport summary (e.g. `0:01.250 – 0:02.000 (0:00.750)`), or `–` with no selection.
 
 ### Loading audio files
 
@@ -81,6 +153,10 @@ Orientation:
 - Loading is blocking: the UI is unresponsive while the file is decoded.
 - If a file can't be opened or decoded, an alert shows the reason, and the previously loaded file
   (if any) stays loaded.
+- Known limitation: at most 2³⁰ − 1 sample frames (about 6 h 45 min at 44.1 kHz, 6 h 12 min at
+  48 kHz). Longer files show an alert stating the file's duration and the maximum at its sample
+  rate. (AVAudioPCMBuffer stores each channel's byte size in 32 bits, so a Float32 buffer can't
+  hold more frames; the machine's memory isn't the limit.)
 
 ### File information display
 
@@ -108,7 +184,13 @@ window content, and quit.
 From milestone 2 on, also: `--orientation=horizontal|vertical` (sets the orientation through the
 same code path as the toggle, so it is also remembered); the dump adds the orientation, the window
 number, the frames of all panes, the divider position, and the polyline points of each waveform
-pane. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
+pane. From milestone 3 on, also: `--view=<start>,<end>` and `--select=<start>,<end>` (seconds;
+set the visible range / selection through the same code paths as the gestures, including the
+limits); `--commands=<file>` keeps the app running and executes commands appended to that file
+(`dump <path>`, `snapshot <path>`, `quit`, and `view`, `select`, `orientation`, `open`, `resize`,
+`activate`), acknowledging each in `<file>.ack`, so a test driver can post synthetic input events
+between dumps; the dump adds the visible range, the selection, the toolbar selection text and
+button states, and the scrollbar's frame and knob position/proportion. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
 `screencapture -l <window number>` (needs Screen Recording permission for the terminal that
 launches the app). These are a development aid, not a user feature.
 
@@ -146,3 +228,37 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
 - The mono mix is computed once, when the file is loaded.
 - The state dump keeps the `displayedRows` key (the milestone 1 info rows) although the full info
   grid is no longer on screen.
+- (Milestone 3) Time model: the visible range and the selection are in seconds. Waveform point i
+  of a pane with time-axis length L is at time start + i·(end − start)/L, read at sample position
+  time·sampleRate; positions outside 0…frames−1 (in the margins) get no point. (Milestone 2
+  mapped the whole file to sample positions 0…frames−1; `verify_m2.py` now compares against the
+  milestone 3 model with the dumped visible range.)
+- The selection stays within the file; it can't extend into the margins.
+- Zoom rates: ⌘ + scroll zooms by e^(0.01·d) for a scroll of d points; a positive vertical delta
+  (wheel turned up / away, or two fingers moved down with natural scrolling) zooms in. A pinch
+  zooms by 1 + magnification per event. Line-based mouse wheels count as 10 points per line, for
+  panning too.
+- A press that moves less than 2 points before release counts as a click (clears the selection).
+- The waveform panes accept the first click on an inactive window (it acts immediately instead of
+  only activating the window).
+- Clicking the scrollbar track pages by one visible length, or jumps there, per the system's
+  "Click in the scroll bar to" setting.
+- Toolbar icons: Zoom Out Full `arrow.left.and.right.square`, Zoom to Selection
+  `arrow.right.and.line.vertical.and.arrow.left` (SF Symbols).
+- Escape is handled by an application-wide key monitor (no view has keyboard focus yet); it does
+  nothing while an alert is shown.
+- The divider's drag area still overlaps the panes by 3 points and wins there, although the
+  waveform panes now take mouse events.
+- Verification posts synthetic events with a small Swift tool (`verify/inputdriver.swift`, built
+  by the script). It brings the app to the front through Accessibility first: events go to
+  whatever window is under the pointer, and the scroller and divider ignore the first click on an
+  inactive window. Pinch is synthesized with undocumented gesture event fields (type 29, zoom
+  subtype, magnification), which macOS 26 accepts.
+- (Milestone 3 review) Amplitude zoom rate: the same as time zoom, e^(0.01·d) for a scroll of
+  d points (100 points ≈ 8.7 dB). It applies to both panes, like the time range. There is no
+  on-screen readout of the amplitude zoom yet (it is in the state dump).
+- Selection edge grab distance: 4 points. Where both edges are within reach (a very narrow
+  selection), the nearer one is grabbed.
+- MP3 and AAC files usually start with encoder padding (tens of milliseconds of real zero
+  samples). These are part of the decoded file, so they are drawn as a flat waveform line, not as
+  margin.
