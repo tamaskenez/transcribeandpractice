@@ -143,6 +143,71 @@ Selection:
 - Toolbar selection indicator (read-only): `start – end (length)` in the duration format of the
   transport summary (e.g. `0:01.250 – 0:02.000 (0:00.750)`), or `–` with no selection.
 
+### Playback (from milestone 4)
+
+State:
+
+- Playhead: a time position in the file (0 … duration). Shown as a line across both waveform
+  panes and as a mark on the navigator scrollbar's track.
+- Rewind point: the selection start, or, with no selection, where the user last clicked to clear
+  the selection or set the playhead (file start after opening a file).
+- Last playback start: where the most recent playback started (file start after opening).
+- Loop enabled flag; follow-playhead flag. Both are remembered across launches; defaults off.
+- Opening a file stops playback and puts the playhead, rewind point and last start at 0.
+
+Actions:
+
+- Play-or-stop (Space, transport button): if playing, stop (the playhead stays at the audible
+  position); otherwise start playing at the playhead.
+- Rewind-and-play (Left Arrow, transport button): set the playhead to the rewind point and play
+  (restarts if already playing).
+- Play-again (Right Arrow, transport button): play from the last playback start (restarts if
+  already playing).
+- Loop (transport toggle button).
+- Mouse: a click without a drag (which clears the selection) stops playback and sets the playhead
+  and the rewind point to the clicked time (limited to the file). Starting a new selection by
+  dragging stops playback and keeps the playhead at the selection start. Escape (clears the
+  selection) stops playback and puts the playhead at the former selection start. Extending,
+  dragging an edge or moving the selection does not stop playback or move the playhead; a
+  running playback uses the changed selection from then on.
+
+Where playback ends:
+
+- The selection rules apply only when playback starts inside the selection (start ≤ playhead <
+  end); otherwise the selection is ignored for that playback.
+- No selection (or ignored): playback stops at the file end and the playhead rewinds to the
+  file start.
+- Selection, loop off: playback stops at the selection end and the playhead rewinds to the
+  selection start.
+- Selection, loop on: at the selection end playback continues at the selection start, without a
+  gap (sample-accurate).
+
+Output:
+
+- The file's own channels: stereo as stereo, mono on both channels, more than two channels: the
+  first two. No resampling by the app (the system converts to the device rate if needed).
+- Audio engine: AVAudioEngine with an AVAudioSourceNode whose render callback copies from the
+  decoded buffer. The output device's I/O buffer size is set to the smallest multiple of the
+  display refresh period that is ≥ 30 ms (e.g. 33.3 ms at 60 or 120 Hz), limited to 30–50 ms and
+  to the device's allowed range; without a known refresh rate, 40 ms.
+- The playhead is updated once per render callback: the start of the buffer being rendered minus
+  the output latency (device latency + safety offset + I/O buffer, as reported by Core Audio), so
+  it shows what is audible. It never goes before the playback start.
+
+Transport pane (left to right): rewind-and-play, play-or-stop (play / stop icon), play-again,
+loop toggle, playhead position (`m:ss.mmm`), then the file summary.
+
+Follow playhead (toolbar toggle button):
+
+- Off: the view never moves by itself.
+- On, while playing: the view eases toward having the playhead in the center (time constant
+  about 0.5 s, updated at the display refresh rate). If the visible range is shorter than 5 s, it
+  also eases out to 5 s (or the whole file plus margins, if shorter). The usual view limits
+  apply.
+- A manual view change during playback (scroll, pinch, ⌘ + scroll, Option/middle drag,
+  scrollbar, zoom buttons) turns follow off. When stopped, manual view changes don't affect the
+  flag.
+
 ### Loading audio files
 
 - File → Open… (⌘O) shows the standard open dialog, limited to audio files. This is the only way to
@@ -190,7 +255,11 @@ limits); `--commands=<file>` keeps the app running and executes commands appende
 (`dump <path>`, `snapshot <path>`, `quit`, and `view`, `select`, `orientation`, `open`, `resize`,
 `activate`), acknowledging each in `<file>.ack`, so a test driver can post synthetic input events
 between dumps; the dump adds the visible range, the selection, the toolbar selection text and
-button states, and the scrollbar's frame and knob position/proportion. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
+button states, and the scrollbar's frame and knob position/proportion. From milestone 4 on, also:
+the dump adds the playback state (playing, playhead, rewind point, last start, loop, follow,
+I/O buffer size, latency, display refresh rate); the command `record <path>` / `record stop`
+writes what the source node renders (the app's output before the system mixer) to a float WAV
+file. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
 `screencapture -l <window number>` (needs Screen Recording permission for the terminal that
 launches the app). These are a development aid, not a user feature.
 

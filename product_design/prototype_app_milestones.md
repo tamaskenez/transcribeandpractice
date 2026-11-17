@@ -229,3 +229,76 @@ with matching cursors; files longer than 2³⁰ − 1 frames get a clear error (
 files). Criteria 9 adjusted, 16–18 added. Margins: already drawn with only the zero axis line
 (criterion 4); see the encoder-padding note in Decisions. Re-verified: `verify_m3.py` 54/54
 passed.
+
+## 4. Playback
+
+- We maintain a playhead, which can be set by the user but also advanced by the actual playback:
+  each buffer sent to the audio output sets the playhead to the start of the last buffer. Ideally
+  the buffer size is around 30-50 ms. If the display frequency is available, set the buffer size
+  to the multiply of the display frequency so it falls in the said range.
+- We maintain also last playback start position and loop-enabled flag
+- The user actions that affect playback:
+  - starting a selection or clearing it stops playback and puts the playhead at the beginning of the
+    selection or where the user clicked to clear the selection
+  - the "play-or-stop" action starts playing where the playhead is, or if it's already playing,
+    stops playback
+  - the "rewind-and-play" action sets the playhead to the start of selection (or the last clear-selection
+    location) and starts playing
+  - the "play-again" action starts playing from where the last playback started
+  - if there's no selection, the playback automatically stops at the end of file and playhead
+    rewinds to start of file
+  - if there's a selection but loop is not enabled, the playback stops at selection end and rewinds
+    to selection begin
+  - if there's a selection and loop is enabled, the playback continues where selection begin
+  - the user actions are bound to these keys:
+    SPACE: "play-or-stop"
+    LEFT-ARROW: "rewind-and-play"
+    RIGHT-ARROW: "play-again"
+  - the transport pane has 3 buttons corresponding to these actions, a loop-enable button and also
+    displays the position of the playhead
+
+Status: `criteria proposed`
+
+Acceptance criteria:
+
+Test audio: a 10 s stereo 44.1 kHz float WAV of seeded white noise (left and right different) at
+−12 dBFS, so any rendered sample range can be located exactly; plus the milestone 2 sine for
+screenshots. Output content is checked from the `record` hook (what the source node renders);
+timing from state dumps taken every ~100 ms while playing. Sound is audible during the tests.
+Key presses, clicks and drags use the milestone 3 synthetic-event driver; buttons are pressed via
+Accessibility. Each check runs in horizontal mode; the mouse and display checks also in vertical.
+
+1. Builds; `verify_m1.py`, `verify_m2.py`, `verify_m3.py` still pass. (CLI)
+2. Transport pane shows rewind-and-play, play-or-stop, play-again, loop and the playhead
+   position `0:00.000` after load; toolbar shows the follow button; loop and follow off. (dump +
+   AX + screenshot)
+3. I/O buffer: duration within 30–50 ms and a multiple of the display refresh period (within one
+   sample); one playhead update per buffer. (dump)
+4. Play-or-stop from playhead 1.0 s: the rendered audio equals the file's samples from 1.0 s on,
+   both channels (sample-exact); the playhead advances at real-time rate (slope 1 ± 2%) and lags
+   the rendered position by the reported latency (± one buffer). Space stops it; the playhead
+   stays (within one buffer + latency of the stop time). (record + dumps + synthetic keys)
+5. No selection: playback from 9.5 s stops by itself at the file end; playhead back at 0;
+   rendered audio ends with the last sample. (record + dumps)
+6. Selection 2–3 s, loop off, playing from 2.0: stops at 3.0 s, playhead back at 2.0; rendered
+   audio = samples 2.0–3.0 exactly. (record + dumps)
+7. Selection 2–3 s, loop on: after 2.5 s of playback the rendered audio is 2.0–3.0, 2.0–3.0,
+   2.0–2.5 with no gap or repeated sample at the joins. (record)
+8. Playback starting outside the selection (playhead 4.0, selection 2–3) ignores it and plays to
+   the file end. (dumps)
+9. Rewind-and-play (Left Arrow and button): from a running playback, restarts at the selection
+   start; with no selection, at the last clicked position; after opening a file, at 0. Play-again
+   (Right Arrow and button): restarts at the last playback start. (synthetic keys, AX, record +
+   dumps)
+10. Mouse: during playback, a click stops it and puts the playhead and rewind point at the
+    clicked time; a new selection drag stops it with the playhead at the selection start; Escape
+    stops it with the playhead at the former selection start; an edge drag and a move during a
+    looping playback don't stop it, and the loop uses the new bounds (rendered audio). (synthetic
+    events + record + dumps)
+11. Display: the playhead line in both panes at the playhead's position and a mark on the
+    scrollbar track, both orientations. (screenshots + dump of the drawn positions)
+12. Follow on, view 1.0–2.0 s, playing from 1.0: within 2 s the view is ≥ 4.9 s long and the
+    playhead within 10% of the center; with follow off the view doesn't move; a manual scroll
+    during playback turns follow off. (synthetic events + dumps)
+13. Loop and follow flags remembered across a relaunch. Opening a file stops playback and
+    resets the playhead to 0. (hooks + dumps)
