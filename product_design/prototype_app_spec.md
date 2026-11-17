@@ -46,8 +46,10 @@ can call C++ directly. The prototype needs no heavy DSP, so everything stays in 
 
 The window is split into panes:
 
-- Toolbar: the native macOS window toolbar (merged into the title bar). For now it holds only the
-  time-orientation toggle (horizontal / vertical).
+- Toolbar: the native macOS window toolbar (merged into the title bar). It is dedicated to
+  view- and selection-related tools and indicators. Milestone 2: the time-orientation toggle
+  (horizontal / vertical). From milestone 3 also: Zoom Out Full and Zoom to Selection buttons, and
+  the selection indicator (see Navigation and selection).
 - Middle section: a navigator pane and a main (analysis) pane, separated by a draggable divider.
   - Horizontal time (time runs to the right): navigator on top, main pane below.
   - Vertical time (time runs downwards): navigator on the left, main pane on the right.
@@ -62,14 +64,62 @@ Orientation:
 
 ### Waveform display (from milestone 2)
 
-- Both the navigator and the main pane show the whole file as a mono waveform: the average of all
-  channels. (Zoom and pan come in milestone 3.)
+- Both the navigator and the main pane show a mono waveform: the average of all channels.
+  Milestone 2: both show the whole file. From milestone 3 on, both show the same visible time
+  range (see Navigation and selection).
 - Drawing: for each pixel column (each pixel row in vertical mode), take the fractional sample
   position of that column and linearly interpolate the mono signal there. The resulting points are
   joined into a polyline. This aliases badly when zoomed out; that is accepted for now.
 - The amplitude axis is linear: full scale (±1.0) fills the pane's height (width in vertical mode),
   with 0 in the middle. In vertical mode positive values go to the right.
 - With no file loaded the panes are empty, and the main pane shows the hint.
+
+### Navigation and selection (from milestone 3)
+
+Visible range:
+
+- The navigator and the main pane always show the same visible time range. Zooming or panning in
+  either pane changes both.
+- The visible range always lies within the file. It can't be longer than the file (fully zoomed
+  out = the whole file) or shorter than 1 ms (maximum zoom; for files shorter than 1 ms, the whole
+  file).
+- Resizing the window, dragging the divider or switching orientation keeps the visible time range
+  (only the scale changes).
+- Opening a file shows the whole file and clears the selection.
+
+Zoom (time axis only; the amplitude scale doesn't change):
+
+- Trackpad pinch: zooms around the pointer (the time under the pointer stays under the pointer).
+- ⌘ + scroll (wheel or two-finger scroll along either axis): zooms around the pointer. Scrolling
+  up / away zooms in.
+- Toolbar Zoom Out Full: shows the whole file. Disabled when the whole file is already shown.
+- Toolbar Zoom to Selection: makes the visible range equal to the selection (widened to 1 ms around
+  its center if shorter). Disabled when there is no selection.
+
+Pan:
+
+- Scrolling along the time axis (two-finger trackpad scroll, scroll wheel) pans, following the
+  system's scroll direction setting. In horizontal mode both scroll axes pan time (so a plain
+  mouse wheel works); in vertical mode only the vertical scroll axis does.
+- Option + drag and middle-button drag grab the waveform: the time under the pointer follows the
+  pointer.
+- The navigator has a scrollbar along its time axis: at the navigator's bottom edge in horizontal
+  mode, at its right edge (next to the main pane) in vertical mode. The knob shows the visible
+  range's position and size within the whole file; dragging it, or clicking the track, pans. The
+  scrollbar is always visible (legacy style, not the auto-hiding overlay style).
+- Panning stops at the start and end of the file.
+
+Selection:
+
+- One selection at a time: a time range in the file.
+- Plain drag along the time axis in either pane selects the range between the press and the
+  release positions (either direction), limited to the visible range (no autoscroll).
+- Shift-click / shift-drag extends the existing selection: the end nearer to the click moves to
+  the pointer. With no selection, shift-drag acts as a plain drag.
+- A click without a drag, or Escape, clears the selection.
+- The selection is drawn as a translucent accent-colored band across both panes.
+- Toolbar selection indicator (read-only): `start – end (length)` in the duration format of the
+  transport summary (e.g. `0:01.250 – 0:02.000 (0:00.750)`), or `–` with no selection.
 
 ### Loading audio files
 
@@ -108,7 +158,12 @@ window content, and quit.
 From milestone 2 on, also: `--orientation=horizontal|vertical` (sets the orientation through the
 same code path as the toggle, so it is also remembered); the dump adds the orientation, the window
 number, the frames of all panes, the divider position, and the polyline points of each waveform
-pane. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
+pane. From milestone 3 on, also: `--view=<start>,<end>` and `--select=<start>,<end>` (seconds;
+set the visible range / selection through the same code paths as the gestures, including the
+limits); `--commands=<file>` keeps the app running and executes commands appended to that file
+(`dump <path>`, `snapshot <path>`, `quit`), so a test driver can post synthetic input events
+between dumps; the dump adds the visible range, the selection, the toolbar selection text and
+button states, and the scrollbar's frame and knob position/proportion. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
 `screencapture -l <window number>` (needs Screen Recording permission for the terminal that
 launches the app). These are a development aid, not a user feature.
 

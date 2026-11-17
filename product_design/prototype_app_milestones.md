@@ -133,3 +133,52 @@ Verification results (`python3 prototype/verify/verify_m2.py`): 21/21 checks pas
 ## 3. Basic navigation
 
 - Zoom, pan, selection
+
+Status: `criteria proposed`
+
+Acceptance criteria:
+
+Test audio: the milestone 2 files (mono and stereo 1 Hz sines, 4 s). Input handling is verified
+with synthetic events: a driver script posts real mouse, scroll and (if possible) magnify events
+to the window with Quartz `CGEventPost`, then asks the running app (`--commands`) for a state dump
+or screenshot. This needs Accessibility permission for the terminal. Positions are computed from
+the pane frames in the dump. Tolerances: times within the duration of 1 point at the current
+scale; polylines within 0.5 px. Each input criterion is checked in both orientations.
+
+1. `build.sh` and the CMake build succeed; `verify_m1.py` and `verify_m2.py` still pass. (CLI)
+2. Toolbar contains Zoom Out Full, Zoom to Selection, the selection indicator and the orientation
+   toggle. After load: whole file shown, no selection, indicator `–`, both zoom buttons disabled.
+   (dump)
+3. `--view=1.0,2.0`: navigator and main polylines match the reference for that range (each point
+   i of a pane with time-axis length L at time 1.0 + i/L s, interpolated). Scrollbar knob at
+   25% with proportion 25%; Zoom Out Full enabled. Screenshot shows a quarter period of the sine
+   in both panes and the scrollbar along the navigator's time axis (bottom / right edge). (dump +
+   screenshot)
+4. Limits via hooks: `--view=1.0,1.0002` gives a 1 ms range centered at 1.0001; `--view=-1,10`
+   gives the whole file; `--view=3.5,4.5` gives 3.0–4.0. (dump)
+5. Plain drag in the main pane from 25% to 75% of the time axis selects 1.0–3.0 s (full view);
+   reverse drag gives the same; a drag in the navigator selects likewise; a drag that leaves the
+   pane is limited to the visible range. Indicator shows `0:01.000 – 0:03.000 (0:02.000)`, Zoom to
+   Selection enabled. Screenshot shows the band in both panes. (synthetic events + dump +
+   screenshot)
+6. Shift-click at 90% with selection 1.0–3.0 gives 1.0–3.6; shift-click at 10% then gives
+   0.4–3.6; shift-drag with no selection acts as a plain drag. (synthetic events + dump)
+7. A click without drag clears the selection; Escape clears it. (synthetic events + dump)
+8. Scrolling along the time axis while zoomed to 1.0–2.0 pans by the scrolled distance (pixel
+   scroll events); at the file's ends it stops. Horizontal mode: both axes pan; vertical mode:
+   only the vertical axis. (synthetic events + dump)
+9. ⌘ + scroll zooms in/out around the pointer: the time under the pointer stays put; zooming
+   stops at 1 ms and at the whole file. (synthetic events + dump)
+10. Pinch zooms around the pointer. (synthetic magnify events if macOS accepts them; otherwise
+    manual check)
+11. Option-drag and middle-button drag pan: the time under the press point ends up under the
+    release point; panning stops at the file's ends. (synthetic events + dump)
+12. Dragging the scrollbar knob pans proportionally; clicking the track pans. (synthetic events +
+    dump)
+13. Zoom to Selection (with selection 1.0–3.0) shows 1.0–3.0; then Zoom Out Full shows the whole
+    file. Buttons pressed via the Accessibility API. (dump)
+14. Resizing the window, dragging the divider and switching orientation keep the visible range and
+    the selection. (synthetic events / hooks + dump) This also covers the divider drag left to a
+    manual check in milestone 2.
+15. Opening a second file while zoomed and with a selection shows the whole new file with no
+    selection. (hooks + dump)
