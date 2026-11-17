@@ -135,7 +135,7 @@ while let line = readLine() {
         for _ in 0..<steps { gesture(per, phase: 2) }
         gesture(0, phase: 4)
     case "key":
-        let codes: [String: CGKeyCode] = ["escape": 53, "space": 49, "left": 123, "right": 124]
+        let codes: [String: CGKeyCode] = ["escape": 53, "space": 49, "left": 123, "right": 124, "down": 125]
         if let code = codes[a[1]] {
             CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)?.post(tap: .cghidEventTap); pause(20)
             CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)?.post(tap: .cghidEventTap)

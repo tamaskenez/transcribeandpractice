@@ -144,6 +144,8 @@ for orientation in ['horizontal', 'vertical']:
     s.input(f'drag {P(s.at("main", .75))} {P(s.at("main", .25))}')
     sel_rev = s.sel()
     s.input('key escape')
+    # Escape left the playhead (draggable since the milestone 4 review) at 1.0 = 25%; move it away.
+    s.command('playhead 0'); s.dump()
     s.input(f'drag {P(s.at("navigator", .25))} {P(s.at("navigator", .75))}')
     sel_nav = s.sel()
     tol_nav = D / s.length('navigator')

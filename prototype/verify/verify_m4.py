@@ -3,93 +3,13 @@
 Plays audio (audible). Needs Accessibility and Screen Recording permission for the terminal.
 Don't touch the mouse or keyboard while it runs. Screenshots: verify/out/m4/*.png.
 """
-import json, os, struct, subprocess, sys, time
+import os, subprocess, sys, time
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
-import m3session  # noqa: E402
-from m3session import Session, build_driver, BIN  # noqa: E402
-from gen_test_audio_m4 import noise, SR  # noqa: E402
-
-OUT = 'verify/out/m4'
-m3session.OUT = OUT  # sessions write their command files and dumps here
-AUDIO = f'{OUT}/audio'
-NOISE = f'{AUDIO}/noise.wav'
-SINE = 'verify/out/m3/audio/wave_mono.wav'
-DOMAIN = 'com.tamaskenez.transcribeandpractice.prototype'
-D = 10.0
-results = []
-X = None
-
-
-def check(criterion, desc, ok, detail=''):
-    results.append(bool(ok))
-    print(f"{'PASS' if ok else 'FAIL'}  [{criterion}] {desc}" + (f'  -- {detail}' if detail and not ok else ''), flush=True)
-
-
-def P(xy):
-    return f'{xy[0]:.2f} {xy[1]:.2f}'
-
-
-def read_wav(path):
-    b = open(path, 'rb').read()
-    ch = struct.unpack('<H', b[22:24])[0]
-    i = b.index(b'data')
-    n = struct.unpack('<I', b[i + 4:i + 8])[0]
-    return np.frombuffer(b[i + 8:i + 8 + n], '<f4').reshape(-1, ch)
-
-
-def f(t):
-    return int(round(t * SR))
-
-
-def pb(s):
-    return s.state['playback']
-
-
-def wait_until(s, cond, timeout=5.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        s.dump()
-        if cond(pb(s)):
-            return True
-        time.sleep(0.05)
-    return False
-
-
-def wait_playhead(s, t, timeout=5.0):
-    return wait_until(s, lambda p: p['playing'] and p['playhead'] >= t, timeout)
-
-
-class Recording:
-    def __init__(self, s, name):
-        self.s, self.path = s, os.path.abspath(f'{OUT}/{name}.wav')
-        s.command(f'record {self.path}')
-
-    def stop(self):
-        self.s.command('record stop')
-        return read_wav(self.path)
-
-
-def segments_ok(rec, parts):
-    """rec must be the concatenation of the file ranges `parts` [(t0, t1|None)], the last one may
-    be cut short (None = whatever length remains)."""
-    i = 0
-    for k, (t0, t1) in enumerate(parts):
-        if i == len(rec) and k > 0:
-            break
-        a = f(t0)
-        n = min(len(rec) - i if t1 is None else f(t1) - a, len(rec) - i)
-        if n <= 0 or not np.array_equal(rec[i:i + n], X[a:a + n]):
-            return False, f'part {k} ({t0}–{t1}) at {i}, rec length {len(rec)}'
-        i += n
-    return i == len(rec), f'consumed {i} of {len(rec)}'
-
-
-def looped(first, lo, hi):
-    """Parts of a looping playback: first–hi, then lo–hi repeated (the recording may stop anywhere)."""
-    return [(first, hi)] + [(lo, hi)] * 20
-
+import m4util  # noqa: E402
+from m4util import *  # noqa: E402,F401,F403
+from m4util import check, P, pb, wait_until, wait_playhead, Recording, segments_ok, looped, results  # noqa: E402
 
 # 1. Earlier milestones (verify_m3 also runs verify_m2, verify_m1, build.sh and the CMake build)
 if os.environ.get('SKIP_EARLIER'):  # development shortcut
@@ -103,7 +23,7 @@ else:
     check(1, 'verify_m1.py passes', r.returncode == 0, r.stdout[-300:])
 os.makedirs(OUT, exist_ok=True)
 subprocess.run([sys.executable, 'verify/gen_test_audio_m4.py', AUDIO], check=True, capture_output=True)
-X = noise()
+m4util.X = X = noise()
 build_driver()
 subprocess.run(['defaults', 'delete', DOMAIN], capture_output=True)
 
@@ -175,8 +95,8 @@ s.input('key space')
 ended = wait_until(s, lambda p: not p['playing'], 3)
 r6 = rec.stop()
 ok, detail = segments_ok(r6, [(2.0, 3.0)])
-check(6, 'selection 2–3, loop off, started at 2.0: stops at 3.0, playhead back at 2.0, rendered 2.0–3.0 exactly',
-      ended and abs(pb(s)['playhead'] - 2.0) < 1e-9 and ok, f'{pb(s)["playhead"]} {detail}')
+check(6, 'selection 2–3, loop off, started at 2.0: stops at 3.0, playhead at 3.0 (the selection end), rendered 2.0–3.0 exactly',
+      ended and abs(pb(s)['playhead'] - 3.0) < 1e-9 and ok, f'{pb(s)["playhead"]} {detail}')
 
 # 7. Loop on
 s.command('loop on'); s.dump()
@@ -211,8 +131,8 @@ sel_moved = s.sel()
 ended = wait_until(s, lambda p: not p['playing'], 3)
 r8 = rec.stop()
 ok, detail = segments_ok(r8, [(2.0, 3.5)])
-check(8, 'started at the selection start, selection moved to 2.5–3.5 while playing: stops at 3.5, playhead back at 2.5',
-      sel_moved == (2.5, 3.5) and ended and abs(pb(s)['playhead'] - 2.5) < 1e-9 and ok, f'{sel_moved} {pb(s)["playhead"]} {detail}')
+check(8, 'started at the selection start, selection moved to 2.5–3.5 while playing: stops at 3.5, playhead at 3.5',
+      sel_moved == (2.5, 3.5) and ended and abs(pb(s)['playhead'] - 3.5) < 1e-9 and ok, f'{sel_moved} {pb(s)["playhead"]} {detail}')
 
 s.command('select 2,3'); s.dump()
 s.input('key left')
@@ -353,7 +273,7 @@ v_off = s.view()
 s.input('key space')
 s.command('view 1,2'); s.command('playhead 1.0'); s.command('follow on'); s.dump()
 s.input('key space')
-time.sleep(2.0)
+time.sleep(2.5)  # follow engages when the playhead reaches the center (1.5), then 2 s
 s.dump()
 v_on, ph = s.view(), pb(s)['playhead']
 length, center = v_on[1] - v_on[0], (v_on[0] + v_on[1]) / 2
@@ -365,7 +285,7 @@ s.command('follow on'); s.dump()
 s.input(f'scroll {P(s.at("main", .5))} 0 -30')
 follow_stopped_scroll = pb(s)['follow']
 check(12, 'follow off: the view doesn\'t move while playing', v_off == (1, 2), v_off)
-check(12, f'follow on: within 2 s the view is ≥ 4.9 s long ({length:.2f}) with the playhead within 10% of the center '
+check(12, f'follow on: within 2 s of reaching the center the view is ≥ 4.9 s long ({length:.2f}) with the playhead within 10% of the center '
       f'({(ph - center) / length * 100:+.1f}%)', length >= 4.9 and abs(ph - center) <= 0.1 * length, f'{v_on} {ph}')
 check(12, 'a manual scroll during playback turns follow off; when stopped it doesn\'t',
       follow_after_scroll is False and follow_stopped_scroll is True, f'{follow_after_scroll} {follow_stopped_scroll}')

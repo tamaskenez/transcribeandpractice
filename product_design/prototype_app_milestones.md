@@ -280,14 +280,14 @@ Accessibility. Each check runs in horizontal mode; the mouse and display checks 
    stays (within one buffer + latency of the stop time). (record + dumps + synthetic keys)
 5. No selection: playback from 9.5 s stops by itself at the file end; playhead back at 0;
    rendered audio ends with the last sample. (record + dumps)
-6. Selection 2–3 s, loop off, playing from 2.0: stops at 3.0 s, playhead back at 2.0; rendered
-   audio = samples 2.0–3.0 exactly. (record + dumps)
+6. Selection 2–3 s, loop off, playing from 2.0: stops at 3.0 s, playhead at 3.0 (review change;
+   was: back at 2.0); rendered audio = samples 2.0–3.0 exactly. (record + dumps)
 7. Selection 2–3 s, loop on: after 2.5 s of playback the rendered audio is 2.0–3.0, 2.0–3.0,
    2.0–2.5 with no gap or repeated sample at the joins. (record)
 8. Selection 2–3 s, loop off: playback that doesn't start at the selection start continues
    through the selection end to the file end: (a) start at 2.0, stop at ~2.5, continue (Space);
    (b) start at 4.0 (outside). Playback started at 2.0 still stops at the selection end after the
-   selection was moved during playback to 2.5–3.5 (stops at 3.5, playhead back at 2.5). Moving the
+   selection was moved during playback to 2.5–3.5 (stops at 3.5, playhead at 3.5). Moving the
    selection end before the play position during playback (started at 2.0, at ~2.6 drag the end
    edge to 2.3) doesn't stop it: it plays to the file end. Loop on: playback started at 4.0
    ignores the selection; moving the end before the play position during a loop doesn't loop
@@ -303,8 +303,8 @@ Accessibility. Each check runs in horizontal mode; the mouse and display checks 
     events + record + dumps)
 11. Display: the playhead line in both panes at the playhead's position and a mark on the
     scrollbar track, both orientations. (screenshots + dump of the drawn positions)
-12. Follow on, view 1.0–2.0 s, playing from 1.0: within 2 s the view is ≥ 4.9 s long and the
-    playhead within 10% of the center; with follow off the view doesn't move; a manual scroll
+12. Follow on, view 1.0–2.0 s, playing from 1.0: within 2 s of the playhead reaching the center
+    the view is ≥ 4.9 s long and the playhead within 10% of the center; with follow off the view doesn't move; a manual scroll
     during playback turns follow off. (synthetic events + dumps)
 13. Loop and follow flags remembered across a relaunch. Opening a file stops playback and
     resets the playhead to 0. (hooks + dumps)
@@ -334,3 +334,56 @@ Verification results (`python3 verify/verify_m4.py`, all criteria passed):
 
 Not checked automatically: how playback sounds on other output devices (Bluetooth latency) and
 on displays with other refresh rates.
+
+Review changes (after the first verification):
+
+- Follow engages only when the playhead reaches the view center, and not at all while the
+  expected end of the playback is in the view.
+- After an automatic stop at the selection end the playhead stays there, so play-or-stop
+  continues from the selection end; rewind-and-play goes back to the selection start.
+- The last playback start is shown as a line (desaturated playhead red, under the playhead).
+- New action set-last-playback-started (Down Arrow).
+- The playhead (when stopped), the last start and the selection edges can be hovered and
+  dragged; lines at the same position move together.
+- Every direct change of the playhead by the user also sets the last playback start.
+- Follow fix found while verifying: the view now moves along with the playhead (it used to stay
+  about 0.5 s behind it, the 8.8% offset seen in criterion 12).
+
+Additional acceptance criteria (`python3 verify/verify_m4_review.py`; mouse checks in both
+orientations):
+
+14. Follow on, view 1–6 s, playing from 1.0: while the playhead is before the center the view
+    doesn't move; after it passed the center follow is engaged and the playhead is within 2% of
+    the center. A playhead outside the view (view 5–6) engages it at once. (synthetic keys + dumps)
+15. Follow on: no view movement and no engagement when the expected end is in the view —
+    selection 2–3 in view 1.5–3.5 (loop off and loop on), file end in view 7–10 playing from 8.6.
+    Looping with the end visible but the loop start not (view 2.4–3.4): follow engages. (dumps)
+16. After the stop at the selection end (2–3): playhead 3.0; Space plays from 3.0 (rendered
+    audio); Right Arrow plays from 3.0 again; Left Arrow from 2.0. (record + dumps)
+17. The last-start line in both panes at its position and a mark on the scrollbar, the playhead
+    line elsewhere. (dump of the drawn positions + screenshots)
+18. Down Arrow during playback sets the last start to the playhead; Right Arrow then plays from
+    there. (synthetic keys + dumps)
+19. Dragging lines: stopped, hovering the playhead shows the resize cursor and dragging it moves
+    the playhead, the last start and the rewind point (no selection made); the selection start
+    with the playhead and last start on it drags all three; during playback the last start drags
+    alone (playback goes on), and with the selection start on it both drag together. (synthetic
+    events + dumps)
+20. A click, a new selection and Escape put the last start at the new playhead. (synthetic events
+    + dumps)
+
+Review verification results:
+
+- `verify_m4_review.py`: 23/23. Follow waits before the center and then keeps the playhead at
+  the center (+0.0%); no engagement with the end in view; continue from the selection end
+  (rendered audio from 3.0); Down Arrow set the last start to 2.109 during playback; all line
+  drags in both orientations; last-start line and mark at the expected positions (screenshots
+  `r_horizontal_laststart.png`, `r_vertical_laststart.png`).
+- `verify_m4.py` with the updated criteria 6, 8 and 12: 27/28; criterion 12 now +0.0% from the
+  center (was 8.8%). The failure was criterion 1: `verify_m3.py` criterion 5 started a navigator
+  drag at 25% where Escape had left the (now draggable) playhead, so it moved the playhead
+  instead of selecting. The test now moves the playhead away first; `verify_m3.py` then 54/54.
+
+Not checked automatically: that the playhead can't be grabbed during playback (a moving line
+can't be hit reliably with synthetic events; covered by the hover code path, which skips the
+playhead while playing).
