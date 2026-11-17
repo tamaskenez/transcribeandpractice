@@ -161,7 +161,8 @@ number, the frames of all panes, the divider position, and the polyline points o
 pane. From milestone 3 on, also: `--view=<start>,<end>` and `--select=<start>,<end>` (seconds;
 set the visible range / selection through the same code paths as the gestures, including the
 limits); `--commands=<file>` keeps the app running and executes commands appended to that file
-(`dump <path>`, `snapshot <path>`, `quit`), so a test driver can post synthetic input events
+(`dump <path>`, `snapshot <path>`, `quit`, and `view`, `select`, `orientation`, `open`, `resize`,
+`activate`), acknowledging each in `<file>.ack`, so a test driver can post synthetic input events
 between dumps; the dump adds the visible range, the selection, the toolbar selection text and
 button states, and the scrollbar's frame and knob position/proportion. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
 `screencapture -l <window number>` (needs Screen Recording permission for the terminal that
@@ -201,3 +202,27 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
 - The mono mix is computed once, when the file is loaded.
 - The state dump keeps the `displayedRows` key (the milestone 1 info rows) although the full info
   grid is no longer on screen.
+- (Milestone 3) Time model: the visible range and the selection are in seconds. Waveform point i
+  of a pane with time-axis length L is at time start + i·(end − start)/L, read at sample position
+  time·sampleRate, clamped to the last sample. (Milestone 2 mapped the whole file to sample
+  positions 0…frames−1; the difference is under one sample.)
+- Zoom rates: ⌘ + scroll zooms by e^(0.01·d) for a scroll of d points; a positive vertical delta
+  (wheel turned up / away, or two fingers moved down with natural scrolling) zooms in. A pinch
+  zooms by 1 + magnification per event. Line-based mouse wheels count as 10 points per line, for
+  panning too.
+- A press that moves less than 2 points before release counts as a click (clears the selection).
+- The waveform panes accept the first click on an inactive window (it acts immediately instead of
+  only activating the window).
+- Clicking the scrollbar track pages by one visible length, or jumps there, per the system's
+  "Click in the scroll bar to" setting.
+- Toolbar icons: Zoom Out Full `arrow.left.and.right.square`, Zoom to Selection
+  `arrow.right.and.line.vertical.and.arrow.left` (SF Symbols).
+- Escape is handled by an application-wide key monitor (no view has keyboard focus yet); it does
+  nothing while an alert is shown.
+- The divider's drag area still overlaps the panes by 3 points and wins there, although the
+  waveform panes now take mouse events.
+- Verification posts synthetic events with a small Swift tool (`verify/inputdriver.swift`, built
+  by the script). It brings the app to the front through Accessibility first: events go to
+  whatever window is under the pointer, and the scroller and divider ignore the first click on an
+  inactive window. Pinch is synthesized with undocumented gesture event fields (type 29, zoom
+  subtype, magnification), which macOS 26 accepts.

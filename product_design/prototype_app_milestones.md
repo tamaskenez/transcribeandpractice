@@ -134,7 +134,7 @@ Verification results (`python3 prototype/verify/verify_m2.py`): 21/21 checks pas
 
 - Zoom, pan, selection
 
-Status: `criteria approved`
+Status: `verified`
 
 Acceptance criteria:
 
@@ -182,3 +182,24 @@ scale; polylines within 0.5 px. Each input criterion is checked in both orientat
     manual check in milestone 2.
 15. Opening a second file while zoomed and with a selection shows the whole new file with no
     selection. (hooks + dump)
+
+Verification results (`python3 verify/verify_m3.py`, 37/37 checks passed):
+
+1. `verify_m2.py` (including `build.sh`, the CMake build and `verify_m1.py`) and `verify_m1.py`
+   pass.
+2. Toolbar items: Zoom Out Full, Zoom to Selection, the selection indicator, Time Orientation.
+   After load: 0–4 s, no selection, `–`, both buttons disabled (dump and AXEnabled).
+3. `--view=1,2`: polylines within 0.5 px in both panes, both orientations. Scrollbar legacy style,
+   at the navigator's bottom / right edge, proportion 0.25, knob at 25%. Screenshots
+   (`c3_*.png`) show a quarter period in both panes.
+4. Limits: 0.9996–1.0006, 0–4, 3–4.
+5–12. Passed in both orientations with synthetic events, including pinch (no manual check
+   needed). Screenshots `in_*_selection.png` show the band in both panes.
+13. Buttons pressed via the Accessibility API: 1–3 s, then 0–4 s; Zoom Out Full disabled again.
+14. Resize to 800×600, divider drag (navigator fraction 0.2 → ~0.3) and orientation switch keep
+    1–2 s and selection 1.2–1.5. This also covers the divider drag left to a manual check in
+    milestone 2.
+15. Opening `wave_stereo.wav` while zoomed with a selection shows 0–4 s, no selection.
+
+Not checked automatically: clicking the orientation toggle and the View menu items (unchanged
+since milestone 2), and how gestures feel on a real trackpad and mouse (zoom and scroll rates).

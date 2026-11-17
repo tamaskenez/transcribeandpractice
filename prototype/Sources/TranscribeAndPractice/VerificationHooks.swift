@@ -130,6 +130,8 @@ enum VerificationHooks {
             "orientation": state.orientation.rawValue,
             "navigatorFraction": state.navigatorFraction,
             "windowNumber": mainWindow?.windowNumber ?? NSNull(),
+            "appActive": NSApp.isActive,
+            "windowKey": mainWindow?.isKeyWindow ?? false,
             "contentSize": mainWindow?.contentView.map { size($0.bounds.size) } ?? NSNull(),
             "paneFrames": state.paneFrames.mapValues(rect),
             "transportText": state.transportSummary ?? NSNull(),
