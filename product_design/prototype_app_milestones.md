@@ -257,7 +257,7 @@ passed.
   - the transport pane has 3 buttons corresponding to these actions, a loop-enable button and also
     displays the position of the playhead
 
-Status: `criteria proposed`
+Status: `criteria approved`
 
 Acceptance criteria:
 

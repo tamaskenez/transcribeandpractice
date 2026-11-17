@@ -30,7 +30,33 @@ final class AppState {
     private(set) var viewStart: Double = 0
     private(set) var viewEnd: Double = 0
     /// Selected time range (seconds), start <= end.
-    var selection: ClosedRange<Double>?
+    var selection: ClosedRange<Double>? {
+        didSet { player.core.setSelection(selectionFrames) }
+    }
+
+    // Playback (see Playback.swift).
+    let player = Player()
+    /// Playhead (seconds), updated from the audio callbacks while playing.
+    var playhead: Double = 0
+    private(set) var isPlaying = false
+    /// Where the user last clicked to clear the selection / set the playhead.
+    var clearPoint: Double = 0
+    /// Where the most recent playback started.
+    var lastStart: Double = 0
+    var loopEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(loopEnabled, forKey: Self.loopKey)
+            player.core.setLoop(loopEnabled)
+        }
+    }
+    var followPlayhead: Bool {
+        didSet { UserDefaults.standard.set(followPlayhead, forKey: Self.followKey) }
+    }
+    var ticker: Ticker?
+    private static let loopKey = "loopEnabled"
+    private static let followKey = "followPlayhead"
+
+    func setPlaying(_ on: Bool) { isPlaying = on }
 
     /// Shortest visible range (maximum zoom), in seconds.
     static let minViewLength = 0.1
@@ -42,6 +68,9 @@ final class AppState {
     init() {
         orientation = UserDefaults.standard.string(forKey: Self.orientationKey)
             .flatMap(TimeOrientation.init(rawValue:)) ?? .horizontal
+        loopEnabled = UserDefaults.standard.bool(forKey: Self.loopKey)
+        followPlayhead = UserDefaults.standard.bool(forKey: Self.followKey)
+        player.core.setLoop(loopEnabled)
     }
 
     var windowTitle: String { audio?.fileName ?? appName }
@@ -155,9 +184,15 @@ final class AppState {
     /// Loads the file (blocking). On failure the previously loaded file stays.
     func open(url: URL) {
         do {
-            audio = try AudioLoader.load(url: url)
+            let loaded = try AudioLoader.load(url: url)
+            stopPlayback()
+            audio = loaded
+            player.load(loaded)
             selection = nil
             zoomOutFull()
+            playhead = 0
+            clearPoint = 0
+            lastStart = 0
         } catch {
             errorMessage = "“\(url.lastPathComponent)” could not be opened. \(describe(error))"
         }

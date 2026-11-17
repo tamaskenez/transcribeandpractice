@@ -6,7 +6,7 @@
 //   drag x1 y1 x2 y2 [mods] [left|middle]
 //   scroll x y dx dy [mods]               pixel units; positive dy = wheel up
 //   magnify x y m [steps]                 trackpad pinch, total magnification m
-//   key escape
+//   key escape|space|left|right
 //   press <pid> <title>                   press a toolbar button via Accessibility
 //   enabled <pid> <title>                 print the button's AXEnabled
 //   front <pid>                           make the app frontmost via Accessibility
@@ -51,7 +51,7 @@ func axButton(pid: pid_t, title: String) -> AXUIElement? {
         return AXUIElementCopyAttributeValue(el, name as CFString, &v) == .success ? v : nil
     }
     func search(_ el: AXUIElement, depth: Int) -> AXUIElement? {
-        if (attr(el, kAXRoleAttribute) as? String) == kAXButtonRole {
+        if let role = attr(el, kAXRoleAttribute) as? String, [kAXButtonRole, kAXCheckBoxRole, kAXRadioButtonRole].contains(role) {
             for key in [kAXTitleAttribute, kAXDescriptionAttribute, kAXHelpAttribute] {
                 if let s = attr(el, key) as? String, s == title { return el }
             }
@@ -135,9 +135,10 @@ while let line = readLine() {
         for _ in 0..<steps { gesture(per, phase: 2) }
         gesture(0, phase: 4)
     case "key":
-        if a[1] == "escape" {
-            CGEvent(keyboardEventSource: nil, virtualKey: 53, keyDown: true)?.post(tap: .cghidEventTap); pause(20)
-            CGEvent(keyboardEventSource: nil, virtualKey: 53, keyDown: false)?.post(tap: .cghidEventTap)
+        let codes: [String: CGKeyCode] = ["escape": 53, "space": 49, "left": 123, "right": 124]
+        if let code = codes[a[1]] {
+            CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)?.post(tap: .cghidEventTap); pause(20)
+            CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)?.post(tap: .cghidEventTap)
         }
     case "press", "enabled":
         let title = a[2...].joined(separator: " ")

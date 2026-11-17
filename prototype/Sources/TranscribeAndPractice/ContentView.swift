@@ -14,12 +14,16 @@ struct ContentView: View {
         .navigationTitle(state.windowTitle)
         .toolbar {
             ToolbarItem {
-                Button("Zoom Out Full", systemImage: "arrow.left.and.right.square") { state.zoomOutFull() }
+                Button("Zoom Out Full", systemImage: "arrow.left.and.right.square") {
+                    state.manualViewChange()
+                    state.zoomOutFull()
+                }
                     .disabled(!state.canZoomOutFull)
                     .help("Zoom out to show the whole file")
             }
             ToolbarItem {
                 Button("Zoom to Selection", systemImage: "arrow.right.and.line.vertical.and.arrow.left") {
+                    state.manualViewChange()
                     state.zoomToSelection()
                 }
                 .disabled(!state.canZoomToSelection)
@@ -34,6 +38,13 @@ struct ContentView: View {
                     .help("Selection: start – end (length)")
                     .accessibilityLabel("Selection")
                     .accessibilityValue(state.selectionText)
+            }
+            ToolbarItem {
+                Toggle(isOn: $state.followPlayhead) {
+                    Label("Follow Playhead", systemImage: "scope")
+                }
+                .toggleStyle(.button)
+                .help("Follow Playhead")
             }
             ToolbarItem {
                 Picker("Time Orientation", selection: $state.orientation) {
@@ -126,7 +137,30 @@ private struct TransportPane: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
-        HStack {
+        @Bindable var state = state
+        HStack(spacing: 6) {
+            Group {
+                Button("Rewind and Play", systemImage: "backward.end.fill") { state.rewindAndPlay() }
+                    .help("Rewind and Play (←)")
+                Button(state.isPlaying ? "Stop" : "Play", systemImage: state.isPlaying ? "stop.fill" : "play.fill") {
+                    state.playOrStop()
+                }
+                .help("Play or Stop (Space)")
+                .accessibilityLabel("Play or Stop")
+                Button("Play Again", systemImage: "arrow.counterclockwise") { state.playAgain() }
+                    .help("Play Again (→)")
+                Toggle(isOn: $state.loopEnabled) { Label("Loop", systemImage: "repeat") }
+                    .toggleStyle(.button)
+                    .help("Loop")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .disabled(state.audio == nil)
+            Text(formatTime(state.playhead))
+                .monospacedDigit()
+                .frame(width: 72, alignment: .leading)
+                .padding(.leading, 6)
+                .accessibilityLabel("Playhead")
             Text(state.transportSummary ?? " ")
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
