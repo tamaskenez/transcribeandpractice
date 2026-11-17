@@ -9,10 +9,14 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 from gen_test_audio_m2 import signals, SR  # noqa: E402
 from m3session import OUT, BIN, Session, build_driver  # noqa: E402
+import waveref  # noqa: E402
 
 AUDIO = f'{OUT}/audio'
 MONO, STEREO = f'{AUDIO}/wave_mono.wav', f'{AUDIO}/wave_stereo.wav'
 D = 4.0
+MIN_VIEW = 0.1      # maximum zoom: shortest visible range
+M = MIN_VIEW / 2    # the view may extend this far beyond both ends of the file
+FULL = (-M, D + M)
 results = []
 
 
@@ -44,18 +48,7 @@ def run_app(name, opens=(), extra=(), snapshot=False):
 
 
 def reference_points(mono, w, h, orientation, start, end):
-    length, cross = (w, h) if orientation == 'horizontal' else (h, w)
-    n = int(length) + 1
-    t = start + np.arange(n) * ((end - start) / (n - 1))
-    pos = np.clip(t * SR, 0, len(mono) - 1)
-    i0 = pos.astype(int)
-    i1 = np.minimum(i0 + 1, len(mono) - 1)
-    f = pos - i0
-    v = mono[i0].astype(np.float64) * (1 - f) + mono[i1].astype(np.float64) * f
-    a = np.arange(n) * length / (n - 1)
-    if orientation == 'horizontal':
-        return np.stack([a, cross / 2 * (1 - v)], axis=1)
-    return np.stack([cross / 2 * (1 + v), a], axis=1)
+    return waveref.reference_points(mono, SR, w, h, orientation, start, end)
 
 
 # 1. Builds, earlier milestones (verify_m2 also runs build.sh, the CMake build and verify_m1)
@@ -78,8 +71,8 @@ ax = [s.input(f'enabled {s.proc.pid} {t}') for t in ('Zoom Out Full', 'Zoom to S
 check(2, 'toolbar: Zoom Out Full, Zoom to Selection, selection indicator, orientation toggle',
       labels[:2] == ['Zoom Out Full', 'Zoom to Selection'] and len(labels) == 4 and labels[3] == 'Time Orientation',
       labels)
-check(2, 'after load: whole file, no selection, indicator "–", both buttons disabled (dump and AX)',
-      s.view() == (0, D) and s.sel() is None and st['selectionText'] == '–'
+check(2, 'after load: whole file plus margins (-0.05–4.05 s), no selection, indicator "–", both buttons disabled (dump and AX)',
+      close(s.view(), FULL, 1e-9) and s.sel() is None and st['selectionText'] == '–'
       and st['buttons'] == {'zoomOutFull': False, 'zoomToSelection': False} and ax == [['false'], ['false']],
       f"{s.view()} {s.sel()} {st['selectionText']} {st['buttons']} {ax}")
 s.quit()
@@ -107,14 +100,28 @@ for orientation in ['horizontal', 'vertical']:
         edge_ok = abs(bar['y'] + bar['height'] - (nav['y'] + nav['height'])) < 0.5 and bar['width'] == nav['width']
     else:
         edge_ok = abs(bar['x'] + bar['width'] - (nav['x'] + nav['width'])) < 0.5 and bar['height'] == nav['height']
-    check(3, f'{orientation}: scrollbar along the navigator time axis, legacy style, knob at 25% with proportion 25%',
+    check(3, f'{orientation}: scrollbar along the navigator time axis, legacy style, knob at (1+0.05)/4.1 with proportion 1/4.1',
           edge_ok and sb['vertical'] == (o == 'v') and sb['style'] == 'legacy' and sb['enabled']
-          and abs(sb['knobProportion'] - 0.25) < 1e-6 and abs(sb['value'] - 1 / 3) < 1e-6
-          and abs(knob_pos - 0.25) < 0.02 and st['buttons']['zoomOutFull'],
+          and abs(sb['knobProportion'] - 1 / (D + 2 * M)) < 1e-6
+          and abs(sb['value'] - (1 + M) / (D + 2 * M - 1)) < 1e-6
+          and abs(knob_pos - (1 + M) / (D + 2 * M)) < 0.02 and st['buttons']['zoomOutFull'],
           f'{sb} {bar} {nav} knob_pos {knob_pos:.3f}')
 
+# 3b. Margins: no waveform points outside the file
+for orientation in ['horizontal', 'vertical']:
+    st = run_app(f'c3b_{orientation}', [MONO], [f'--orientation={orientation}', '--view=-0.05,0.95'], snapshot=True)
+    w = st['waveforms']['main']
+    ref = reference_points(mono, w['size']['width'], w['size']['height'], orientation, -0.05, 0.95)
+    got = np.array(w['points'])
+    err = np.abs(got - ref).max() if got.shape == ref.shape else float('inf')
+    first = got[0][0 if orientation == 'horizontal' else 1]
+    L = w['size']['width' if orientation == 'horizontal' else 'height']
+    check(3, f'{orientation}: view -0.05–0.95: waveform starts at 5% of the pane (none before the file start)',
+          err <= 0.5 and abs(first - 0.05 * L) <= 1, f'error {err}, first point at {first} of {L}')
+
 # 4. Limits via hooks
-for args, want in [('1.0,1.0002', (1.0001 - 0.0005, 1.0001 + 0.0005)), ('-1,10', (0, D)), ('3.5,4.5', (3.0, 4.0))]:
+for args, want in [('1.0,1.0002', (1.0001 - 0.05, 1.0001 + 0.05)), ('-1,10', FULL), ('3.5,4.5', (3.0 + M, 4.0 + M)),
+                   ('-0.5,0.5', (-M, 1 - M))]:
     st = run_app('c4', [MONO], [f'--view={args}'])
     v = (st['view']['start'], st['view']['end'])
     check(4, f'--view={args} gives {want[0]:.4f}–{want[1]:.4f}', close(v, want, 1e-9), v)
@@ -124,7 +131,8 @@ for orientation in ['horizontal', 'vertical']:
     o = orientation[0]
     pid = s.proc.pid
     L = s.length('main')
-    tol = D / L  # one point at full view
+    tol = D / L  # one point at view 0–4
+    s.command('view 0,4'); s.dump()
 
     # 5. Plain drag selection
     s.input(f'drag {P(s.at("main", .25))} {P(s.at("main", .75))}')
@@ -182,8 +190,8 @@ for orientation in ['horizontal', 'vertical']:
         ok = close(r1, (1 + 50 * sec, 2 + 50 * sec), 1e-6) and close(r2, (1, 2), 1e-9)
     r3 = scrolled(0, 200, (0, 1))
     r4 = scrolled(0, -200, (3, 4))
-    check(8, f'{orientation}: scrolling pans by the scrolled distance ({"both axes" if o == "h" else "vertical axis only"}); stops at the ends',
-          ok and close(r3, (0, 1), 1e-9) and close(r4, (3, 4), 1e-9), f'{r1} {r2} {r3} {r4}')
+    check(8, f'{orientation}: scrolling pans by the scrolled distance ({"both axes" if o == "h" else "vertical axis only"}); stops 50 ms beyond the ends',
+          ok and close(r3, (-M, 1 - M), 1e-9) and close(r4, (3 + M, 4 + M), 1e-9), f'{r1} {r2} {r3} {r4}')
 
     # 9. ⌘ + scroll zooms around the pointer
     s.command('view 1,2'); s.dump()
@@ -193,14 +201,14 @@ for orientation in ['horizontal', 'vertical']:
     t_after = v1[0] + .3 * (v1[1] - v1[0])
     s.input(f'scroll {P(s.at("main", .3))} 0 -100 cmd')
     v2 = s.view()
-    zoomed_in = v1[1] - v1[0] < 0.5 and abs(t_after - anchor) <= (v1[1] - v1[0]) / L
+    zoomed_in = v1[1] - v1[0] < 0.5 and v1[1] - v1[0] >= MIN_VIEW - 1e-9 and abs(t_after - anchor) <= (v1[1] - v1[0]) / L
     zoomed_out = abs(v2[0] - 1) < 1e-6 and abs(v2[1] - 2) < 1e-6
     s.input(*[f'scroll {P(s.at("main", .3))} 0 300 cmd'] * 12)
     vmax = s.view()
     s.input(*[f'scroll {P(s.at("main", .3))} 0 -300 cmd'] * 12)
     vmin = s.view()
-    check(9, f'{orientation}: ⌘+scroll zooms in/out around the pointer; stops at 1 ms and the whole file',
-          zoomed_in and zoomed_out and abs(vmax[1] - vmax[0] - 0.001) < 1e-9 and vmin == (0, D),
+    check(9, f'{orientation}: ⌘+scroll zooms in/out around the pointer; stops at 100 ms and the whole file plus margins',
+          zoomed_in and zoomed_out and abs(vmax[1] - vmax[0] - MIN_VIEW) < 1e-9 and close(vmin, FULL, 1e-9),
           f'{v1} anchor@{t_after:.6f} {v2} {vmax} {vmin}')
 
     # 10. Pinch
@@ -224,7 +232,7 @@ for orientation in ['horizontal', 'vertical']:
     s.input(f'drag {P(s.at("main", .3))} {P(s.at("main", .8))} option')
     end_stop = s.view()
     check(11, f'{orientation}: option-drag and middle-drag move the grabbed time with the pointer; stop at the ends',
-          all(close(v, (1.2, 2.2), 1 / L) for v in res) and close(end_stop, (0, 1), 1e-9) and s.sel() is None,
+          all(close(v, (1.2, 2.2), 1 / L) for v in res) and close(end_stop, (-M, 1 - M), 1e-9) and s.sel() is None,
           f'{res} {end_stop}')
 
     # 12. Scrollbar
@@ -240,8 +248,8 @@ for orientation in ['horizontal', 'vertical']:
     s.command('view 1,2'); s.dump()
     s.input(f'click {P(bar_at(.9))}')
     v_click = s.view()
-    check(12, f'{orientation}: dragging the knob by 10% of the track pans ~0.4 s; clicking the track pans',
-          abs(v_drag[0] - 1.4) < 0.03 and abs(v_drag[1] - v_drag[0] - 1) < 1e-9 and v_click[0] > 1.5,
+    check(12, f'{orientation}: dragging the knob by 10% of the track pans ~0.41 s; clicking the track pans',
+          abs(v_drag[0] - (1 + 0.1 * (D + 2 * M))) < 0.03 and abs(v_drag[1] - v_drag[0] - 1) < 1e-9 and v_click[0] > 1.5,
           f'{v_drag} {v_click}')
 
     # 13. Toolbar buttons via Accessibility
@@ -255,7 +263,7 @@ for orientation in ['horizontal', 'vertical']:
     en3 = s.input(f'enabled {pid} Zoom Out Full')
     check(13, f'{orientation}: Zoom to Selection shows 1–3, then Zoom Out Full the whole file (pressed via AX)',
           en == ['true'] and pr == ['pressed'] and close(v1, (1, 3), 1e-9) and en2 == ['true']
-          and v2 == (0, D) and en3 == ['false'], f'{en} {pr} {v1} {en2} {v2} {en3}')
+          and close(v2, FULL, 1e-9) and en3 == ['false'], f'{en} {pr} {v1} {en2} {v2} {en3}')
 
     # 14. Resize, divider drag, orientation switch keep range and selection
     s.command('view 1,2'); s.command('select 1.2,1.5'); s.dump()
@@ -279,7 +287,7 @@ for orientation in ['horizontal', 'vertical']:
     s.command(f'orientation {orientation}'); s.command('view 1,2'); s.command('select 1.2,1.5')
     s.command(f'open {os.path.abspath(STEREO)}'); s.dump()
     check(15, f'{orientation}: opening a second file shows the whole file, no selection',
-          s.state['loaded']['fileName'] == 'wave_stereo.wav' and s.view() == (0, D) and s.sel() is None,
+          s.state['loaded']['fileName'] == 'wave_stereo.wav' and close(s.view(), FULL, 1e-9) and s.sel() is None,
           f'{s.view()} {s.sel()}')
     s.command('resize 1000,700')  # the window frame is restored on the next launch
     s.quit()

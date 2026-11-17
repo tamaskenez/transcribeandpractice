@@ -33,7 +33,9 @@ final class AppState {
     var selection: ClosedRange<Double>?
 
     /// Shortest visible range (maximum zoom), in seconds.
-    static let minViewLength = 0.001
+    static let minViewLength = 0.1
+    /// The visible range may extend this far before the start and after the end of the file.
+    static let viewMargin = minViewLength / 2
 
     private static let orientationKey = "timeOrientation"
 
@@ -53,33 +55,35 @@ final class AppState {
 
     var duration: Double { audio?.duration ?? 0 }
     var viewLength: Double { viewEnd - viewStart }
-    var isFullView: Bool { viewStart <= 0 && viewEnd >= duration }
+    /// Limits of the visible range: the file plus a margin at both ends.
+    var viewLimits: (lower: Double, upper: Double) { (-Self.viewMargin, duration + Self.viewMargin) }
+    var isFullView: Bool { viewStart <= viewLimits.lower && viewEnd >= viewLimits.upper }
     var canZoomOutFull: Bool { audio != nil && !isFullView }
     var canZoomToSelection: Bool { audio != nil && selection != nil }
 
-    /// Sets the visible range, applying the limits: length between 1 ms (or the whole file, if
-    /// shorter) and the whole file, keeping the requested center; then shifted inside the file.
+    /// Sets the visible range, applying the limits: length at least minViewLength and at most
+    /// the limits' span, keeping the requested center; then shifted inside the limits.
     func setView(start: Double, end: Double) {
-        let d = duration
-        guard d > 0, start.isFinite, end.isFinite else { viewStart = 0; viewEnd = d; return }
+        let (lo, hi) = viewLimits
+        guard duration > 0, start.isFinite, end.isFinite else { viewStart = 0; viewEnd = duration; return }
         var a = min(start, end), b = max(start, end)
-        let length = min(max(b - a, min(Self.minViewLength, d)), d)
+        let length = min(max(b - a, Self.minViewLength), hi - lo)
         if length != b - a {
             let center = (a + b) / 2
             a = center - length / 2
             b = a + length
         }
-        if a < 0 { a = 0; b = length }
-        if b > d { b = d; a = d - length }
-        viewStart = max(a, 0)
-        viewEnd = min(b, d)
+        if a < lo { a = lo; b = lo + length }
+        if b > hi { b = hi; a = hi - length }
+        viewStart = max(a, lo)
+        viewEnd = min(b, hi)
     }
 
     /// Zooms by `factor` (> 1 zooms in) keeping `anchor` (seconds) at the same place on screen.
     func zoom(by factor: Double, anchor: Double) {
         guard factor > 0, viewLength > 0 else { return }
-        let d = duration
-        let length = min(max(viewLength / factor, min(Self.minViewLength, d)), d)
+        let (lo, hi) = viewLimits
+        let length = min(max(viewLength / factor, Self.minViewLength), hi - lo)
         let frac = (anchor - viewStart) / viewLength
         let start = anchor - frac * length
         setView(start: start, end: start + length)
@@ -90,7 +94,7 @@ final class AppState {
         setView(start: viewStart + seconds, end: viewEnd + seconds)
     }
 
-    func zoomOutFull() { setView(start: 0, end: duration) }
+    func zoomOutFull() { setView(start: viewLimits.lower, end: viewLimits.upper) }
 
     func zoomToSelection() {
         guard let s = selection else { return }

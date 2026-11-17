@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 
 /// Polyline of the mono signal over the visible range, in pane coordinates (top-left origin).
-/// A pane with time-axis length L gets L+1 points; point i is at time start + i·(end−start)/L,
-/// i.e. sample position time·sampleRate (clamped to the file), linearly interpolated.
+/// A pane with time-axis length L has L+1 axis positions; position i is at time
+/// start + i·(end−start)/L, i.e. sample position time·sampleRate, linearly interpolated.
+/// Positions outside the file (sample position < 0 or > frames−1) get no point.
 /// Amplitude ±1.0 maps to the pane edges, 0 to the middle; positive is up (horizontal) or right
 /// (vertical).
 func waveformPoints(mono: [Float], sampleRate: Double, start: Double, end: Double,
@@ -18,7 +19,8 @@ func waveformPoints(mono: [Float], sampleRate: Double, start: Double, end: Doubl
     var points: [CGPoint] = []
     points.reserveCapacity(n)
     for i in 0..<n {
-        let pos = min(max((start + Double(i) * secondsPerPoint) * sampleRate, 0), last)
+        let pos = (start + Double(i) * secondsPerPoint) * sampleRate
+        guard pos >= 0, pos <= last else { continue }
         let i0 = Int(pos)
         let i1 = min(i0 + 1, frames - 1)
         let f = Float(pos - Double(i0))
@@ -215,20 +217,22 @@ final class TimeScroller: NSScroller {
         guard let state, state.duration > 0 else {
             isEnabled = false; knobProportion = 1; doubleValue = 0; return
         }
-        let rest = state.duration - state.viewLength
-        isEnabled = rest > 0
-        knobProportion = CGFloat(state.viewLength / state.duration)
-        doubleValue = rest > 0 ? state.viewStart / rest : 0
+        let (lo, hi) = state.viewLimits
+        let rest = hi - lo - state.viewLength
+        isEnabled = rest > 1e-12
+        knobProportion = CGFloat(state.viewLength / (hi - lo))
+        doubleValue = isEnabled ? (state.viewStart - lo) / rest : 0
     }
 
     @objc func scrolled(_ sender: NSScroller) {
         guard let state else { return }
-        let rest = state.duration - state.viewLength
+        let (lo, hi) = state.viewLimits
+        let rest = hi - lo - state.viewLength
         switch hitPart {
         case .decrementPage: state.pan(by: -state.viewLength)
         case .incrementPage: state.pan(by: state.viewLength)
         default:
-            let start = doubleValue * rest
+            let start = lo + doubleValue * rest
             state.setView(start: start, end: start + state.viewLength)
         }
         update()

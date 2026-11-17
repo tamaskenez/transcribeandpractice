@@ -80,9 +80,10 @@ Visible range:
 
 - The navigator and the main pane always show the same visible time range. Zooming or panning in
   either pane changes both.
-- The visible range always lies within the file. It can't be longer than the file (fully zoomed
-  out = the whole file) or shorter than 1 ms (maximum zoom; for files shorter than 1 ms, the whole
-  file).
+- The visible range can't be shorter than 100 ms (maximum zoom). It may extend beyond the file
+  by a margin of half of that (50 ms) at both ends: it always lies within −50 ms … file end +
+  50 ms, and fully zoomed out it is exactly that range. No waveform is drawn in the margins.
+  (Changed in the milestone 3 review; originally 1 ms and limited to the file.)
 - Resizing the window, dragging the divider or switching orientation keeps the visible time range
   (only the scale changes).
 - Opening a file shows the whole file and clears the selection.
@@ -92,9 +93,11 @@ Zoom (time axis only; the amplitude scale doesn't change):
 - Trackpad pinch: zooms around the pointer (the time under the pointer stays under the pointer).
 - ⌘ + scroll (wheel or two-finger scroll along either axis): zooms around the pointer. Scrolling
   up / away zooms in.
-- Toolbar Zoom Out Full: shows the whole file. Disabled when the whole file is already shown.
-- Toolbar Zoom to Selection: makes the visible range equal to the selection (widened to 1 ms around
-  its center if shorter). Disabled when there is no selection.
+- Toolbar Zoom Out Full: shows the whole file plus the margins. Disabled when that is already
+  shown.
+- Toolbar Zoom to Selection: makes the visible range equal to the selection (widened to 100 ms
+  around its center if shorter, then shifted inside the limits). Disabled when there is no
+  selection.
 
 Pan:
 
@@ -107,7 +110,7 @@ Pan:
   mode, at its right edge (next to the main pane) in vertical mode. The knob shows the visible
   range's position and size within the whole file; dragging it, or clicking the track, pans. The
   scrollbar is always visible (legacy style, not the auto-hiding overlay style).
-- Panning stops at the start and end of the file.
+- Panning stops 50 ms beyond the start and end of the file. The scrollbar spans the same range.
 
 Selection:
 
@@ -204,8 +207,10 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
   grid is no longer on screen.
 - (Milestone 3) Time model: the visible range and the selection are in seconds. Waveform point i
   of a pane with time-axis length L is at time start + i·(end − start)/L, read at sample position
-  time·sampleRate, clamped to the last sample. (Milestone 2 mapped the whole file to sample
-  positions 0…frames−1; the difference is under one sample.)
+  time·sampleRate; positions outside 0…frames−1 (in the margins) get no point. (Milestone 2
+  mapped the whole file to sample positions 0…frames−1; `verify_m2.py` now compares against the
+  milestone 3 model with the dumped visible range.)
+- The selection stays within the file; it can't extend into the margins.
 - Zoom rates: ⌘ + scroll zooms by e^(0.01·d) for a scroll of d points; a positive vertical delta
   (wheel turned up / away, or two fingers moved down with natural scrolling) zooms in. A pinch
   zooms by 1 + magnification per event. Line-based mouse wheels count as 10 points per line, for
