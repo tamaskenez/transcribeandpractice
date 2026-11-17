@@ -173,14 +173,18 @@ Actions:
 
 Where playback ends:
 
-- The selection rules apply only when playback starts inside the selection (start ≤ playhead <
-  end); otherwise the selection is ignored for that playback.
-- No selection (or ignored): playback stops at the file end and the playhead rewinds to the
-  file start.
-- Selection, loop off: playback stops at the selection end and the playhead rewinds to the
-  selection start.
-- Selection, loop on: at the selection end playback continues at the selection start, without a
-  gap (sample-accurate).
+- The selection end only matters when the playback crosses it: the play position reaches it from
+  before. If the selection end is moved before the play position during playback, it is not
+  crossed, and playback goes on to the file end.
+- Selection, loop off: playback stops at the selection end, and the playhead rewinds to the
+  selection start, only if the playback started at the selection start (within one sample).
+  This is decided when playback starts and holds even if the selection is changed or moved
+  afterwards. Otherwise (e.g. stop and continue within the selection) playback continues through
+  the selection end.
+- Selection, loop on: if the playback started inside the selection (start ≤ playhead < end), at
+  the selection end it continues at the selection start, without a gap (sample-accurate).
+  Playback that started outside the selection ignores it.
+- Otherwise playback stops at the file end and the playhead rewinds to the file start.
 
 Output:
 

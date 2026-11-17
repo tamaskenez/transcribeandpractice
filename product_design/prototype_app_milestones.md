@@ -284,8 +284,14 @@ Accessibility. Each check runs in horizontal mode; the mouse and display checks 
    audio = samples 2.0–3.0 exactly. (record + dumps)
 7. Selection 2–3 s, loop on: after 2.5 s of playback the rendered audio is 2.0–3.0, 2.0–3.0,
    2.0–2.5 with no gap or repeated sample at the joins. (record)
-8. Playback starting outside the selection (playhead 4.0, selection 2–3) ignores it and plays to
-   the file end. (dumps)
+8. Selection 2–3 s, loop off: playback that doesn't start at the selection start continues
+   through the selection end to the file end: (a) start at 2.0, stop at ~2.5, continue (Space);
+   (b) start at 4.0 (outside). Playback started at 2.0 still stops at the selection end after the
+   selection was moved during playback to 2.5–3.5 (stops at 3.5, playhead back at 2.5). Moving the
+   selection end before the play position during playback (started at 2.0, at ~2.6 drag the end
+   edge to 2.3) doesn't stop it: it plays to the file end. Loop on: playback started at 4.0
+   ignores the selection; moving the end before the play position during a loop doesn't loop
+   back. (synthetic events + dumps + record)
 9. Rewind-and-play (Left Arrow and button): from a running playback, restarts at the selection
    start; with no selection, at the last clicked position; after opening a file, at 0. Play-again
    (Right Arrow and button): restarts at the last playback start. (synthetic keys, AX, record +
