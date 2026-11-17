@@ -45,15 +45,24 @@ final class WaveformNSView: NSView {
     private enum Drag {
         case select(anchor: Double, extend: Bool)
         case pan(grabbedTime: Double)
-        /// Moving one edge: `anchor` is the other edge; `offset` = edge time − press time.
-        case edge(anchor: Double, offset: Double)
+        /// Moving the grabbed lines (a selection edge, the playhead, the last start) together:
+        /// `anchor` is the other selection edge if an edge is grabbed; `offset` = line time −
+        /// press time.
+        case lines(Grab, anchor: Double?, offset: Double)
         /// Moving the whole selection.
         case move(original: ClosedRange<Double>, pressTime: Double)
     }
 
+    /// Lines grabbed by a press: the nearest one within the tolerance, plus the other lines at
+    /// the same time (within one sample). At most one selection edge.
+    struct Grab: Equatable {
+        var startEdge = false, endEdge = false, playhead = false, lastStart = false
+        var time: Double = 0
+        var edge: Bool { startEdge || endEdge }
+    }
     /// What a plain press at a point would do; also decides the cursor.
-    private enum Hover { case none, startEdge, endEdge, inside }
-    /// Distance (points) from a selection edge within which the edge can be grabbed.
+    private enum Hover: Equatable { case none, lines(Grab), inside }
+    /// Distance (points) from a line within which it can be grabbed.
     private static let edgeTolerance: CGFloat = 4
     /// Name of the cursor the view last set, for the state dump.
     private(set) var cursorName = "arrow"
@@ -114,8 +123,11 @@ final class WaveformNSView: NSView {
         zero.lineWidth = 1
         zero.stroke()
 
+        defer { drawLines() }
         let points = points()
         guard let first = points.first else { return }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
         NSBezierPath(rect: bounds).setClip() // amplitude zoom can push the polyline past the edges
         let path = NSBezierPath()
         path.move(to: first)
@@ -125,16 +137,58 @@ final class WaveformNSView: NSView {
         path.stroke()
     }
 
+    /// Axis position of the playhead line, if it is drawn (for the state dump too).
+    var playheadAxis: CGFloat? {
+        guard let state, state.audio != nil else { return nil }
+        let a = axis(ofTime: state.playhead)
+        return a >= 0 && a <= timeLength ? a : nil
+    }
+
+    /// Axis position of the last-playback-start line, if it is drawn.
+    var lastStartAxis: CGFloat? {
+        guard let state, state.audio != nil else { return nil }
+        let a = axis(ofTime: state.lastStart)
+        return a >= 0 && a <= timeLength ? a : nil
+    }
+
+    /// The last start first, so the playhead covers it where they coincide.
+    private func drawLines() {
+        for (axis, color) in [(lastStartAxis, NSColor.lastStartColor), (playheadAxis, NSColor.systemRed)] {
+            guard let a = axis else { continue }
+            color.setFill()
+            (orientation == .horizontal ? NSRect(x: a - 0.75, y: 0, width: 1.5, height: bounds.height)
+                                        : NSRect(x: 0, y: a - 0.75, width: bounds.width, height: 1.5)).fill()
+        }
+    }
+
     // MARK: Mouse
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     private func hover(at p: CGPoint) -> Hover {
-        guard let sel = state?.selection else { return .none }
-        let pos = axisPosition(p), a = axis(ofTime: sel.lowerBound), b = axis(ofTime: sel.upperBound)
-        let da = abs(pos - a), db = abs(pos - b)
-        if min(da, db) <= Self.edgeTolerance { return da <= db ? .startEdge : .endEdge }
-        return pos > a && pos < b ? .inside : .none
+        guard let state, let audio = state.audio else { return .none }
+        let sel = state.selection
+        enum Line { case startEdge, endEdge, playhead, lastStart }
+        var lines: [(Line, Double)] = []
+        if let sel { lines += [(.startEdge, sel.lowerBound), (.endEdge, sel.upperBound)] }
+        if !state.isPlaying { lines.append((.playhead, state.playhead)) }
+        lines.append((.lastStart, state.lastStart))
+        let pos = axisPosition(p)
+        if let nearest = lines.min(by: { abs(pos - axis(ofTime: $0.1)) < abs(pos - axis(ofTime: $1.1)) }),
+           abs(pos - axis(ofTime: nearest.1)) <= Self.edgeTolerance {
+            var g = Grab(time: nearest.1)
+            for (line, t) in lines where line == nearest.0 || abs(t - nearest.1) <= 1 / audio.sampleRate {
+                switch line {
+                case .startEdge: if !g.edge || line == nearest.0 { g.startEdge = true; g.endEdge = false }
+                case .endEdge: if !g.edge || line == nearest.0 { g.endEdge = true; g.startEdge = false }
+                case .playhead: g.playhead = true
+                case .lastStart: g.lastStart = true
+                }
+            }
+            return .lines(g)
+        }
+        guard let sel else { return .none }
+        return pos > axis(ofTime: sel.lowerBound) && pos < axis(ofTime: sel.upperBound) ? .inside : .none
     }
 
     override func updateTrackingAreas() {
@@ -151,13 +205,13 @@ final class WaveformNSView: NSView {
         let cursor: NSCursor, name: String
         if case .move = drag {
             (cursor, name) = (.closedHand, "closedHand")
-        } else if case .edge = drag {
+        } else if case .lines = drag {
             (cursor, name) = orientation == .horizontal ? (.columnResize, "columnResize") : (.rowResize, "rowResize")
         } else if drag != nil || !flags.intersection([.option, .shift, .command]).isEmpty {
             (cursor, name) = (.arrow, "arrow")
         } else {
             switch hover(at: p) {
-            case .startEdge, .endEdge:
+            case .lines:
                 (cursor, name) = orientation == .horizontal ? (.columnResize, "columnResize") : (.rowResize, "rowResize")
             case .inside: (cursor, name) = (.openHand, "openHand")
             case .none: (cursor, name) = (.arrow, "arrow")
@@ -186,12 +240,14 @@ final class WaveformNSView: NSView {
             // Keep the end farther from the click; the nearer one follows the pointer.
             let anchor = abs(t - sel.lowerBound) < abs(t - sel.upperBound) ? sel.upperBound : sel.lowerBound
             drag = .select(anchor: anchor, extend: true)
-        } else if let sel = state.selection, case let h = hover(at: p), h != .none {
+        } else if case let h = hover(at: p), h != .none {
             let pt = time(atAxis: axisPosition(p))
             switch h {
-            case .startEdge: drag = .edge(anchor: sel.upperBound, offset: sel.lowerBound - pt)
-            case .endEdge: drag = .edge(anchor: sel.lowerBound, offset: sel.upperBound - pt)
-            default: drag = .move(original: sel, pressTime: pt)
+            case let .lines(g):
+                let anchor = g.startEdge ? state.selection?.upperBound : g.endEdge ? state.selection?.lowerBound : nil
+                drag = .lines(g, anchor: anchor, offset: g.time - pt)
+            default:
+                if let sel = state.selection { drag = .move(original: sel, pressTime: pt) }
             }
         } else {
             drag = .select(anchor: t, extend: false)
@@ -211,19 +267,31 @@ final class WaveformNSView: NSView {
 
     private func dragTo(_ p: CGPoint) {
         guard let state, let drag else { return }
-        if hypot(p.x - pressPoint.x, p.y - pressPoint.y) >= 2 { dragged = true }
+        if !dragged, hypot(p.x - pressPoint.x, p.y - pressPoint.y) >= 2 {
+            dragged = true
+            if case .select(_, false) = drag { state.newSelectionStarted() }
+            switch drag {
+            case .move, .select(_, true): state.player.core.setSelectionDragging(true)
+            case let .lines(g, _, _) where g.edge: state.player.core.setSelectionDragging(true)
+            default: break
+            }
+            if case .pan = drag { state.manualViewChange() }
+        }
         switch drag {
         case let .select(anchor, extend):
             if dragged || extend { state.select(anchor, time(atAxis: clampedAxis(p))) }
+            if dragged && !extend { state.newSelectionChanged() }
         case let .pan(grabbed):
             guard timeLength > 0 else { return }
             let start = grabbed - Double(axisPosition(p) / timeLength) * state.viewLength
             state.setView(start: start, end: start + state.viewLength)
-        case let .edge(anchor, offset):
-            // The edge keeps its offset from the pointer, limited to the visible range.
+        case let .lines(g, anchor, offset):
+            // The lines keep their offset from the pointer, limited to the visible range and the file.
             guard dragged else { return }
-            let t = time(atAxis: axisPosition(p)) + offset
-            state.select(anchor, min(max(t, state.viewStart), state.viewEnd))
+            let t = min(max(time(atAxis: axisPosition(p)) + offset, state.viewStart, 0), state.viewEnd, state.duration)
+            if let anchor { state.select(anchor, t) }
+            if g.playhead { state.dragPlayhead(to: t) }
+            if g.lastStart { state.dragLastStart(to: t) }
         case let .move(original, pressTime):
             guard dragged else { return }
             state.moveSelection(from: original, by: time(atAxis: axisPosition(p)) - pressTime)
@@ -235,9 +303,11 @@ final class WaveformNSView: NSView {
         let p = location(event)
         dragTo(p)
         // A click without a drag clears the selection (also on its edges or inside it).
+        state.player.core.setSelectionDragging(false)
+        let clicked = time(atAxis: axisPosition(p))
         switch drag {
-        case let .select(_, extend): if !dragged && !extend { state.selection = nil }
-        case .edge, .move: if !dragged { state.selection = nil }
+        case let .select(_, extend): if !dragged && !extend { state.clickedToClear(at: clicked) }
+        case .lines, .move: if !dragged { state.clickedToClear(at: clicked) }
         case .pan: break
         }
         self.drag = nil
@@ -256,6 +326,7 @@ final class WaveformNSView: NSView {
         // Line-based wheels report small deltas; scale them to roughly 10 points per line.
         let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
         let dx = event.scrollingDeltaX * scale, dy = event.scrollingDeltaY * scale
+        state.manualViewChange()
         if event.modifierFlags.contains(.command) {
             // Scrolling along the time axis zooms time; across it, amplitude. Positive zooms in.
             let (dTime, dAmp) = orientation == .horizontal ? (dx, dy) : (dy, dx)
@@ -272,6 +343,7 @@ final class WaveformNSView: NSView {
 
     override func magnify(with event: NSEvent) {
         guard let state, state.audio != nil else { return }
+        state.manualViewChange()
         state.zoom(by: 1 + Double(event.magnification), anchor: time(atAxis: clampedAxis(location(event))))
     }
 }
@@ -289,7 +361,7 @@ struct WaveformView: NSViewRepresentable {
         view.background = background
         // Read the observed properties here so SwiftUI calls this again when they change.
         _ = (state.audio?.mono.count, state.orientation, state.viewStart, state.viewEnd, state.selection,
-             state.amplitudeZoomDB)
+             state.amplitudeZoomDB, state.playhead, state.lastStart, state.isPlaying)
         view.needsDisplay = true
     }
 }
@@ -311,8 +383,34 @@ final class TimeScroller: NSScroller {
         doubleValue = isEnabled ? (state.viewStart - lo) / rest : 0
     }
 
+    /// Position of the playhead mark along the track (points from the scroller's start).
+    var playheadMark: CGFloat? { mark(state?.playhead) }
+
+    /// Position of the last-playback-start mark along the track.
+    var lastStartMark: CGFloat? { mark(state?.lastStart) }
+
+    private func mark(_ t: Double?) -> CGFloat? {
+        guard let state, state.audio != nil, let t else { return nil }
+        let (lo, hi) = state.viewLimits
+        let slot = rect(for: .knobSlot)
+        let vertical = bounds.height > bounds.width
+        let (start, length) = vertical ? (slot.minY, slot.height) : (slot.minX, slot.width)
+        return start + CGFloat((t - lo) / (hi - lo)) * length
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        for (m, color) in [(lastStartMark, NSColor.lastStartColor), (playheadMark, NSColor.systemRed)] {
+            guard let m else { continue }
+            color.setFill()
+            (bounds.height > bounds.width ? NSRect(x: 0, y: m - 1, width: bounds.width, height: 2)
+                                          : NSRect(x: m - 1, y: 0, width: 2, height: bounds.height)).fill()
+        }
+    }
+
     @objc func scrolled(_ sender: NSScroller) {
         guard let state else { return }
+        state.manualViewChange()
         let (lo, hi) = state.viewLimits
         let rest = hi - lo - state.viewLength
         switch hitPart {
@@ -345,7 +443,19 @@ struct TimeScrollerView: NSViewRepresentable {
 
     func updateNSView(_ view: TimeScroller, context: Context) {
         view.state = state
-        _ = (state.audio?.duration, state.viewStart, state.viewEnd)
+        _ = (state.audio?.duration, state.viewStart, state.viewEnd, state.playhead, state.lastStart)
         view.update()
+        view.needsDisplay = true
+    }
+}
+
+extension NSColor {
+    /// The playhead's red, desaturated: the last-playback-start line.
+    static var lastStartColor: NSColor {
+        NSColor(name: nil) { _ in
+            guard let red = NSColor.systemRed.usingColorSpace(.sRGB) else { return .systemGray }
+            return NSColor(hue: red.hueComponent, saturation: red.saturationComponent * 0.35,
+                           brightness: red.brightnessComponent * 0.9, alpha: 1)
+        }
     }
 }

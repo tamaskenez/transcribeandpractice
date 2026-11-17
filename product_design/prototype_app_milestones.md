@@ -229,3 +229,167 @@ with matching cursors; files longer than 2³⁰ − 1 frames get a clear error (
 files). Criteria 9 adjusted, 16–18 added. Margins: already drawn with only the zero axis line
 (criterion 4); see the encoder-padding note in Decisions. Re-verified: `verify_m3.py` 54/54
 passed.
+
+## 4. Playback
+
+- We maintain a playhead, which can be set by the user but also advanced by the actual playback:
+  each buffer sent to the audio output sets the playhead to the start of the last buffer. Ideally
+  the buffer size is around 30-50 ms. If the display frequency is available, set the buffer size
+  to the multiply of the display frequency so it falls in the said range.
+- We maintain also last playback start position and loop-enabled flag
+- The user actions that affect playback:
+  - starting a selection or clearing it stops playback and puts the playhead at the beginning of the
+    selection or where the user clicked to clear the selection
+  - the "play-or-stop" action starts playing where the playhead is, or if it's already playing,
+    stops playback
+  - the "rewind-and-play" action sets the playhead to the start of selection (or the last clear-selection
+    location) and starts playing
+  - the "play-again" action starts playing from where the last playback started
+  - if there's no selection, the playback automatically stops at the end of file and playhead
+    rewinds to start of file
+  - if there's a selection but loop is not enabled, the playback stops at selection end and rewinds
+    to selection begin
+  - if there's a selection and loop is enabled, the playback continues where selection begin
+  - the user actions are bound to these keys:
+    SPACE: "play-or-stop"
+    LEFT-ARROW: "rewind-and-play"
+    RIGHT-ARROW: "play-again"
+  - the transport pane has 3 buttons corresponding to these actions, a loop-enable button and also
+    displays the position of the playhead
+
+Status: `done`
+
+Acceptance criteria:
+
+Test audio: a 10 s stereo 44.1 kHz float WAV of seeded white noise (left and right different) at
+−12 dBFS, so any rendered sample range can be located exactly; plus the milestone 2 sine for
+screenshots. Output content is checked from the `record` hook (what the source node renders);
+timing from state dumps taken every ~100 ms while playing. Sound is audible during the tests.
+Key presses, clicks and drags use the milestone 3 synthetic-event driver; buttons are pressed via
+Accessibility. Each check runs in horizontal mode; the mouse and display checks also in vertical.
+
+1. Builds; `verify_m1.py`, `verify_m2.py`, `verify_m3.py` still pass. (CLI)
+2. Transport pane shows rewind-and-play, play-or-stop, play-again, loop and the playhead
+   position `0:00.000` after load; toolbar shows the follow button; loop and follow off. (dump +
+   AX + screenshot)
+3. I/O buffer: duration within 30–50 ms and a multiple of the display refresh period (within one
+   sample); one playhead update per buffer. (dump)
+4. Play-or-stop from playhead 1.0 s: the rendered audio equals the file's samples from 1.0 s on,
+   both channels (sample-exact); the playhead advances at real-time rate (slope 1 ± 2%) and lags
+   the rendered position by the reported latency (± one buffer). Space stops it; the playhead
+   stays (within one buffer + latency of the stop time). (record + dumps + synthetic keys)
+5. No selection: playback from 9.5 s stops by itself at the file end; playhead back at 0;
+   rendered audio ends with the last sample. (record + dumps)
+6. Selection 2–3 s, loop off, playing from 2.0: stops at 3.0 s, playhead at 3.0 (review change;
+   was: back at 2.0); rendered audio = samples 2.0–3.0 exactly. (record + dumps)
+7. Selection 2–3 s, loop on: after 2.5 s of playback the rendered audio is 2.0–3.0, 2.0–3.0,
+   2.0–2.5 with no gap or repeated sample at the joins. (record)
+8. Selection 2–3 s, loop off: playback that doesn't start at the selection start continues
+   through the selection end to the file end: (a) start at 2.0, stop at ~2.5, continue (Space);
+   (b) start at 4.0 (outside). Playback started at 2.0 still stops at the selection end after the
+   selection was moved during playback to 2.5–3.5 (stops at 3.5, playhead at 3.5). Moving the
+   selection end before the play position during playback (started at 2.0, at ~2.6 drag the end
+   edge to 2.3) doesn't stop it: it plays to the file end. Loop on: playback started at 4.0
+   ignores the selection; moving the end before the play position during a loop doesn't loop
+   back. (synthetic events + dumps + record)
+9. Rewind-and-play (Left Arrow and button): from a running playback, restarts at the selection
+   start; with no selection, at the last clicked position; after opening a file, at 0. Play-again
+   (Right Arrow and button): restarts at the last playback start. (synthetic keys, AX, record +
+   dumps)
+10. Mouse: during playback, a click stops it and puts the playhead and rewind point at the
+    clicked time; a new selection drag stops it with the playhead at the selection start; Escape
+    stops it with the playhead at the former selection start; an edge drag and a move during a
+    looping playback don't stop it, and the loop uses the new bounds (rendered audio). (synthetic
+    events + record + dumps)
+11. Display: the playhead line in both panes at the playhead's position and a mark on the
+    scrollbar track, both orientations. (screenshots + dump of the drawn positions)
+12. Follow on, view 1.0–2.0 s, playing from 1.0: within 2 s of the playhead reaching the center
+    the view is ≥ 4.9 s long and the playhead within 10% of the center; with follow off the view doesn't move; a manual scroll
+    during playback turns follow off. (synthetic events + dumps)
+13. Loop and follow flags remembered across a relaunch. Opening a file stops playback and
+    resets the playhead to 0. (hooks + dumps)
+
+Verification results (`python3 verify/verify_m4.py`, all criteria passed):
+
+1. `verify_m3.py` (with `verify_m2.py`, `verify_m1.py`, `build.sh`, CMake): its toolbar check
+   first failed because of the new Follow Playhead button; after allowing it, 54/54.
+   `verify_m1.py` 28/28.
+2. Transport buttons and the follow button found and enabled via Accessibility; after load
+   playhead 0, loop and follow off.
+3. I/O buffer 1440 frames at 48 kHz = 30.0 ms, 3 × the 100 Hz refresh period.
+4. Rendered audio from 1.0 s sample-exact; playhead slope 0.996; lag = latency (30.6 ms) + less
+   than one buffer; one playhead update per callback; Space stops and keeps the playhead.
+5–7. File end, selection end (loop off) and loop: rendered audio sample-exact, rewinds as
+   specified.
+8. All five cases pass (stop + continue, start outside, moved selection, end dragged behind the
+   playhead with loop off and on). The drag case needed the rule that the end is ignored while
+   being dragged (see Playback in the spec).
+9. Rewind-and-play and play-again, keys and buttons.
+10–11. Both orientations: click / new selection / Escape stop playback as specified; edge drag and
+   move during a loop keep playing with the new bounds (rendered audio); playhead line and
+   scrollbar mark at the expected positions (screenshots `mouse_*_playhead.png`).
+12. Follow off: view unchanged; on: 4.97 s view, playhead 8.8% from the center after 2 s
+    (screenshot `c12_follow.png`); a manual scroll during playback turns it off.
+13. Loop and follow remembered; opening a file stops playback, playhead 0.
+
+Not checked automatically: how playback sounds on other output devices (Bluetooth latency) and
+on displays with other refresh rates.
+
+Review changes (after the first verification):
+
+- Follow engages only when the playhead reaches the view center, and not at all while the
+  expected end of the playback is in the view.
+- After an automatic stop at the selection end the playhead stays there, so play-or-stop
+  continues from the selection end; rewind-and-play goes back to the selection start.
+- The last playback start is shown as a line (desaturated playhead red, under the playhead).
+- New action set-last-playback-started (Down Arrow).
+- The playhead (when stopped), the last start and the selection edges can be hovered and
+  dragged; lines at the same position move together.
+- Every direct change of the playhead by the user also sets the last playback start.
+- Follow fix found while verifying: the view now moves along with the playhead (it used to stay
+  about 0.5 s behind it, the 8.8% offset seen in criterion 12).
+
+Additional acceptance criteria (`python3 verify/verify_m4_review.py`; mouse checks in both
+orientations):
+
+14. Follow on, view 1–6 s, playing from 1.0: while the playhead is before the center the view
+    doesn't move; after it passed the center follow is engaged and the playhead is within 2% of
+    the center. A playhead outside the view (view 5–6) engages it at once. (synthetic keys + dumps)
+15. Follow on: no view movement and no engagement when the expected end is in the view —
+    selection 2–3 in view 1.5–3.5 (loop off and loop on), file end in view 7–10 playing from 8.6.
+    Looping with the end visible but the loop start not (view 2.4–3.4): follow engages. (dumps)
+16. After the stop at the selection end (2–3): playhead 3.0; Space plays from 3.0 (rendered
+    audio); Right Arrow plays from 3.0 again; Left Arrow from 2.0. (record + dumps)
+17. The last-start line in both panes at its position and a mark on the scrollbar, the playhead
+    line elsewhere. (dump of the drawn positions + screenshots)
+18. Down Arrow during playback sets the last start to the playhead; Right Arrow then plays from
+    there. (synthetic keys + dumps)
+19. Dragging lines: stopped, hovering the playhead shows the resize cursor and dragging it moves
+    the playhead, the last start and the rewind point (no selection made); the selection start
+    with the playhead and last start on it drags all three; during playback the last start drags
+    alone (playback goes on), and with the selection start on it both drag together. (synthetic
+    events + dumps)
+20. A click, a new selection and Escape put the last start at the new playhead. (synthetic events
+    + dumps)
+
+Review verification results:
+
+- `verify_m4_review.py`: 23/23. Follow waits before the center and then keeps the playhead at
+  the center (+0.0%); no engagement with the end in view; continue from the selection end
+  (rendered audio from 3.0); Down Arrow set the last start to 2.109 during playback; all line
+  drags in both orientations; last-start line and mark at the expected positions (screenshots
+  `r_horizontal_laststart.png`, `r_vertical_laststart.png`).
+- `verify_m4.py` with the updated criteria 6, 8 and 12: 27/28; criterion 12 now +0.0% from the
+  center (was 8.8%). The failure was criterion 1: `verify_m3.py` criterion 5 started a navigator
+  drag at 25% where Escape had left the (now draggable) playhead, so it moved the playhead
+  instead of selecting. The test now moves the playhead away first; `verify_m3.py` then 54/54.
+
+Not checked automatically: that the playhead can't be grabbed during playback (a moving line
+can't be hit reliably with synthetic events; covered by the hover code path, which skips the
+playhead while playing).
+
+
+## Fine-tuning (to do later)
+
+- Don't drag playhead/last-playback-start when dragging selection edge
+- Revise follow-logic

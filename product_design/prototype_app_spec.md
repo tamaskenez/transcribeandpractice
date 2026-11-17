@@ -143,6 +143,100 @@ Selection:
 - Toolbar selection indicator (read-only): `start – end (length)` in the duration format of the
   transport summary (e.g. `0:01.250 – 0:02.000 (0:00.750)`), or `–` with no selection.
 
+### Playback (from milestone 4)
+
+State:
+
+- Playhead: a time position in the file (0 … duration). Shown as a line across both waveform
+  panes and as a mark on the navigator scrollbar's track.
+- Rewind point: the selection start, or, with no selection, where the user last clicked to clear
+  the selection or set the playhead (file start after opening a file).
+- Last playback start: where the most recent playback started (file start after opening). Every
+  direct change of the playhead by the user also puts it at the playhead: a click that clears the
+  selection, Escape, a new selection, dragging the playhead line. Shown as a line in both
+  waveform panes and a mark on the scrollbar, in a desaturated playhead red, drawn before the
+  playhead (the playhead covers it where they coincide). Can also be set with
+  set-last-playback-started and by dragging its line.
+- Loop enabled flag; follow-playhead flag. Both are remembered across launches; defaults off.
+- Opening a file stops playback and puts the playhead, rewind point and last start at 0.
+
+Actions:
+
+- Play-or-stop (Space, transport button): if playing, stop (the playhead stays at the audible
+  position); otherwise start playing at the playhead.
+- Rewind-and-play (Left Arrow, transport button): set the playhead to the rewind point and play
+  (restarts if already playing).
+- Play-again (Right Arrow, transport button): play from the last playback start (restarts if
+  already playing).
+- Set-last-playback-started (Down Arrow): the last playback start becomes the playhead position
+  (also during playback; play-again then starts there).
+- Loop (transport toggle button).
+- Mouse: a click without a drag (which clears the selection) stops playback and sets the playhead
+  and the rewind point to the clicked time (limited to the file). Starting a new selection by
+  dragging stops playback and keeps the playhead at the selection start. Escape (clears the
+  selection) stops playback and puts the playhead at the former selection start. Extending,
+  dragging an edge or moving the selection does not stop playback or move the playhead; a
+  running playback uses the changed selection from then on.
+- Dragging lines: the playhead line (only when not playing), the last-playback-start line and the
+  selection edges can be hovered (resize arrows, within 4 points) and dragged like the selection
+  edges. A press grabs the nearest line and every other line at the same time (within one
+  sample; at most one selection edge), and they move together: e.g. after a new selection the
+  selection start, playhead and last start. The dragged position is limited to the visible range
+  and the file. Dragging the playhead also sets the last start and (for when there is no
+  selection) the rewind point. Dragging the last start alone doesn't affect playback. A click
+  without a drag on a line clears the selection as elsewhere.
+
+Where playback ends:
+
+- The selection end only matters when the playback crosses it: the play position reaches it from
+  before. If the selection end is moved before the play position during playback, it is not
+  crossed, and playback goes on to the file end. While the user is dragging a selection edge,
+  moving the selection or shift-extending it, the end is ignored (a drag sweeping the end back
+  past the playhead would otherwise "cross" it); the end at release counts.
+- Selection, loop off: playback stops at the selection end, with the playhead at the selection
+  end (so play-or-stop continues from there; rewind-and-play goes back to the selection start),
+  only if the playback started at the selection start (within one sample).
+  This is decided when playback starts and holds even if the selection is changed or moved
+  afterwards. Otherwise (e.g. stop and continue within the selection) playback continues through
+  the selection end.
+- Selection, loop on: if the playback started inside the selection (start ≤ playhead < end), at
+  the selection end it continues at the selection start, without a gap (sample-accurate).
+  Playback that started outside the selection ignores it.
+- Otherwise playback stops at the file end and the playhead rewinds to the file start.
+
+Output:
+
+- The file's own channels: stereo as stereo, mono on both channels, more than two channels: the
+  first two. No resampling by the app (the system converts to the device rate if needed).
+- Audio engine: AVAudioEngine with an AVAudioSourceNode whose render callback copies from the
+  decoded buffer. The output device's I/O buffer size is set to the smallest multiple of the
+  display refresh period that is ≥ 30 ms (e.g. 33.3 ms at 60 or 120 Hz), limited to 30–50 ms and
+  to the device's allowed range; without a known refresh rate, 40 ms.
+- The playhead is updated once per render callback: the start of the buffer being rendered minus
+  the output latency (device latency + safety offset + I/O buffer, as reported by Core Audio), so
+  it shows what is audible. It never goes before the playback start.
+
+Transport pane (left to right): rewind-and-play, play-or-stop (play / stop icon), play-again,
+loop toggle, playhead position (`m:ss.mmm`), then the file summary.
+
+Follow playhead (toolbar toggle button):
+
+- Off: the view never moves by itself.
+- On, while playing: the view eases toward having the playhead in the center (time constant
+  about 0.5 s, updated at the display refresh rate; the view moves along with the playhead, so
+  only the offset is eased). If the visible range is shorter than 5 s, it also eases out to 5 s
+  (or the whole file plus margins, if shorter). The usual view limits apply.
+- Follow starts (engages) only when the playhead reaches the view center; while the playhead is
+  in the view before the center, the view stays. A playhead outside the view engages it at once.
+- Follow doesn't engage while the expected end of the playback is in the view: the point where
+  it will stop or loop back (the selection end if it applies, otherwise the file end) and, when
+  looping, also the loop start (the selection start).
+- Once engaged, follow stays engaged until the playhead jumps back (loop) or playback restarts;
+  then the rules above decide again.
+- A manual view change during playback (scroll, pinch, ⌘ + scroll, Option/middle drag,
+  scrollbar, zoom buttons) turns follow off. When stopped, manual view changes don't affect the
+  flag.
+
 ### Loading audio files
 
 - File → Open… (⌘O) shows the standard open dialog, limited to audio files. This is the only way to
@@ -190,7 +284,11 @@ limits); `--commands=<file>` keeps the app running and executes commands appende
 (`dump <path>`, `snapshot <path>`, `quit`, and `view`, `select`, `orientation`, `open`, `resize`,
 `activate`), acknowledging each in `<file>.ack`, so a test driver can post synthetic input events
 between dumps; the dump adds the visible range, the selection, the toolbar selection text and
-button states, and the scrollbar's frame and knob position/proportion. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
+button states, and the scrollbar's frame and knob position/proportion. From milestone 4 on, also:
+the dump adds the playback state (playing, playhead, rewind point, last start, loop, follow,
+I/O buffer size, latency, display refresh rate); the command `record <path>` / `record stop`
+writes what the source node renders (the app's output before the system mixer) to a float WAV
+file. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
 `screencapture -l <window number>` (needs Screen Recording permission for the terminal that
 launches the app). These are a development aid, not a user feature.
 
@@ -262,3 +360,37 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
 - MP3 and AAC files usually start with encoder padding (tens of milliseconds of real zero
   samples). These are part of the decoded file, so they are drawn as a flat waveform line, not as
   margin.
+- (Milestone 4) The audio engine starts at the first playback and keeps running (rendering
+  silence while stopped), so starting playback has no engine start-up delay.
+- The render callback and the main thread share the playback state under a lock (not real-time
+  safe; fine for the prototype). The render block is created outside the main actor: Swift 6
+  checks actor isolation at run time and would trap on the audio thread otherwise.
+- The display refresh rate is `NSScreen.main.maximumFramesPerSecond` (on the development
+  machine's display: 100 Hz, giving a 30 ms buffer = 1440 frames at 48 kHz; the measured output
+  latency was 30.6 ms).
+- Playhead: a 1.5-point red line (system red) in both panes, a 2-point red mark on the scrollbar
+  track. Transport icons (SF Symbols): `backward.end.fill`, `play.fill` / `stop.fill`,
+  `arrow.counterclockwise`, `repeat`; follow button: `scope`.
+- Space, Left and Right Arrow work only without Command, Option, Control or Shift; they are
+  handled by the app-wide key monitor, so they don't reach focused buttons.
+- Follow eases the playhead's offset from the view center while moving the center along with the
+  playhead. (Until the milestone 4 review it eased only the offset, which left the playhead
+  about one time constant, 0.5 s, ahead of the center.)
+- `verify_m3.py`'s toolbar check allows the Follow Playhead button added in milestone 4.
+- (Milestone 4 review) A playhead outside the view engages follow at once (otherwise a playhead
+  before the view would stay off-screen until it walks in).
+- "Expected end in the view" also requires the loop start in the view when looping, since the
+  playhead returns there; with only the end visible, follow engages as usual.
+- Lines at the same time (within one sample) move together for every combination, not only the
+  selection start with the playhead: e.g. during a looping playback started with
+  rewind-and-play, the last start sits on the selection start, and dragging that edge keeps both
+  aligned (play-again then matches rewind-and-play). When the playhead is grabbable, it and the
+  last start usually coincide anyway (each direct playhead change sets the last start).
+- Grab priority: the nearest line wins; with exact ties, the order is selection start, selection
+  end, playhead, last start (only matters for which edge is taken when both are in reach).
+- Last-start color: system red in sRGB with 35% of its saturation and 90% of its brightness.
+- The file-end stop still rewinds the playhead to the file start (continuing from the file end
+  would play nothing).
+- Down Arrow follows the same modifier rule as Space, Left and Right.
+- `verify_m3.py` criterion 5 moves the playhead away before its navigator drag: since the
+  milestone 4 review the playhead line at the drag start would be grabbed instead.

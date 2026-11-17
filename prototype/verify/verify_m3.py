@@ -69,7 +69,8 @@ labels = [i['label'] for i in s.state['toolbar']['items']]
 st = s.state
 ax = [s.input(f'enabled {s.proc.pid} {t}') for t in ('Zoom Out Full', 'Zoom to Selection')]
 check(2, 'toolbar: Zoom Out Full, Zoom to Selection, selection indicator, orientation toggle',
-      labels[:2] == ['Zoom Out Full', 'Zoom to Selection'] and len(labels) == 4 and labels[3] == 'Time Orientation',
+      # (milestone 4 added Follow Playhead before the orientation toggle)
+      labels[:2] == ['Zoom Out Full', 'Zoom to Selection'] and len(labels) in (4, 5) and labels[-1] == 'Time Orientation',
       labels)
 check(2, 'after load: whole file plus margins (-0.05–4.05 s), no selection, indicator "–", both buttons disabled (dump and AX)',
       close(s.view(), FULL, 1e-9) and s.sel() is None and st['selectionText'] == '–'
@@ -143,6 +144,8 @@ for orientation in ['horizontal', 'vertical']:
     s.input(f'drag {P(s.at("main", .75))} {P(s.at("main", .25))}')
     sel_rev = s.sel()
     s.input('key escape')
+    # Escape left the playhead (draggable since the milestone 4 review) at 1.0 = 25%; move it away.
+    s.command('playhead 0'); s.dump()
     s.input(f'drag {P(s.at("navigator", .25))} {P(s.at("navigator", .75))}')
     sel_nav = s.sel()
     tol_nav = D / s.length('navigator')

@@ -11,7 +11,8 @@ import SwiftUI
 ///   --commands=<file>     keep running and execute lines appended to <file>:
 ///                         dump <path> | snapshot <path> | quit | view <s>,<e> | select <s>,<e>
 ///                         | orientation <o> | open <path> | resize <w>,<h> | activate
-///                         | amplitude <dB>
+///                         | amplitude <dB> | playhead <s> | loop on|off | follow on|off
+///                         | record <path> | record stop
 ///   --quit                quit when done
 /// Values must use the `=` form: a bare path argument can make AppKit treat the launch as
 /// "open this file", and then SwiftUI doesn't create the main window.
@@ -76,6 +77,8 @@ enum VerificationHooks {
 
     /// Polls `path` for appended lines and executes them, until `quit`. Each command is
     /// acknowledged by appending "ok <n>" to `<path>.ack` (n = commands done so far).
+    private static var recordPath: String?
+
     private static func serveCommands(_ path: String, state: AppState) async {
         NSApp.activate()
         mainWindow?.makeKeyAndOrderFront(nil)
@@ -99,6 +102,20 @@ enum VerificationHooks {
                         if let (w, h) = pair(arg), let win = mainWindow { win.setContentSize(NSSize(width: w, height: h)) }
                     case "activate": NSApp.activate(); mainWindow?.makeKeyAndOrderFront(nil)
                     case "amplitude": if let v = Double(arg) { state.setAmplitudeZoom(dB: v) }
+                    case "playhead": if let v = Double(arg) { state.clickedToClear(at: v) }
+                    case "loop": state.loopEnabled = arg == "on"
+                    case "follow": state.followPlayhead = arg == "on"
+                    case "record":
+                        if arg == "stop" {
+                            let data = state.player.core.stopRecording()
+                            if let path = recordPath {
+                                try? writeFloatWAV(path: path, channels: data, sampleRate: state.audio?.sampleRate ?? 44100)
+                            }
+                            recordPath = nil
+                        } else {
+                            recordPath = arg
+                            state.player.core.startRecording()
+                        }
                     default: break
                     }
                     done += 1
@@ -144,6 +161,7 @@ enum VerificationHooks {
             "selectionText": state.selectionText,
             "amplitudeZoomDB": state.amplitudeZoomDB,
             "currentCursor": cursorName(NSCursor.current),
+            "playback": playbackDump(state: state),
             "buttons": ["zoomOutFull": state.canZoomOutFull, "zoomToSelection": state.canZoomToSelection],
             "scrollbar": scrollerDump(),
             "screenFrames": screenFrames(state: state),
@@ -209,6 +227,8 @@ enum VerificationHooks {
                     "orientation": w.orientation.rawValue,
                     "frames": w.state?.audio?.mono.count ?? 0,
                     "cursor": w.cursorName,
+                    "playheadAxis": w.playheadAxis.map { Double($0) } ?? NSNull(),
+                    "lastStartAxis": w.lastStartAxis.map { Double($0) } ?? NSNull(),
                     "points": points.map { [$0.x, $0.y] },
                 ] as [String: Any]
             }
@@ -225,6 +245,24 @@ enum VerificationHooks {
         return out
     }
 
+    private static func playbackDump(state: AppState) -> [String: Any] {
+        let p = state.player, c = p.core
+        let (callbacks, updates, lastFrames, raw) = c.withLock { (c.callbackCount, c.playheadUpdates, c.lastCallbackFrames, c.playheadFrame) }
+        let (rendered, bufferStart, startFrame, latencyFrames) = c.withLock { (c.rendered, c.lastBufferStart, c.startFrame, c.latencyFrames) }
+        return [
+            "playing": state.isPlaying, "playhead": state.playhead, "rewindPoint": state.rewindPoint,
+            "lastStart": state.lastStart, "loop": state.loopEnabled, "follow": state.followPlayhead,
+            "followEngaged": state.followEngaged,
+            "ioBufferFrames": p.ioBufferFrames, "deviceSampleRate": p.deviceSampleRate,
+            "latencySeconds": p.latencySeconds, "refreshRate": p.refreshRate,
+            "targetBufferSeconds": p.targetBufferSeconds, "callbackCount": callbacks,
+            "playheadUpdates": updates, "lastCallbackFrames": lastFrames, "corePlayheadFrame": raw,
+            "uptime": ProcessInfo.processInfo.systemUptime,
+            "renderedFrames": rendered, "lastBufferStart": bufferStart, "startFrame": startFrame,
+            "latencyFrames": latencyFrames,
+        ]
+    }
+
     private static func cursorName(_ c: NSCursor) -> String {
         let known: [(NSCursor, String)] = [(.arrow, "arrow"), (.openHand, "openHand"), (.closedHand, "closedHand"),
                                            (.columnResize, "columnResize"), (.rowResize, "rowResize")]
@@ -236,7 +274,10 @@ enum VerificationHooks {
         return ["vertical": s.bounds.height > s.bounds.width, "enabled": s.isEnabled,
                 "knobProportion": s.knobProportion, "value": s.doubleValue,
                 "style": s.scrollerStyle == .legacy ? "legacy" : "overlay",
-                "knobRect": rect(s.rect(for: .knob)), "size": size(s.bounds.size)] as [String: Any]
+                "knobRect": rect(s.rect(for: .knob)), "size": size(s.bounds.size),
+                "knobSlot": rect(s.rect(for: .knobSlot)),
+                "playheadMark": s.playheadMark.map { Double($0) } ?? NSNull(),
+                "lastStartMark": s.lastStartMark.map { Double($0) } ?? NSNull()] as [String: Any]
     }
 
     /// Frames of the panes and the scrollbar in global screen coordinates with a top-left origin
