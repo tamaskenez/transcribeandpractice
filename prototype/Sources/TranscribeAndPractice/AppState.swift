@@ -26,6 +26,15 @@ final class AppState {
     /// Pane frames in window content coordinates (top-left origin), for the state dump.
     var paneFrames: [String: CGRect] = [:]
 
+    /// Visible time range (seconds) shared by the navigator and the main pane.
+    private(set) var viewStart: Double = 0
+    private(set) var viewEnd: Double = 0
+    /// Selected time range (seconds), start <= end.
+    var selection: ClosedRange<Double>?
+
+    /// Shortest visible range (maximum zoom), in seconds.
+    static let minViewLength = 0.001
+
     private static let orientationKey = "timeOrientation"
 
     init() {
@@ -42,6 +51,64 @@ final class AppState {
         return ["File", "Duration", "Sample rate", "Channels"].compactMap { rows[$0] }.joined(separator: "  ·  ")
     }
 
+    var duration: Double { audio?.duration ?? 0 }
+    var viewLength: Double { viewEnd - viewStart }
+    var isFullView: Bool { viewStart <= 0 && viewEnd >= duration }
+    var canZoomOutFull: Bool { audio != nil && !isFullView }
+    var canZoomToSelection: Bool { audio != nil && selection != nil }
+
+    /// Sets the visible range, applying the limits: length between 1 ms (or the whole file, if
+    /// shorter) and the whole file, keeping the requested center; then shifted inside the file.
+    func setView(start: Double, end: Double) {
+        let d = duration
+        guard d > 0, start.isFinite, end.isFinite else { viewStart = 0; viewEnd = d; return }
+        var a = min(start, end), b = max(start, end)
+        let length = min(max(b - a, min(Self.minViewLength, d)), d)
+        if length != b - a {
+            let center = (a + b) / 2
+            a = center - length / 2
+            b = a + length
+        }
+        if a < 0 { a = 0; b = length }
+        if b > d { b = d; a = d - length }
+        viewStart = max(a, 0)
+        viewEnd = min(b, d)
+    }
+
+    /// Zooms by `factor` (> 1 zooms in) keeping `anchor` (seconds) at the same place on screen.
+    func zoom(by factor: Double, anchor: Double) {
+        guard factor > 0, viewLength > 0 else { return }
+        let d = duration
+        let length = min(max(viewLength / factor, min(Self.minViewLength, d)), d)
+        let frac = (anchor - viewStart) / viewLength
+        let start = anchor - frac * length
+        setView(start: start, end: start + length)
+    }
+
+    /// Moves the visible range by `seconds`, keeping its length; stops at the file's ends.
+    func pan(by seconds: Double) {
+        setView(start: viewStart + seconds, end: viewEnd + seconds)
+    }
+
+    func zoomOutFull() { setView(start: 0, end: duration) }
+
+    func zoomToSelection() {
+        guard let s = selection else { return }
+        setView(start: s.lowerBound, end: s.upperBound)
+    }
+
+    /// Sets the selection, limited to the file. A range with zero length clears it.
+    func select(_ a: Double, _ b: Double) {
+        let lo = max(min(a, b), 0), hi = min(max(a, b), duration)
+        selection = hi > lo ? lo...hi : nil
+    }
+
+    /// Toolbar selection indicator.
+    var selectionText: String {
+        guard let s = selection else { return "–" }
+        return "\(formatTime(s.lowerBound)) – \(formatTime(s.upperBound)) (\(formatTime(s.upperBound - s.lowerBound)))"
+    }
+
     func showOpenPanel() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.audio]
@@ -56,6 +123,8 @@ final class AppState {
     func open(url: URL) {
         do {
             audio = try AudioLoader.load(url: url)
+            selection = nil
+            zoomOutFull()
         } catch {
             errorMessage = "“\(url.lastPathComponent)” could not be opened. \(describe(error))"
         }
@@ -92,6 +161,12 @@ func infoRows(for audio: LoadedAudio) -> [(label: String, value: String)] {
         rows.append((label, "peak \(formatDB(s.peakDBFS)), RMS \(formatDB(s.rmsDBFS))"))
     }
     return rows
+}
+
+/// m:ss.mmm
+func formatTime(_ seconds: Double) -> String {
+    let ms = Int((seconds * 1000).rounded())
+    return String(format: "%d:%02d.%03d", ms / 60000, ms / 1000 % 60, ms % 1000)
 }
 
 private func formatDuration(_ seconds: Double) -> String {

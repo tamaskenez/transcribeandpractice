@@ -6,6 +6,11 @@ import SwiftUI
 ///   --dump-state=<file>   write the app state as JSON
 ///   --orientation=horizontal|vertical  set the time orientation (same path as the toggle)
 ///   --snapshot=<file>     save a PNG of the real window (screencapture; needs Screen Recording)
+///   --view=<start>,<end>  set the visible range in seconds (same path as the gestures)
+///   --select=<start>,<end>  set the selection in seconds
+///   --commands=<file>     keep running and execute lines appended to <file>:
+///                         dump <path> | snapshot <path> | quit | view <s>,<e> | select <s>,<e>
+///                         | orientation <o> | open <path> | resize <w>,<h> | activate
 ///   --quit                quit when done
 /// Values must use the `=` form: a bare path argument can make AppKit treat the launch as
 /// "open this file", and then SwiftUI doesn't create the main window.
@@ -16,6 +21,9 @@ enum VerificationHooks {
         var dumpState: String?
         var snapshot: String?
         var orientation: TimeOrientation?
+        var view: (Double, Double)?
+        var select: (Double, Double)?
+        var commands: String?
         var quit = false
 
         init?(arguments: [String]) {
@@ -28,12 +36,20 @@ enum VerificationHooks {
                 case "--dump-state": dumpState = value; any = true
                 case "--snapshot": snapshot = value; any = true
                 case "--orientation": orientation = value.flatMap(TimeOrientation.init(rawValue:)); any = true
+                case "--view": view = value.flatMap(pair); any = true
+                case "--select": select = value.flatMap(pair); any = true
+                case "--commands": commands = value; any = true
                 case "--quit": quit = true; any = true
                 default: break
                 }
             }
             if !any { return nil }
         }
+    }
+
+    nonisolated static func pair(_ s: String) -> (Double, Double)? {
+        let v = s.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        return v.count == 2 ? (v[0], v[1]) : nil
     }
 
     @MainActor
@@ -47,10 +63,54 @@ enum VerificationHooks {
             for path in options.open {
                 state.open(url: URL(fileURLWithPath: path))
             }
+            if let (a, b) = options.view { state.setView(start: a, end: b) }
+            if let (a, b) = options.select { state.select(a, b) }
             try? await Task.sleep(for: .milliseconds(500)) // let SwiftUI update the window
             if let path = options.dumpState { dumpState(to: path, state: state) }
             if let path = options.snapshot { snapshot(to: path, state: state) }
+            if let path = options.commands { await serveCommands(path, state: state) }
             if options.quit { NSApp.terminate(nil) }
+        }
+    }
+
+    /// Polls `path` for appended lines and executes them, until `quit`. Each command is
+    /// acknowledged by appending "ok <n>" to `<path>.ack` (n = commands done so far).
+    private static func serveCommands(_ path: String, state: AppState) async {
+        NSApp.activate()
+        mainWindow?.makeKeyAndOrderFront(nil)
+        var done = 0
+        while true {
+            let lines = ((try? String(contentsOfFile: path, encoding: .utf8)) ?? "")
+                .split(separator: "\n", omittingEmptySubsequences: false).dropLast().map(String.init)
+            if lines.count > done {
+                for line in lines[done...] {
+                    let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
+                    let arg = parts.count > 1 ? parts[1] : ""
+                    switch parts.first ?? "" {
+                    case "quit": return
+                    case "dump": dumpState(to: arg, state: state)
+                    case "snapshot": snapshot(to: arg, state: state)
+                    case "view": if let (a, b) = pair(arg) { state.setView(start: a, end: b) }
+                    case "select": if let (a, b) = pair(arg) { state.select(a, b) } else { state.selection = nil }
+                    case "orientation": if let o = TimeOrientation(rawValue: arg) { state.orientation = o }
+                    case "open": state.open(url: URL(fileURLWithPath: arg))
+                    case "resize":
+                        if let (w, h) = pair(arg), let win = mainWindow { win.setContentSize(NSSize(width: w, height: h)) }
+                    case "activate": NSApp.activate(); mainWindow?.makeKeyAndOrderFront(nil)
+                    default: break
+                    }
+                    done += 1
+                    // Let SwiftUI and AppKit update before the next command (layout, redraw).
+                    try? await Task.sleep(for: .milliseconds(150))
+                    let ack = "ok \(done)\n"
+                    if let h = FileHandle(forWritingAtPath: path + ".ack") {
+                        h.seekToEndOfFile(); h.write(Data(ack.utf8)); try? h.close()
+                    } else {
+                        FileManager.default.createFile(atPath: path + ".ack", contents: Data(ack.utf8))
+                    }
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(30))
         }
     }
 
@@ -75,6 +135,12 @@ enum VerificationHooks {
             "transportText": state.transportSummary ?? NSNull(),
             "toolbar": toolbarDump(state: state),
             "waveforms": waveformDump(),
+            "view": ["start": state.viewStart, "end": state.viewEnd],
+            "selection": state.selection.map { ["start": $0.lowerBound, "end": $0.upperBound] } ?? NSNull(),
+            "selectionText": state.selectionText,
+            "buttons": ["zoomOutFull": state.canZoomOutFull, "zoomToSelection": state.canZoomToSelection],
+            "scrollbar": scrollerDump(),
+            "screenFrames": screenFrames(state: state),
         ]
         if let audio = state.audio {
             let format = audio.buffer.format
@@ -131,11 +197,11 @@ enum VerificationHooks {
         var result: [String: Any] = [:]
         func visit(_ view: NSView) {
             if let w = view as? WaveformNSView {
-                let points = waveformPoints(mono: w.mono, size: w.bounds.size, orientation: w.orientation)
+                let points = w.points()
                 result[w.name] = [
                     "size": size(w.bounds.size),
                     "orientation": w.orientation.rawValue,
-                    "frames": w.mono.count,
+                    "frames": w.state?.audio?.mono.count ?? 0,
                     "points": points.map { [$0.x, $0.y] },
                 ] as [String: Any]
             }
@@ -143,6 +209,38 @@ enum VerificationHooks {
         }
         if let root = mainWindow?.contentView?.superview ?? mainWindow?.contentView { visit(root) }
         return result
+    }
+
+    private static func allViews() -> [NSView] {
+        var out: [NSView] = []
+        func visit(_ v: NSView) { out.append(v); v.subviews.forEach(visit) }
+        if let root = mainWindow?.contentView?.superview ?? mainWindow?.contentView { visit(root) }
+        return out
+    }
+
+    private static func scrollerDump() -> Any {
+        guard let s = allViews().compactMap({ $0 as? TimeScroller }).first else { return NSNull() }
+        return ["vertical": s.bounds.height > s.bounds.width, "enabled": s.isEnabled,
+                "knobProportion": s.knobProportion, "value": s.doubleValue,
+                "style": s.scrollerStyle == .legacy ? "legacy" : "overlay",
+                "knobRect": rect(s.rect(for: .knob)), "size": size(s.bounds.size)] as [String: Any]
+    }
+
+    /// Frames of the panes and the scrollbar in global screen coordinates with a top-left origin
+    /// (Quartz event coordinates), for posting synthetic events.
+    private static func screenFrames(state: AppState) -> [String: Any] {
+        guard let win = mainWindow, let primary = NSScreen.screens.first else { return [:] }
+        func cg(_ v: NSView) -> [String: Double] {
+            let r = win.convertToScreen(v.convert(v.bounds, to: nil))
+            return rect(CGRect(x: r.minX, y: primary.frame.maxY - r.maxY, width: r.width, height: r.height))
+        }
+        var out: [String: Any] = [:]
+        for v in allViews() {
+            if let w = v as? WaveformNSView { out[w.name] = cg(w) }
+            if v is TimeScroller { out["scrollbar"] = cg(v) }
+        }
+        if let c = win.contentView { out["content"] = cg(c) }
+        return out
     }
 
     private static func menuDump(_ menu: NSMenu?) -> [[String: Any]] {
