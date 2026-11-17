@@ -63,7 +63,7 @@ Verification results (`python3 prototype/verify/verify_m1.py`): 28/28 checks pas
 - In vertical time mode it's split into a left, navigation pane, and a right, main pane
 - For now both in the navigation and main window we display a mono waveform mix
 
-Status: `verified`
+Status: `done`
 
 Acceptance criteria:
 
