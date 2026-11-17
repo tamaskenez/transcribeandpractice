@@ -33,7 +33,7 @@ struct TranscribeAndPracticeApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Escape, Space, Left and Right Arrow (unless an alert or sheet is shown).
+        // Escape, Space, Left, Right and Down Arrow (unless an alert or sheet is shown).
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let state = AppState.shared
             guard event.window?.attachedSheet == nil, event.window?.isSheet == false, state.errorMessage == nil,
@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case 49: state.playOrStop()                                          // Space
             case 123: state.rewindAndPlay()                                      // Left Arrow
             case 124: state.playAgain()                                          // Right Arrow
+            case 125: state.setLastStartToPlayhead()                             // Down Arrow
             default: return event
             }
             return nil

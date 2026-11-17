@@ -50,8 +50,16 @@ final class AppState {
         }
     }
     var followPlayhead: Bool {
-        didSet { UserDefaults.standard.set(followPlayhead, forKey: Self.followKey) }
+        didSet {
+            UserDefaults.standard.set(followPlayhead, forKey: Self.followKey)
+            followEngaged = false
+            followLastPlayhead = nil
+        }
     }
+    /// Follow has started moving the view during this playback (see `follow`).
+    var followEngaged = false
+    /// Playhead at the previous follow step (the view moves along with it).
+    var followLastPlayhead: Double?
     var ticker: Ticker?
     private static let loopKey = "loopEnabled"
     private static let followKey = "followPlayhead"

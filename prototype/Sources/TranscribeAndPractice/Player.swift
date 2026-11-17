@@ -25,7 +25,8 @@ final class PlaybackCore: @unchecked Sendable {
     private var selectionDragging = false
     private var startedInside = false
     private var startedAtStart = false
-    /// Set by the render thread when playback ended by itself; the target to rewind to.
+    /// Set by the render thread when playback ended by itself: where the playhead goes (the
+    /// selection end, or the file start after the file end).
     private var endedRewind: Int?
 
     // Playhead bookkeeping: frames rendered since the playback started, and where they came from.
@@ -81,6 +82,17 @@ final class PlaybackCore: @unchecked Sendable {
         withLock {
             playing = false
             return playheadFrame
+        }
+    }
+
+    /// Where the playback will stop or loop back, if nothing changes: the selection end if it
+    /// applies (with `loopStart` = the selection start when looping), otherwise the file end.
+    func expectedEnd() -> (end: Int, loopStart: Int?) {
+        withLock {
+            if let sel = selection, position < sel.hi, (loop && startedInside) || (!loop && startedAtStart) {
+                return (sel.hi, loop ? sel.lo : nil)
+            }
+            return (frames, nil)
         }
     }
 
@@ -142,7 +154,7 @@ final class PlaybackCore: @unchecked Sendable {
                             position = sel.lo
                         } else {
                             playing = false
-                            endedRewind = atSelectionEnd ? (selection?.lo ?? 0) : 0
+                            endedRewind = atSelectionEnd ? limit : 0
                         }
                     }
                 }

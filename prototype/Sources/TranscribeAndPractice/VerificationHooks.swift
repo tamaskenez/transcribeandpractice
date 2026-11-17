@@ -228,6 +228,7 @@ enum VerificationHooks {
                     "frames": w.state?.audio?.mono.count ?? 0,
                     "cursor": w.cursorName,
                     "playheadAxis": w.playheadAxis.map { Double($0) } ?? NSNull(),
+                    "lastStartAxis": w.lastStartAxis.map { Double($0) } ?? NSNull(),
                     "points": points.map { [$0.x, $0.y] },
                 ] as [String: Any]
             }
@@ -251,6 +252,7 @@ enum VerificationHooks {
         return [
             "playing": state.isPlaying, "playhead": state.playhead, "rewindPoint": state.rewindPoint,
             "lastStart": state.lastStart, "loop": state.loopEnabled, "follow": state.followPlayhead,
+            "followEngaged": state.followEngaged,
             "ioBufferFrames": p.ioBufferFrames, "deviceSampleRate": p.deviceSampleRate,
             "latencySeconds": p.latencySeconds, "refreshRate": p.refreshRate,
             "targetBufferSeconds": p.targetBufferSeconds, "callbackCount": callbacks,
@@ -274,7 +276,8 @@ enum VerificationHooks {
                 "style": s.scrollerStyle == .legacy ? "legacy" : "overlay",
                 "knobRect": rect(s.rect(for: .knob)), "size": size(s.bounds.size),
                 "knobSlot": rect(s.rect(for: .knobSlot)),
-                "playheadMark": s.playheadMark.map { Double($0) } ?? NSNull()] as [String: Any]
+                "playheadMark": s.playheadMark.map { Double($0) } ?? NSNull(),
+                "lastStartMark": s.lastStartMark.map { Double($0) } ?? NSNull()] as [String: Any]
     }
 
     /// Frames of the panes and the scrollbar in global screen coordinates with a top-left origin
