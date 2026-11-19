@@ -156,6 +156,7 @@ enum VerificationHooks {
             "transportText": state.transportSummary ?? NSNull(),
             "toolbar": toolbarDump(state: state),
             "waveforms": waveformDump(),
+            "ruler": rulerDump(),
             "view": ["start": state.viewStart, "end": state.viewEnd],
             "selection": state.selection.map { ["start": $0.lowerBound, "end": $0.upperBound] } ?? NSNull(),
             "selectionText": state.selectionText,
@@ -220,7 +221,7 @@ enum VerificationHooks {
     private static func waveformDump() -> [String: Any] {
         var result: [String: Any] = [:]
         func visit(_ view: NSView) {
-            if let w = view as? WaveformNSView {
+            if let w = view as? WaveformNSView, !w.isRuler {
                 let points = w.points()
                 result[w.name] = [
                     "size": size(w.bounds.size),
@@ -238,6 +239,19 @@ enum VerificationHooks {
         return result
     }
 
+    /// The navigator's time-marker strip and its ticks as drawn.
+    private static func rulerDump() -> Any {
+        guard let r = allViews().compactMap({ $0 as? WaveformNSView }).first(where: \.isRuler) else { return NSNull() }
+        let ticks: [[String: Any]] = r.rulerTicks().map {
+            ["time": $0.time, "axis": $0.axis, "major": $0.major, "label": $0.label.map { $0 as Any } ?? NSNull(),
+             "labelFrame": $0.labelFrame.map(rect) ?? NSNull()]
+        }
+        return ["size": size(r.bounds.size), "cursor": r.cursorName,
+                "playheadAxis": r.playheadAxis.map { Double($0) } ?? NSNull(),
+                "lastStartAxis": r.lastStartAxis.map { Double($0) } ?? NSNull(),
+                "ticks": ticks] as [String: Any]
+    }
+
     private static func allViews() -> [NSView] {
         var out: [NSView] = []
         func visit(_ v: NSView) { out.append(v); v.subviews.forEach(visit) }
@@ -251,7 +265,7 @@ enum VerificationHooks {
         let (rendered, bufferStart, startFrame, latencyFrames) = c.withLock { (c.rendered, c.lastBufferStart, c.startFrame, c.latencyFrames) }
         return [
             "playing": state.isPlaying, "playhead": state.playhead, "rewindPoint": state.rewindPoint,
-            "lastStart": state.lastStart, "loop": state.loopEnabled, "follow": state.followPlayhead,
+            "lastStart": state.lastStart, "clearPoint": state.clearPoint, "loop": state.loopEnabled, "follow": state.followPlayhead,
             "followEngaged": state.followEngaged,
             "ioBufferFrames": p.ioBufferFrames, "deviceSampleRate": p.deviceSampleRate,
             "latencySeconds": p.latencySeconds, "refreshRate": p.refreshRate,

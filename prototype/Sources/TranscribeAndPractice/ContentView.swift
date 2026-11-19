@@ -100,11 +100,16 @@ private struct MiddleSection: View {
             .reportFrame(name)
     }
 
-    /// Navigator waveform with the scrollbar along its time axis (bottom / right edge).
+    /// Navigator: the time-marker strip (top / left edge), the waveform, and the scrollbar along its
+    /// time axis (bottom / right edge).
     private func navigator(horizontal: Bool) -> some View {
         let layout = horizontal ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
         let t = TimeScrollerView.thickness
+        let ruler = horizontal ? rulerHorizontalThickness : rulerVerticalThickness(duration: state.duration)
         return layout {
+            WaveformView(name: "ruler", state: state, background: .underPageBackgroundColor, isRuler: true)
+                .frame(width: horizontal ? nil : ruler, height: horizontal ? ruler : nil)
+                .reportFrame("ruler")
             WaveformView(name: "navigator", state: state, background: .underPageBackgroundColor)
                 .reportFrame("navigatorWaveform")
             TimeScrollerView(state: state, vertical: !horizontal)

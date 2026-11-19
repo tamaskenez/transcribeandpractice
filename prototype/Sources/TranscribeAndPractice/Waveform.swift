@@ -41,6 +41,9 @@ final class WaveformNSView: NSView {
     var name = ""
     var state: AppState?
     var background: NSColor = .textBackgroundColor { didSet { needsDisplay = true } }
+    /// The navigator's time-marker strip instead of a waveform: draws ticks and labels; a plain
+    /// press sets the playhead (or jumps playback) and never touches the selection.
+    var isRuler = false
 
     private enum Drag {
         case select(anchor: Double, extend: Bool)
@@ -51,6 +54,9 @@ final class WaveformNSView: NSView {
         case lines(Grab, anchor: Double?, offset: Double)
         /// Moving the whole selection.
         case move(original: ClosedRange<Double>, pressTime: Double)
+        /// Ruler: a plain press. Stopped at the press: the playhead follows the pointer; playing:
+        /// playback jumped to the press point and the rest of the drag does nothing.
+        case seek(playing: Bool)
     }
 
     /// Lines grabbed by a press: the nearest one within the tolerance, plus the other lines at
@@ -103,14 +109,11 @@ final class WaveformNSView: NSView {
         background.setFill()
         bounds.fill()
         let horizontal = orientation == .horizontal
-
-        if let sel = state?.selection {
-            let a = max(axis(ofTime: sel.lowerBound), 0), b = min(axis(ofTime: sel.upperBound), timeLength)
-            if b > a {
-                NSColor.controlAccentColor.withAlphaComponent(0.25).setFill()
-                (horizontal ? NSRect(x: a, y: 0, width: b - a, height: bounds.height)
-                            : NSRect(x: 0, y: a, width: bounds.width, height: b - a)).fill()
-            }
+        drawSelection()
+        if isRuler {
+            drawRuler()
+            drawLines()
+            return
         }
 
         let zero = NSBezierPath()
@@ -135,6 +138,87 @@ final class WaveformNSView: NSView {
         NSColor.controlAccentColor.setStroke()
         path.lineWidth = 1
         path.stroke()
+    }
+
+    private func drawSelection() {
+        guard let sel = state?.selection else { return }
+        let a = max(axis(ofTime: sel.lowerBound), 0), b = min(axis(ofTime: sel.upperBound), timeLength)
+        guard b > a else { return }
+        NSColor.controlAccentColor.withAlphaComponent(0.25).setFill()
+        (orientation == .horizontal ? NSRect(x: a, y: 0, width: b - a, height: bounds.height)
+                                    : NSRect(x: 0, y: a, width: bounds.width, height: b - a)).fill()
+    }
+
+    // MARK: Ruler
+
+    struct Tick {
+        var time: Double
+        var axis: CGFloat
+        var major: Bool
+        var label: String?
+        /// Label frame in view coordinates; nil for minor ticks and labels that don't fit.
+        var labelFrame: CGRect?
+    }
+
+    /// Ticks of the visible range (within the file), as drawn.
+    func rulerTicks() -> [Tick] {
+        guard let state, state.audio != nil, timeLength > 0, state.viewLength > 0 else { return [] }
+        let horizontal = orientation == .horizontal
+        let pointsPerSecond = Double(timeLength) / state.viewLength
+        let lo = max(state.viewStart, 0), hi = min(state.viewEnd, state.duration)
+        guard hi >= lo else { return [] }
+        // The smallest step whose labels keep `rulerLabelGap` apart.
+        var step = rulerSteps.last!
+        for candidate in rulerSteps {
+            let size = rulerLabelSize(formatRulerTime(hi, step: candidate))
+            let extent = horizontal ? rulerLabelOffset + size.width : rulerLabelOffset + size.height
+            if candidate * pointsPerSecond >= Double(extent + rulerLabelGap) { step = candidate; break }
+        }
+        var ticks: [Tick] = []
+        let first = Int((lo / step - 1e-9).rounded(.up)), last = Int((hi / step + 1e-9).rounded(.down))
+        if last >= first {
+            for k in first...last {
+                let t = Double(k) * step
+                let a = axis(ofTime: t)
+                let label = formatRulerTime(t, step: step)
+                let size = rulerLabelSize(label)
+                let frame = horizontal
+                    ? CGRect(x: a + rulerLabelOffset, y: ((bounds.height - size.height) / 2).rounded(), width: size.width, height: size.height)
+                    : CGRect(x: rulerLabelOffset, y: a + rulerLabelOffset, width: size.width, height: size.height)
+                ticks.append(Tick(time: t, axis: a, major: true, label: label,
+                                  labelFrame: bounds.contains(frame) ? frame : nil))
+            }
+        }
+        let parts = rulerMinorParts(step)
+        let minor = step / Double(parts)
+        if minor * pointsPerSecond >= Double(rulerMinMinorSpacing) {
+            let mFirst = Int((lo / minor - 1e-9).rounded(.up)), mLast = Int((hi / minor + 1e-9).rounded(.down))
+            if mLast >= mFirst {
+                for m in mFirst...mLast where m % parts != 0 {
+                    let t = Double(m) * minor
+                    ticks.append(Tick(time: t, axis: axis(ofTime: t), major: false))
+                }
+            }
+        }
+        return ticks
+    }
+
+    private func drawRuler() {
+        let horizontal = orientation == .horizontal
+        let w = bounds.width, h = bounds.height
+        let attributes = rulerLabelAttributes
+        for tick in rulerTicks() {
+            let a = tick.axis
+            (tick.major ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor).setFill()
+            let len = tick.major ? (horizontal ? h : w) : rulerMinorLength
+            (horizontal ? NSRect(x: a - 0.5, y: h - len, width: 1, height: len)
+                        : NSRect(x: w - len, y: a - 0.5, width: len, height: 1)).fill()
+            if let label = tick.label, let frame = tick.labelFrame {
+                NSAttributedString(string: label, attributes: attributes).draw(at: frame.origin)
+            }
+        }
+        NSColor.separatorColor.setFill()
+        (horizontal ? NSRect(x: 0, y: h - 1, width: w, height: 1) : NSRect(x: w - 1, y: 0, width: 1, height: h)).fill()
     }
 
     /// Axis position of the playhead line, if it is drawn (for the state dump too).
@@ -167,6 +251,14 @@ final class WaveformNSView: NSView {
 
     private func hover(at p: CGPoint) -> Hover {
         guard let state, let audio = state.audio else { return .none }
+        if isRuler {
+            // Only the last-start line (with the playhead if they coincide while stopped).
+            guard abs(axisPosition(p) - axis(ofTime: state.lastStart)) <= Self.edgeTolerance else { return .none }
+            var g = Grab(time: state.lastStart)
+            g.lastStart = true
+            g.playhead = !state.isPlaying && abs(state.playhead - state.lastStart) <= 1 / audio.sampleRate
+            return .lines(g)
+        }
         let sel = state.selection
         enum Line { case startEdge, endEdge, playhead, lastStart }
         var lines: [(Line, Double)] = []
@@ -236,7 +328,11 @@ final class WaveformNSView: NSView {
         let t = time(atAxis: clampedAxis(p))
         if event.modifierFlags.contains(.option) {
             drag = .pan(grabbedTime: time(atAxis: axisPosition(p)))
-        } else if event.modifierFlags.contains(.shift), let sel = state.selection {
+        } else if isRuler, hover(at: p) == .none {
+            let playing = state.isPlaying
+            drag = .seek(playing: playing)
+            seek(to: t)
+        } else if !isRuler, event.modifierFlags.contains(.shift), let sel = state.selection {
             // Keep the end farther from the click; the nearer one follows the pointer.
             let anchor = abs(t - sel.lowerBound) < abs(t - sel.upperBound) ? sel.upperBound : sel.lowerBound
             drag = .select(anchor: anchor, extend: true)
@@ -264,6 +360,12 @@ final class WaveformNSView: NSView {
     override func otherMouseDragged(with event: NSEvent) { dragTo(location(event)) }
 
     private func clampedAxis(_ p: CGPoint) -> CGFloat { min(max(axisPosition(p), 0), timeLength) }
+
+    /// Ruler press: playing, playback jumps to `t`; stopped, the playhead goes there.
+    private func seek(to t: Double) {
+        guard let state else { return }
+        if state.isPlaying { state.startPlayback(at: t) } else { state.dragPlayhead(to: t) }
+    }
 
     private func dragTo(_ p: CGPoint) {
         guard let state, let drag else { return }
@@ -295,6 +397,8 @@ final class WaveformNSView: NSView {
         case let .move(original, pressTime):
             guard dragged else { return }
             state.moveSelection(from: original, by: time(atAxis: axisPosition(p)) - pressTime)
+        case let .seek(playing):
+            if !playing { state.dragPlayhead(to: time(atAxis: clampedAxis(p))) }
         }
     }
 
@@ -307,8 +411,9 @@ final class WaveformNSView: NSView {
         let clicked = time(atAxis: axisPosition(p))
         switch drag {
         case let .select(_, extend): if !dragged && !extend { state.clickedToClear(at: clicked) }
+        case .lines where isRuler: if !dragged { seek(to: time(atAxis: clampedAxis(p))) }
         case .lines, .move: if !dragged { state.clickedToClear(at: clicked) }
-        case .pan: break
+        case .pan, .seek: break
         }
         self.drag = nil
         updateCursor(at: p, flags: event.modifierFlags)
@@ -352,11 +457,13 @@ struct WaveformView: NSViewRepresentable {
     let name: String
     let state: AppState
     let background: NSColor
+    var isRuler = false
 
     func makeNSView(context: Context) -> WaveformNSView { WaveformNSView() }
 
     func updateNSView(_ view: WaveformNSView, context: Context) {
         view.name = name
+        view.isRuler = isRuler
         view.state = state
         view.background = background
         // Read the observed properties here so SwiftUI calls this again when they change.
@@ -458,4 +565,56 @@ extension NSColor {
                            brightness: red.brightnessComponent * 0.9, alpha: 1)
         }
     }
+}
+
+// MARK: Ruler layout and labels
+
+/// Major tick steps (seconds).
+let rulerSteps: [Double] = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30,
+                            60, 120, 300, 600, 900, 1800, 3600, 7200, 18000, 36000]
+/// Space between a tick and its label (right of it / below it).
+let rulerLabelOffset: CGFloat = 3
+/// Minimum space between neighbouring labels.
+let rulerLabelGap: CGFloat = 8
+let rulerMinMinorSpacing: CGFloat = 4
+let rulerMinorLength: CGFloat = 4
+/// Height of the strip in horizontal mode.
+let rulerHorizontalThickness: CGFloat = 18
+@MainActor private let rulerFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular)
+@MainActor private var rulerLabelAttributes: [NSAttributedString.Key: Any] {
+    [.font: rulerFont, .foregroundColor: NSColor.secondaryLabelColor]
+}
+
+@MainActor func rulerLabelSize(_ s: String) -> CGSize {
+    let size = NSAttributedString(string: s, attributes: [.font: rulerFont]).size()
+    return CGSize(width: size.width.rounded(.up), height: size.height.rounded(.up))
+}
+
+/// Width of the strip in vertical mode: the longest label of the file (3 decimals) plus padding.
+@MainActor func rulerVerticalThickness(duration: Double) -> CGFloat {
+    rulerLabelOffset + rulerLabelSize(formatRulerTime(duration, step: 0.001)).width + 5
+}
+
+/// Minor divisions of a major step: 5 for 1·10ⁿ and 5·10ⁿ, 4 for 2·10ⁿ, 3 for 15 s / 15 min,
+/// 6 for 30 s / 30 min (minutes and hours count like seconds).
+func rulerMinorParts(_ step: Double) -> Int {
+    var v = step >= 60 ? step / 60 : step
+    if step >= 3600 { v = step / 3600 }
+    while v >= 10 { if v == 15 || v == 30 { break }; v /= 10 }
+    while v < 1 { v *= 10 }
+    switch Int(v.rounded()) {
+    case 2: return 4
+    case 15: return 3
+    case 30, 3: return 6
+    default: return 5
+    }
+}
+
+/// `m:ss` with as many decimals as the step needs.
+func formatRulerTime(_ t: Double, step: Double) -> String {
+    let decimals = step >= 1 ? 0 : max(0, Int((-log10(step) - 1e-9).rounded(.up)))
+    let ms = Int((t * 1000).rounded())
+    var s = String(format: "%d:%02d", ms / 60000, ms / 1000 % 60)
+    if decimals > 0 { s += "." + String(String(format: "%03d", ms % 1000).prefix(decimals)) }
+    return s
 }

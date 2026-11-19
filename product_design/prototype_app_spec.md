@@ -440,3 +440,18 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
 - Down Arrow follows the same modifier rule as Space, Left and Right.
 - `verify_m3.py` criterion 5 moves the playhead away before its navigator drag: since the
   milestone 4 review the playhead line at the drag start would be grabbed instead.
+- Time-marker strip (milestone 5): a mode of the waveform pane view (`WaveformNSView.isRuler`), so
+  it shares the time mapping, scrolling, pinch and Option/middle-drag pan with the navigator. Same
+  background as the navigator, a 1-point separator line along the waveform side. Labels: 10-point
+  system font with monospaced digits, secondary label color, 3 points right of (below) the tick,
+  vertically centred in the horizontal strip. Major ticks span the strip; minor ticks are 4 points
+  long at the waveform side. A label that would leave the strip is not drawn (its tick is).
+- The vertical strip's width comes from the file's duration formatted with 3 decimals (the longest
+  possible label) plus 8 points, so it changes only when a file is opened.
+- Step choice uses the width (horizontal) or height (vertical) of the label of the last visible
+  time at that step; with monospaced digits that is the widest label in view.
+- A click without a drag on the last-start line in the strip acts like a plain strip press
+  (playhead there, or playback jumps there).
+- The state dump's `waveforms` leaves out the strip (it has no waveform); it is under `ruler`, and
+  in `screenFrames` as `ruler`. The playback dump also has `clearPoint`. The input driver gained
+  `down` / `dragto` / `up` for drags with dumps in between.
