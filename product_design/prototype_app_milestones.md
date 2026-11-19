@@ -388,8 +388,86 @@ Not checked automatically: that the playhead can't be grabbed during playback (a
 can't be hit reliably with synthetic events; covered by the hover code path, which skips the
 playhead while playing).
 
+## 5. Time markers
+
+- We need time markers in the navigation pane, for horizontal time in the top line of the pane, for
+vertical top in the left column.
+- The time markers consists if ticks and numbers (right of the ticks or below the ticks)
+- The numbers should be in "min:sec.999" format
+- If the user clicks or drags in the time markers area, it behaves differently: it does not change the
+  selection, only the playhead or last-playback-started position.
+
+Status: `done`
+
+Review changes: the selection band is no longer painted over the strip; labels less dense (at
+least 30 pt between labels instead of 8).
+
+Acceptance criteria:
+
+Test audio: the milestone 4 10 s noise WAV and the milestone 2 sine, plus a generated 12-minute
+silent mono WAV for long-file labels. Mouse input uses the synthetic-event driver; checks run in
+both orientations unless noted.
+
+1. Builds; `verify_m1.py` … `verify_m4.py` and `verify_m4_review.py` still pass (scripts that
+   depend on the navigator's waveform geometry may be adjusted to the strip). (CLI)
+2. Layout: horizontal: the strip spans the navigator's top, about 18 pt tall, with the waveform
+   below it and the scrollbar unchanged at the bottom; vertical: the strip is the navigator's left
+   column, at least as wide as the widest label, with the waveform right of it. The main pane has
+   no strip. No file loaded: no ticks. (dump of frames + screenshots)
+3. Ticks, for the views 0–10 s (whole file), 1–2 s, 1–1.1 s (maximum zoom) and the whole 12-minute
+   file, at two window sizes: major ticks at the multiples of the expected step (the smallest one
+   in the list whose labels keep ≥ 30 pt apart (review change; was 8), computed from the dumped label frames), each tick
+   within 0.5 pt of its time's position in the waveform's mapping; minor ticks evenly between, with
+   the specified count; labels in the specified format (e.g. `0:05`, `0:01.5`, `0:01.05`, `10:00`);
+   no label overlaps another or leaves the strip; no ticks outside 0 … duration. (dump +
+   screenshots)
+4. The ticks follow zoom, pan, window resize, divider drag, orientation switch and follow during
+   playback (dump after each matches the visible range as in 3). (commands, synthetic events, dump)
+5. Playhead and last-start lines are drawn through the strip; the selection band is not (review
+   change; was drawn). (screenshot,
+   pixel check at the line positions inside the strip)
+6. Stopped, with a selection 2–3 s: a click in the strip at 5.0 puts the playhead, last start and
+   clear point at 5.0; a drag 5.0 → 6.0 → 4.0 ends with them at 4.0 (playhead at ~6.0 in a dump
+   mid-drag); the selection stays 2–3; playback doesn't start. Without a selection, Left Arrow
+   then plays from the clicked point. A drag beyond the view end stops at the view end. (synthetic
+   events + dumps)
+7. Playing from 1.0: a press in the strip at 6.0 jumps the playback there: the rendered audio
+   continues with the file's samples from 6.0 (record), playing stays on, last start 6.0,
+   selection unchanged; moving the pointer to 7.0 before release changes nothing. With a
+   selection 2–3 s and loop on, a press at 2.2 during playback from 5.0 then loops in 2–3
+   (2.2 rather than 2.0: a press at 2.0 can land a pixel before the selection, which is outside it).
+   (synthetic events + record + dumps)
+8. Last-start line in the strip: hovering it shows the resize cursor; stopped (away from the
+   playhead) and playing, dragging it moves only the last start, playback unaffected; a press on
+   a selection edge's position in the strip acts as a plain strip press (moves the playhead), the
+   selection is unchanged. (synthetic events + dumps)
+
+Verification results after the review changes (`python3 verify/verify_m5.py`, run from
+`prototype/`; screenshots in `verify/out/m5/`): 39/39 checks passed.
+
+1. `verify_m4.py` (which runs `verify_m3.py` → m2, m1, `build.sh`, the CMake build) and
+   `verify_m4_review.py` pass unchanged.
+2. Horizontal: strip 18 pt at the navigator's top, waveform below, scrollbar at the bottom.
+   Vertical: 53 pt left column. Not in the main pane; no ticks without a file.
+3. Both orientations, 1000×700 and 700×450: whole file: 1 s step (`0:00`, `0:01` …, 5 minor
+   parts; 2 s in the shorter vertical strip); 1–2 s: 0.1 s (0.2 s); 1–1.1 s: 0.01 s or 0.02 s;
+   the 12-minute file: 1 min step up to `12:00`. Steps minimal, ticks within 0.5 pt, labels
+   ≥ 30 pt apart and inside the strip.
+4. Ticks match the view after zoom, pan, resize, divider drag, orientation switch and follow.
+5. Pixels inside the strip: playhead red, last start desaturated red; inside the selection the
+   strip stays untinted grey like outside it.
+6. Click / drag (with a mid-drag dump) / drag past the view end, selection kept, no playback;
+   ← afterwards plays from the clicked point.
+7. A press at 6.0 during playback: the rendered audio continues sample-exactly from 6.0; dragging
+   on changes nothing. Loop case loops in 2–3.
+8. Last-start line: resize cursor; dragged alone stopped and during playback; presses at the
+   selection edges in the strip move the playhead, the selection stays.
+
+Not checked automatically: Option/middle-drag pan, scrolling and pinch inside the strip itself
+(the same code as the navigator, which `verify_m3.py` covers).
 
 ## Fine-tuning (to do later)
 
 - Don't drag playhead/last-playback-start when dragging selection edge
 - Revise follow-logic
+- Better last-playback-start marker color

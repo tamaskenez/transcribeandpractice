@@ -10,6 +10,8 @@
 //   press <pid> <title>                   press a toolbar button via Accessibility
 //   enabled <pid> <title>                 print the button's AXEnabled
 //   front <pid>                           make the app frontmost via Accessibility
+//   down x y / dragto x y / up x y        a left-button drag in separate steps (dragto: 10 drag events
+//                                         from the last position)
 //   sleep ms
 import ApplicationServices
 import Foundation
@@ -68,6 +70,7 @@ guard AXIsProcessTrusted() else {
     exit(2)
 }
 
+var last = CGPoint.zero
 while let line = readLine() {
     let a = line.split(separator: " ").map(String.init)
     guard let cmd = a.first else { continue }
@@ -153,6 +156,21 @@ while let line = readLine() {
     case "front":
         let app = AXUIElementCreateApplication(pid_t(a[1])!)
         print(AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue) == .success ? "ok" : "failed")
+    case "down":
+        let p = CGPoint(x: d(1), y: d(2))
+        post(.mouseMoved, p); pause(30)
+        post(.leftMouseDown, p); pause(30)
+        last = p
+    case "dragto":
+        let p = CGPoint(x: d(1), y: d(2))
+        last = CGEvent(source: nil)?.location ?? last // the pointer, also across driver runs
+        for i in 1...10 {
+            let t = Double(i) / 10
+            post(.leftMouseDragged, CGPoint(x: last.x + (p.x - last.x) * t, y: last.y + (p.y - last.y) * t)); pause(10)
+        }
+        last = p
+    case "up":
+        post(.leftMouseUp, CGPoint(x: d(1), y: d(2))); pause(30)
     case "sleep":
         pause(Int(a[1])!)
     default:
