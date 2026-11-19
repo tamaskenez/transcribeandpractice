@@ -12,7 +12,7 @@ import SwiftUI
 ///                         dump <path> | snapshot <path> | quit | view <s>,<e> | select <s>,<e>
 ///                         | orientation <o> | open <path> | resize <w>,<h> | activate
 ///                         | amplitude <dB> | playhead <s> | loop on|off | follow on|off
-///                         | record <path> | record stop
+///                         | record <path> | record stop | beats on|off
 ///   --quit                quit when done
 /// Values must use the `=` form: a bare path argument can make AppKit treat the launch as
 /// "open this file", and then SwiftUI doesn't create the main window.
@@ -105,6 +105,7 @@ enum VerificationHooks {
                     case "playhead": if let v = Double(arg) { state.clickedToClear(at: v) }
                     case "loop": state.loopEnabled = arg == "on"
                     case "follow": state.followPlayhead = arg == "on"
+                    case "beats": state.showBeats = arg == "on"
                     case "record":
                         if arg == "stop" {
                             let data = state.player.core.stopRecording()
@@ -143,6 +144,12 @@ enum VerificationHooks {
             "windowTitle": mainWindow?.title ?? NSNull(),
             "windowCount": NSApp.windows.filter { $0.isVisible && $0.sheetParent == nil }.count,
             "alertText": state.errorMessage ?? NSNull(),
+            "alertTitle": state.errorMessage == nil ? NSNull() : state.errorTitle as Any,
+            "beats": state.beats.map { b -> [String: Any] in
+                ["sample": b.sample, "source": b.source.rawValue, "timeSignature": b.timeSignature ?? NSNull(),
+                 "firstBeat": b.firstBeat.rawValue]
+            },
+            "showBeats": ["stored": state.showBeats, "enabled": state.beatsAvailable, "on": state.stripShowsBeats],
             "allWindows": NSApp.windows.map { "\($0.className) visible=\($0.isVisible) title=\($0.title)" },
             "hintVisible": state.audio == nil,
             "menu": menuDump(NSApp.mainMenu),
@@ -246,7 +253,14 @@ enum VerificationHooks {
             ["time": $0.time, "axis": $0.axis, "major": $0.major, "label": $0.label.map { $0 as Any } ?? NSNull(),
              "labelFrame": $0.labelFrame.map(rect) ?? NSNull()]
         }
+        let marks: [[String: Any]] = r.beatMarks().map {
+            ["time": $0.time, "axis": $0.axis, "kind": $0.kind.rawValue, "bar": $0.bar.map { $0 as Any } ?? NSNull(),
+             "labelFrame": $0.labelFrame.map(rect) ?? NSNull()]
+        }
         return ["size": size(r.bounds.size), "cursor": r.cursorName,
+                "mode": r.showsBeats ? "beats" : "time",
+                "marks": r.showsBeats ? marks : [],
+                "pointerAxis": r.pointerAxis.map { Double($0) } ?? NSNull(),
                 "playheadAxis": r.playheadAxis.map { Double($0) } ?? NSNull(),
                 "lastStartAxis": r.lastStartAxis.map { Double($0) } ?? NSNull(),
                 "ticks": ticks] as [String: Any]
@@ -314,7 +328,7 @@ enum VerificationHooks {
     private static func menuDump(_ menu: NSMenu?) -> [[String: Any]] {
         guard let menu else { return [] }
         return menu.items.filter { !$0.isSeparatorItem }.map { item in
-            var d: [String: Any] = ["title": item.title]
+            var d: [String: Any] = ["title": item.title, "enabled": item.isEnabled, "checked": item.state == .on]
             if !item.keyEquivalent.isEmpty {
                 var mods: [String] = []
                 let m = item.keyEquivalentModifierMask

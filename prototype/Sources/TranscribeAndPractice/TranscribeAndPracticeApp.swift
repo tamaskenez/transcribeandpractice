@@ -19,6 +19,10 @@ struct TranscribeAndPracticeApp: App {
                 orientationItem("Horizontal Time", .horizontal, key: "1")
                 orientationItem("Vertical Time", .vertical, key: "2")
                 Divider()
+                Toggle("Show Beats", isOn: Binding(get: { state.stripShowsBeats }, set: { state.showBeats = $0 }))
+                    .keyboardShortcut("b", modifiers: .command)
+                    .disabled(!state.beatsAvailable)
+                Divider()
             }
         }
     }

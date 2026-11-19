@@ -340,9 +340,8 @@ Display (the navigator's marker strip):
 Pointer line:
 
 - A thin grey line across the strip at the time under the mouse pointer, in both modes, while
-  the pointer is over the navigator waveform, the strip or the main waveform pane (each pane
-  maps the pointer through its own visible range; a main-pane time outside the navigator's view
-  is not visible). It is hidden when the pointer is anywhere else (scrollbar, divider, toolbar,
+  the pointer is over the navigator waveform, the strip or the main waveform pane (all three
+  share the visible range). It is hidden when the pointer is anywhere else (scrollbar, divider, toolbar,
   transport pane, outside the window).
 - It follows the pointer's time also when the view moves under a still pointer (pan, zoom,
   follow), and during drags.

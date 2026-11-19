@@ -6,7 +6,7 @@
 //   drag x1 y1 x2 y2 [mods] [left|middle]
 //   scroll x y dx dy [mods]               pixel units; positive dy = wheel up
 //   magnify x y m [steps]                 trackpad pinch, total magnification m
-//   key escape|space|left|right
+//   key escape|space|left|right|down|b [mods]
 //   press <pid> <title>                   press a toolbar button via Accessibility
 //   enabled <pid> <title>                 print the button's AXEnabled
 //   front <pid>                           make the app frontmost via Accessibility
@@ -138,10 +138,16 @@ while let line = readLine() {
         for _ in 0..<steps { gesture(per, phase: 2) }
         gesture(0, phase: 4)
     case "key":
-        let codes: [String: CGKeyCode] = ["escape": 53, "space": 49, "left": 123, "right": 124, "down": 125]
+        let codes: [String: CGKeyCode] = ["escape": 53, "space": 49, "left": 123, "right": 124, "down": 125, "b": 11]
         if let code = codes[a[1]] {
-            CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)?.post(tap: .cghidEventTap); pause(20)
-            CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)?.post(tap: .cghidEventTap)
+            let f = flags(a.count > 2 ? a[2] : nil)
+            setModifiers(f)
+            for down in [true, false] {
+                let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)
+                e?.flags = f
+                e?.post(tap: .cghidEventTap); pause(20)
+            }
+            setModifiers([])
         }
     case "press", "enabled":
         let title = a[2...].joined(separator: " ")

@@ -481,7 +481,7 @@ Not checked automatically: Option/middle-drag pan, scrolling and pinch inside th
   - if there are no beats at all, the toggle is disabled and display time
 - add a new indicator line in the time/beat marker area, a vertical line for horizontal time or horizontal line for vertical line. It should follow the mouse pointer's time coordinate.
 
-Status: `criteria proposed`
+Status: `criteria approved`
 
 Acceptance criteria:
 
@@ -516,9 +516,9 @@ noted.
 6. The marks follow zoom, pan, window resize, divider drag and orientation switch (dump after
    each matches the visible range as in 3). (commands, synthetic events, dump)
 7. Pointer line: with the pointer over the navigator waveform at time t, and over the strip, the
-   line is at t (within 0.5 pt) in both modes; over the main pane (with a different visible
-   range) at the main pane's time t inside the navigator's view, the line is at t; outside it,
-   no line is drawn; over the scrollbar or the transport pane, no line; with the pointer held
+   line is at t (within 0.5 pt) in both modes; over the main pane at time t, the line is at t
+   (implementation finding: the panes share one visible range, so the "main-pane time outside
+   the navigator's view" case can't occur); over the scrollbar or the transport pane, no line; with the pointer held
    still, a pan (scroll) moves the line to the pointer's new time. The line is visible in a
    screenshot (pixel check). (synthetic events + dump + screenshot)
 8. A click and a drag in the strip in beats mode move the playhead as in milestone 5, the
@@ -526,7 +526,7 @@ noted.
 
 ## 7. Computed beats and bars
 
-- we also introduce a constant "beat_note". Later, we willl expose it on the UI but now it's a constant but we already use it in calculations. The value is a rational number, the note duration to which BPM refers to. Now it's fixed to 1/4.
+- we also introduce a constant "beat_note". Later, we will expose it on the UI but now it's a constant but we already use it in calculations. The value is a rational number, the note duration to which BPM refers to. Now it's fixed to 1/4.
 
 What to do with computed beats:
 

@@ -162,7 +162,7 @@ final class WaveformNSView: NSView {
 
     /// Ticks of the visible range (within the file), as drawn.
     func rulerTicks() -> [Tick] {
-        guard let state, state.audio != nil, timeLength > 0, state.viewLength > 0 else { return [] }
+        guard let state, state.audio != nil, !showsBeats, timeLength > 0, state.viewLength > 0 else { return [] }
         let horizontal = orientation == .horizontal
         let pointsPerSecond = Double(timeLength) / state.viewLength
         let lo = max(state.viewStart, 0), hi = min(state.viewEnd, state.duration)
@@ -203,9 +203,135 @@ final class WaveformNSView: NSView {
         return ticks
     }
 
+    /// A beat as drawn in the strip (beats mode).
+    struct BeatMark {
+        enum Kind: String { case big, bigDotted, small, dot }
+        var time: Double
+        var axis: CGFloat
+        var kind: Kind
+        /// Bar number shown as the label (numbered downbeats only).
+        var bar: Int?
+        var labelFrame: CGRect?
+    }
+
+    /// Whether the strip draws beats (otherwise time ticks).
+    var showsBeats: Bool { isRuler && state?.stripShowsBeats == true }
+
+    /// Beat marks of the visible range, as drawn (see the spec's crowding rules).
+    func beatMarks() -> [BeatMark] {
+        guard let state, let audio = state.audio, !state.beats.isEmpty, timeLength > 0, state.viewLength > 0
+        else { return [] }
+        let horizontal = orientation == .horizontal
+        // Bar numbers over the whole file; then the visible beats.
+        var bars: [Int?] = []
+        var bar = 0
+        for b in state.beats { if b.isDownbeat { bar += 1; bars.append(bar) } else { bars.append(nil) } }
+        let lo = max(state.viewStart, 0), hi = min(state.viewEnd, state.duration)
+        let visible = state.beats.indices.filter {
+            let t = Double(state.beats[$0].sample) / audio.sampleRate
+            return t >= lo && t <= hi
+        }
+        func t(_ i: Int) -> Double { Double(state.beats[i].sample) / audio.sampleRate }
+        func extent(_ n: Int) -> CGFloat {
+            let size = rulerLabelSize(String(n))
+            return rulerLabelOffset + (horizontal ? size.width : size.height)
+        }
+        // Bar number step: the smallest power of two keeping the labels apart.
+        let downbeats = visible.filter { bars[$0] != nil }
+        var k = 1
+        while k < max(bar, 1) {
+            let numbered = downbeats.filter { (bars[$0]! - 1) % k == 0 }
+            let fits = zip(numbered, numbered.dropFirst()).allSatisfy { a, b in
+                axis(ofTime: t(b)) - axis(ofTime: t(a)) >= extent(bars[a]!) + rulerLabelGap
+            }
+            if fits { break }
+            k *= 2
+        }
+        let isNumbered = { (i: Int) in bars[i].map { ($0 - 1) % k == 0 } ?? false }
+        // Small marks: all beats, or only the un-numbered downbeats, or none.
+        func spaced(_ idx: [Int]) -> Bool {
+            zip(idx, idx.dropFirst()).allSatisfy { axis(ofTime: t($1)) - axis(ofTime: t($0)) >= rulerMinMinorSpacing }
+        }
+        let smallAll = spaced(visible)
+        let unnumberedDown = downbeats.filter { !isNumbered($0) }
+        let smallDown = !smallAll && spaced(unnumberedDown)
+        var marks: [BeatMark] = []
+        for i in visible {
+            let beat = state.beats[i]
+            let a = axis(ofTime: t(i))
+            if isNumbered(i) {
+                let n = bars[i]!
+                let size = rulerLabelSize(String(n))
+                let frame = horizontal
+                    ? CGRect(x: a + rulerLabelOffset, y: ((bounds.height - size.height) / 2).rounded(), width: size.width, height: size.height)
+                    : CGRect(x: rulerLabelOffset, y: a + rulerLabelOffset, width: size.width, height: size.height)
+                marks.append(BeatMark(time: t(i), axis: a, kind: beat.firstBeat == .computed ? .bigDotted : .big,
+                                      bar: n, labelFrame: bounds.contains(frame) ? frame : nil))
+            } else if smallAll || (smallDown && beat.isDownbeat) {
+                marks.append(BeatMark(time: t(i), axis: a, kind: beat.source == .computed ? .dot : .small))
+            }
+        }
+        return marks
+    }
+
+    private func drawBeats() {
+        let horizontal = orientation == .horizontal
+        let w = bounds.width, h = bounds.height
+        for mark in beatMarks() {
+            let a = mark.axis
+            switch mark.kind {
+            case .big:
+                NSColor.secondaryLabelColor.setFill()
+                (horizontal ? NSRect(x: a - 0.5, y: 0, width: 1, height: h) : NSRect(x: 0, y: a - 0.5, width: w, height: 1)).fill()
+            case .bigDotted:
+                NSColor.secondaryLabelColor.setFill()
+                var p: CGFloat = 0
+                let len = horizontal ? h : w
+                while p < len {
+                    let d = min(rulerDash, len - p)
+                    (horizontal ? NSRect(x: a - 0.5, y: h - p - d, width: 1, height: d)
+                                : NSRect(x: w - p - d, y: a - 0.5, width: d, height: 1)).fill()
+                    p += 2 * rulerDash
+                }
+            case .small:
+                NSColor.tertiaryLabelColor.setFill()
+                (horizontal ? NSRect(x: a - 0.5, y: h - rulerMinorLength, width: 1, height: rulerMinorLength)
+                            : NSRect(x: w - rulerMinorLength, y: a - 0.5, width: rulerMinorLength, height: 1)).fill()
+            case .dot:
+                NSColor.tertiaryLabelColor.setFill()
+                let c = horizontal ? CGPoint(x: a, y: h - rulerMinorLength / 2) : CGPoint(x: w - rulerMinorLength / 2, y: a)
+                NSBezierPath(ovalIn: NSRect(x: c.x - rulerDotDiameter / 2, y: c.y - rulerDotDiameter / 2,
+                                            width: rulerDotDiameter, height: rulerDotDiameter)).fill()
+            }
+            if let n = mark.bar, let frame = mark.labelFrame {
+                NSAttributedString(string: String(n), attributes: rulerLabelAttributes).draw(at: frame.origin)
+            }
+        }
+    }
+
+    /// Axis position of the pointer line in the strip, if drawn.
+    var pointerAxis: CGFloat? {
+        guard isRuler, let state, state.audio != nil, let t = state.pointerTime else { return nil }
+        let a = axis(ofTime: t)
+        return a >= 0 && a <= timeLength ? a : nil
+    }
+
+    private func drawPointerLine() {
+        guard let a = pointerAxis else { return }
+        NSColor.secondaryLabelColor.setFill()
+        (orientation == .horizontal ? NSRect(x: a - 0.5, y: 0, width: 1, height: bounds.height)
+                                    : NSRect(x: 0, y: a - 0.5, width: bounds.width, height: 1)).fill()
+    }
+
     private func drawRuler() {
         let horizontal = orientation == .horizontal
         let w = bounds.width, h = bounds.height
+        defer {
+            NSColor.separatorColor.setFill()
+            (horizontal ? NSRect(x: 0, y: h - 1, width: w, height: 1) : NSRect(x: w - 1, y: 0, width: 1, height: h)).fill()
+            drawPointerLine()
+        }
+        if showsBeats { drawBeats(); return }
         let attributes = rulerLabelAttributes
         for tick in rulerTicks() {
             let a = tick.axis
@@ -217,8 +343,6 @@ final class WaveformNSView: NSView {
                 NSAttributedString(string: label, attributes: attributes).draw(at: frame.origin)
             }
         }
-        NSColor.separatorColor.setFill()
-        (horizontal ? NSRect(x: 0, y: h - 1, width: w, height: 1) : NSRect(x: w - 1, y: 0, width: 1, height: h)).fill()
     }
 
     /// Axis position of the playhead line, if it is drawn (for the state dump too).
@@ -314,8 +438,25 @@ final class WaveformNSView: NSView {
     }
 
     override func cursorUpdate(with event: NSEvent) { updateCursor(at: location(event), flags: event.modifierFlags) }
-    override func mouseMoved(with event: NSEvent) { updateCursor(at: location(event), flags: event.modifierFlags) }
-    override func mouseExited(with event: NSEvent) { if drag == nil { NSCursor.arrow.set(); cursorName = "arrow" } }
+    override func mouseMoved(with event: NSEvent) {
+        updatePointer(location(event))
+        updateCursor(at: location(event), flags: event.modifierFlags)
+    }
+    override func mouseEntered(with event: NSEvent) { updatePointer(location(event)) }
+    override func mouseExited(with event: NSEvent) {
+        if state?.pointer?.pane == name { state?.pointer = nil }
+        if drag == nil { NSCursor.arrow.set(); cursorName = "arrow" }
+    }
+
+    /// The pointer line follows the pointer's time (also while dragging).
+    private func updatePointer(_ p: CGPoint) {
+        guard let state, timeLength > 0 else { return }
+        if bounds.contains(p) || drag != nil {
+            state.pointer = (name, Double(axisPosition(p) / timeLength))
+        } else if state.pointer?.pane == name {
+            state.pointer = nil
+        }
+    }
     override func flagsChanged(with event: NSEvent) {
         if let w = window { updateCursor(at: convert(w.mouseLocationOutsideOfEventStream, from: nil), flags: event.modifierFlags) }
     }
@@ -356,8 +497,8 @@ final class WaveformNSView: NSView {
         drag = .pan(grabbedTime: time(atAxis: axisPosition(location(event))))
     }
 
-    override func mouseDragged(with event: NSEvent) { dragTo(location(event)) }
-    override func otherMouseDragged(with event: NSEvent) { dragTo(location(event)) }
+    override func mouseDragged(with event: NSEvent) { updatePointer(location(event)); dragTo(location(event)) }
+    override func otherMouseDragged(with event: NSEvent) { updatePointer(location(event)); dragTo(location(event)) }
 
     private func clampedAxis(_ p: CGPoint) -> CGFloat { min(max(axisPosition(p), 0), timeLength) }
 
@@ -406,6 +547,7 @@ final class WaveformNSView: NSView {
         guard let state, let drag else { return }
         let p = location(event)
         dragTo(p)
+        if !bounds.contains(p), state.pointer?.pane == name { state.pointer = nil }
         // A click without a drag clears the selection (also on its edges or inside it).
         state.player.core.setSelectionDragging(false)
         let clicked = time(atAxis: axisPosition(p))
@@ -469,6 +611,7 @@ struct WaveformView: NSViewRepresentable {
         // Read the observed properties here so SwiftUI calls this again when they change.
         _ = (state.audio?.mono.count, state.orientation, state.viewStart, state.viewEnd, state.selection,
              state.amplitudeZoomDB, state.playhead, state.lastStart, state.isPlaying)
+        if isRuler { _ = (state.beats.count, state.showBeats, state.pointer?.fraction, state.pointer?.pane) }
         view.needsDisplay = true
     }
 }
@@ -578,6 +721,9 @@ let rulerLabelOffset: CGFloat = 3
 let rulerLabelGap: CGFloat = 30
 let rulerMinMinorSpacing: CGFloat = 4
 let rulerMinorLength: CGFloat = 4
+/// Dash and gap length of a dotted big tick (`firstBeat: computed`).
+let rulerDash: CGFloat = 2
+let rulerDotDiameter: CGFloat = 3
 /// Height of the strip in horizontal mode.
 let rulerHorizontalThickness: CGFloat = 18
 @MainActor private let rulerFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular)
@@ -590,9 +736,11 @@ let rulerHorizontalThickness: CGFloat = 18
     return CGSize(width: size.width.rounded(.up), height: size.height.rounded(.up))
 }
 
-/// Width of the strip in vertical mode: the longest label of the file (3 decimals) plus padding.
-@MainActor func rulerVerticalThickness(duration: Double) -> CGFloat {
-    rulerLabelOffset + rulerLabelSize(formatRulerTime(duration, step: 0.001)).width + 5
+/// Width of the strip in vertical mode: the longest time label of the file (3 decimals) or bar
+/// number, plus padding.
+@MainActor func rulerVerticalThickness(duration: Double, bars: Int = 0) -> CGFloat {
+    rulerLabelOffset + max(rulerLabelSize(formatRulerTime(duration, step: 0.001)).width,
+                           rulerLabelSize(String(bars)).width) + 5
 }
 
 /// Minor divisions of a major step: 5 for 1·10ⁿ and 5·10ⁿ, 4 for 2·10ⁿ, 3 for 15 s / 15 min,

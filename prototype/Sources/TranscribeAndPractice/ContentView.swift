@@ -47,6 +47,14 @@ struct ContentView: View {
                 .help("Follow Playhead")
             }
             ToolbarItem {
+                Toggle(isOn: Binding(get: { state.stripShowsBeats }, set: { state.showBeats = $0 })) {
+                    Label("Show Beats", systemImage: "metronome")
+                }
+                .toggleStyle(.button)
+                .disabled(!state.beatsAvailable)
+                .help("Show Beats (⌘B)")
+            }
+            ToolbarItem {
                 Picker("Time Orientation", selection: $state.orientation) {
                     Label("Horizontal Time", systemImage: "arrow.right").tag(TimeOrientation.horizontal)
                     Label("Vertical Time", systemImage: "arrow.down").tag(TimeOrientation.vertical)
@@ -55,7 +63,7 @@ struct ContentView: View {
                 .help("Time orientation")
             }
         }
-        .alert("Could not open file",
+        .alert(state.errorTitle,
                isPresented: Binding(get: { state.errorMessage != nil },
                                     set: { if !$0 { state.errorMessage = nil } }),
                presenting: state.errorMessage) { _ in
@@ -105,7 +113,7 @@ private struct MiddleSection: View {
     private func navigator(horizontal: Bool) -> some View {
         let layout = horizontal ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
         let t = TimeScrollerView.thickness
-        let ruler = horizontal ? rulerHorizontalThickness : rulerVerticalThickness(duration: state.duration)
+        let ruler = horizontal ? rulerHorizontalThickness : rulerVerticalThickness(duration: state.duration, bars: state.barCount)
         return layout {
             WaveformView(name: "ruler", state: state, background: .underPageBackgroundColor, isRuler: true)
                 .frame(width: horizontal ? nil : ruler, height: horizontal ? ruler : nil)
