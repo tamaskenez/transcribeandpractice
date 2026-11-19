@@ -397,7 +397,7 @@ vertical top in the left column.
 - If the user clicks or drags in the time markers area, it behaves differently: it does not change the
   selection, only the playhead or last-playback-started position.
 
-Status: `criteria proposed`
+Status: `criteria approved`
 
 Acceptance criteria:
 
