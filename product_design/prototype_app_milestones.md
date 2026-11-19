@@ -397,7 +397,7 @@ vertical top in the left column.
 - If the user clicks or drags in the time markers area, it behaves differently: it does not change the
   selection, only the playhead or last-playback-started position.
 
-Status: `verified`
+Status: `done`
 
 Review changes: the selection band is no longer painted over the strip; labels less dense (at
 least 30 pt between labels instead of 8).
