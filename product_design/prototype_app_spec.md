@@ -283,6 +283,70 @@ Mouse in the strip (does not change the selection):
   the strip, and dragging there never selects. Shift and plain clicks behave the same.
 - Option/middle drag, scrolling, ⌘ + scroll and pinch work in the strip as in the navigator.
 
+### Beat markers (from milestone 6)
+
+Data:
+
+- Each loaded file has a list of beats, sorted by position, at most one per sample. A beat has:
+  - `sample`: its position, a sample frame index of the file (0 ≤ sample < frame count).
+  - `source`: `placed` (put there by the user; the app never changes it) or `computed`
+    (extrapolated by the app from the placed beats; recomputed whenever the placed beats change,
+    from milestone 7).
+  - `timeSignature` (optional): e.g. `4/4`, `3/4`, `6/8`. A beat with one introduces that time
+    signature; a beat without one inherits the previous. Stored only in milestone 6 (used from
+    milestone 7).
+  - `firstBeat`: `no`, `placed` or `computed`. Anything but `no` makes the beat a downbeat (the
+    first beat of a bar): set by the user (`placed`) or by the app (`computed`, from milestone 7).
+- Milestone 6 has no editing. The beats come from a sidecar file next to the audio file: the full
+  audio file name plus `.beats.json` (`song.mp3` → `song.mp3.beats.json`), read when the audio
+  file is opened. Format: a JSON array of objects
+  `{"sample": 44100, "source": "placed", "timeSignature": "3/4", "firstBeat": "no"}`
+  (`timeSignature` may be left out; other keys are ignored). The entries may come in any order;
+  the app sorts them.
+- No sidecar file: the file has no beats. An invalid sidecar file (not JSON, not an array of
+  objects, a missing or unknown field value, a malformed time signature, a sample outside the
+  file, two beats at the same sample): an alert names the sidecar file and the problem; the audio
+  file opens normally, with no beats. An empty array is valid (no beats).
+- Opening another audio file replaces the beats with that file's.
+
+Display (the navigator's marker strip):
+
+- Beats mode shows the beats instead of the time ticks; time mode shows the time ticks of
+  milestone 5. Toolbar toggle "Show Beats" and View → Show Beats (⌘B, with a checkmark) switch
+  between them. Beats mode is the default; the choice is remembered across launches. While the
+  loaded file has no beats (or no file is loaded), the button and the menu item are disabled and
+  the strip shows time, but the stored choice is kept.
+- Each beat is drawn at its sample's time, in the same mapping as the time ticks:
+  - Downbeat with a bar number: a big tick (the full strip thickness, like a major time tick)
+    with the bar number as its label (placed like the time labels: right of the tick in
+    horizontal mode, below it in vertical mode). A big tick of a beat with `firstBeat: computed`
+    is dotted.
+  - Other beats: a small tick (as long as a minor time tick) for a placed beat, a dot instead for
+    a computed beat.
+- Bar numbers count the downbeats from the start of the file: the first downbeat is bar 1. Beats
+  before the first downbeat (a pickup) have small ticks or dots and no number.
+- Crowding (zoomed out):
+  - Bar numbers are shown on every k-th bar (bars 1, 1 + k, 1 + 2k …), with k the smallest of 1,
+    2, 4, 8 … at which neighbouring numbered bars in the visible range keep at least 30 points
+    between their labels (as for the time labels). The other downbeats are drawn as other beats
+    (small tick or dot).
+  - Small ticks and dots are drawn for all beats if neighbouring beats in the visible range are at
+    least 4 points apart; otherwise only for the un-numbered downbeats if those are at least
+    4 points apart; otherwise none.
+- In vertical mode the strip is wide enough for the widest time label and the widest bar number
+  of the file.
+- The mouse in the strip behaves the same in both modes (see Time markers).
+
+Pointer line:
+
+- A thin grey line across the strip at the time under the mouse pointer, in both modes, while
+  the pointer is over the navigator waveform, the strip or the main waveform pane (each pane
+  maps the pointer through its own visible range; a main-pane time outside the navigator's view
+  is not visible). It is hidden when the pointer is anywhere else (scrollbar, divider, toolbar,
+  transport pane, outside the window).
+- It follows the pointer's time also when the view moves under a still pointer (pan, zoom,
+  follow), and during drags.
+
 ### Loading audio files
 
 - File → Open… (⌘O) shows the standard open dialog, limited to audio files. This is the only way to
@@ -335,7 +399,10 @@ the dump adds the playback state (playing, playhead, rewind point, last start, l
 I/O buffer size, latency, display refresh rate); the command `record <path>` / `record stop`
 writes what the source node renders (the app's output before the system mixer) to a float WAV
 file. From milestone 5 on, also: the dump adds the navigator's strip frame and its ticks
-(time, axis position, major/minor, label text and label frame). From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
+(time, axis position, major/minor, label text and label frame). From milestone 6 on, also: the dump adds the
+loaded beats, the strip mode (beats/time) with the toggle's state and enablement, the strip's beat
+marks (time, kind, bar number, label frame) and the pointer line's axis position; the command
+`beats on|off` sets the toggle through the same code path as the button. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
 `screencapture -l <window number>` (needs Screen Recording permission for the terminal that
 launches the app). These are a development aid, not a user feature.
 
@@ -456,3 +523,10 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
 - The state dump's `waveforms` leaves out the strip (it has no waveform); it is under `ruler`, and
   in `screenFrames` as `ruler`. The playback dump also has `clearPoint`. The input driver gained
   `down` / `dragto` / `up` for drags with dumps in between.
+- (Milestone 6) Show Beats toolbar icon: `metronome`. Small ticks and dots use the minor time tick
+  colour; a dot is 3 points in diameter, centred where a small tick's middle would be; a dotted
+  big tick is drawn with 2-point dashes and 2-point gaps.
+- Pointer line: 1 point, system grey (secondary label colour), drawn above the ticks and below the
+  playhead and last-start lines.
+- Unknown keys in a sidecar beat entry are ignored (room for later fields). A time signature is
+  `n/d` with n ≥ 1 and d one of 1, 2, 4, 8, 16, 32, 64.

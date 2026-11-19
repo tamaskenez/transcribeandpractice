@@ -466,8 +466,111 @@ Verification results after the review changes (`python3 verify/verify_m5.py`, ru
 Not checked automatically: Option/middle-drag pan, scrolling and pinch inside the strip itself
 (the same code as the navigator, which `verify_m3.py` covers).
 
+## 6. Beat markers
+
+- We need to introduce a new state, a list of beat markers. They contain:
+  - their sample position
+  - a "source" field: Placed | computed. Placed means it is placed by the user, won't be updated by the app. "Computed" means it was extrapolated by the app, from other, "placed" beats. All computed beats will be recalculated when the placed beats change (next milestone)
+  - an optional "time_signature" field (4/4, 3/4, etc... ). Each beat either introduces a new time signature or inherits the previous.
+  - a "first_beat" field: no | placed | computed. This field means the beat starts a new bar (it's downbeat). It can be set by the user (placed) or computed from the previous beats and time signature (next milestone)
+- The presentation of the beats:
+  - beats are displayed similarly to time. small ticks for beats which have "first_beat: no" and big ticks + number for the rest of the beats.
+  - if the beat is a computed beat, instead of the small tick draw a dot
+  - if the beat has "first_beat: computed" use a dotted line for the big tick
+  - add a toggle to the the toolbar which toggles between displaying beats (default) or time only.
+  - if there are no beats at all, the toggle is disabled and display time
+- add a new indicator line in the time/beat marker area, a vertical line for horizontal time or horizontal line for vertical line. It should follow the mouse pointer's time coordinate.
+
+Status: `criteria proposed`
+
+Acceptance criteria:
+
+Test audio: the milestone 4 10 s noise WAV (44.1 kHz) with generated sidecar files. The main
+test beat list: two pickup beats (placed, then computed), then bars of 4 beats at 120 BPM with a
+mix of placed and computed beats and `firstBeat` placed / computed / no, and one time signature
+change. Mouse input uses the synthetic-event driver; checks run in both orientations unless
+noted.
+
+1. Builds; `verify_m1.py` … `verify_m5.py` and `verify_m4_review.py` still pass (their files
+   have no sidecar, so the strip shows time). (CLI)
+2. Sidecar loading: a valid, unsorted file is loaded sorted, with every field as written; no
+   sidecar → no beats; an empty array → no beats, no alert; each invalid case (not JSON, not an
+   array, a missing field, an unknown `source` / `firstBeat` value, a malformed time signature,
+   a negative sample, a sample ≥ the frame count, a duplicate sample) → an alert naming the
+   sidecar file and the problem, the audio loaded, no beats; opening a second audio file
+   replaces the beats. (CLI dump)
+3. Beats mode, for the views 0–10 s, 2–4 s and 0–1 s at two window sizes: one mark per beat in
+   the view, each within 0.5 pt of its time's position in the waveform's mapping; kinds as
+   specified (big tick, dotted big tick for `firstBeat: computed`, small tick, dot); bar numbers
+   1, 2, 3 … counting the downbeats, none on the pickup; no time ticks. (dump + screenshots)
+4. Crowding: with a dense test list (240 BPM over the whole file) and the whole file in view:
+   the bar number step k is the smallest power of two keeping ≥ 30 pt between labels (computed
+   from the dumped label frames), the un-numbered downbeats are drawn as small marks, and small
+   marks follow the 4 pt rule; zooming in brings back every bar number and all small marks.
+   (dump)
+5. Toggle: beats mode by default; the toolbar button and View → Show Beats (⌘B) both switch to
+   time mode (the strip then has the milestone 5 time ticks) and back; the choice survives a
+   relaunch; a file without beats disables the button and the menu item and shows time, and the
+   next file with beats shows beats again. The vertical strip is at least as wide as the widest
+   bar number and time label. (Accessibility + dump)
+6. The marks follow zoom, pan, window resize, divider drag and orientation switch (dump after
+   each matches the visible range as in 3). (commands, synthetic events, dump)
+7. Pointer line: with the pointer over the navigator waveform at time t, and over the strip, the
+   line is at t (within 0.5 pt) in both modes; over the main pane (with a different visible
+   range) at the main pane's time t inside the navigator's view, the line is at t; outside it,
+   no line is drawn; over the scrollbar or the transport pane, no line; with the pointer held
+   still, a pan (scroll) moves the line to the pointer's new time. The line is visible in a
+   screenshot (pixel check). (synthetic events + dump + screenshot)
+8. A click and a drag in the strip in beats mode move the playhead as in milestone 5, the
+   selection unchanged. (synthetic events + dump)
+
+## 7. Computed beats and bars
+
+- we also introduce a constant "beat_note". Later, we willl expose it on the UI but now it's a constant but we already use it in calculations. The value is a rational number, the note duration to which BPM refers to. Now it's fixed to 1/4.
+
+What to do with computed beats:
+
+Whenever the user changes (creates, deletes, modifies) a "placed" beat,
+- delete all computed beats
+- set all beat.bar == computed fields to no
+- run this recomputation algorithm:
+
+```
+If there are less then 2 placed beats, done.
+current_bpm = none
+loop, examine all adjacent (placed) beat pairs (b1, b2):
+    if current_bpm is not none:
+        insert as many computed beats between b1 and b2 which minimizes the difference between current_bpm and the resulting bpm between b1 and b2. Minimize log(current_bpm / result_bpm)
+        set current_bpm = result_bpm
+    else:
+        result_bpm = bpm between b1 and b2 (60 / (time(b2) - time(b1))
+        if result_bpm >= 30:
+            current_bpm = result_bpm
+if current_bpm is not none:
+    continue inserting computed beats after the last beat until end of file, at current_bpm
+
+current_time_signature = none
+beat_in_bar = 1
+loop, for all beats (computed and placed)
+    if beat.time_signature is not none:
+        current_time_signature = beat.time_signature
+    if current_time_signature is none:
+        continue
+    if beat.bar == placed
+        beat_in_bar = 1
+    elif beat_in_bar == 1
+        set beat.bar = computed
+    # Advance beat_in_bar
+    beat_in_bar = (beat_in_bar mod time_signature / beat_note) + 1
+```
+
+
+
+
+
 ## Fine-tuning (to do later)
 
 - Don't drag playhead/last-playback-start when dragging selection edge
 - Revise follow-logic
 - Better last-playback-start marker color
+- Don't draw the playhead and last-playback-started markers on the scrollbar if they are in the view range. Draw only those which is off screen.
