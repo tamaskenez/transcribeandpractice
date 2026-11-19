@@ -249,7 +249,8 @@ Layout:
 - The strip shows labelled (major) ticks and shorter unlabelled (minor) ticks between them. Each
   label sits right of its tick in horizontal mode and below it in vertical mode, in normal
   (unrotated) text.
-- The selection band, the playhead line and the last-playback-start line extend through the strip.
+- The playhead line and the last-playback-start line extend through the strip; the selection band
+  does not (review change).
 - Ticks are only drawn within the file (0 … duration). With no file loaded the strip is empty.
 - The strip follows every change of the visible range (zoom, pan, follow, resize, divider,
   orientation).
@@ -258,7 +259,7 @@ Ticks and labels:
 
 - The major step is the smallest value from 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5,
   1, 2, 5, 10, 15, 30 s, 1, 2, 5, 10, 15, 30, 60 min… at which neighbouring labels don't overlap
-  (at least 8 points of space between them). Major ticks are at the multiples of the step.
+  (at least 30 points of space between them; review change, was 8). Major ticks are at the multiples of the step.
 - Minor ticks divide each step evenly: 5 parts for steps starting with 1 or 5 (1 s, 5 s, 0.1 s…),
   4 parts for steps starting with 2, 3 parts for 15 s / 15 min, 6 parts for 30 s / 30 min. Minor
   ticks are drawn only if they are at least 4 points apart.

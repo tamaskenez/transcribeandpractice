@@ -45,6 +45,7 @@ m4util.X = X = noise()
 build_driver()
 
 # --- Reference rules (spec "Time markers") ---
+GAP = 30  # minimum space between labels (review change; was 8)
 STEPS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30,
          60, 120, 300, 600, 900, 1800, 3600, 7200]
 PARTS = {0.001: 5, 0.002: 4, 0.005: 5, 0.01: 5, 0.02: 4, 0.05: 5, 0.1: 5, 0.2: 4, 0.5: 5, 1: 5, 2: 4, 5: 5,
@@ -97,8 +98,8 @@ def ruler_check(s):
         if f['x'] < 0 or f['y'] < 0 or f['x'] + f['width'] > r['size']['width'] or f['y'] + f['height'] > r['size']['height']:
             return False, f'label frame {f} leaves the strip {r["size"]}'
     for f1, f2 in zip(frames, frames[1:]):
-        if a0(f2) - (a0(f1) + ext(f1)) < 8 - 1e-6:
-            return False, f'labels {f1} {f2} closer than 8 pt'
+        if a0(f2) - (a0(f1) + ext(f1)) < GAP - 1e-6:
+            return False, f'labels {f1} {f2} closer than {GAP} pt'
     # Minimality: the next smaller step would have overlapping labels.
     i = STEPS.index(step)
     if i > 0:
@@ -108,8 +109,8 @@ def ruler_check(s):
             w = ext(f) * len(fmt(hi, smaller)) / len(fmt(hi, step))
         else:
             w = ext(f)
-        if smaller * pps >= 3 + w + 8 + 1:
-            return False, f'step {step} not minimal: {smaller} gives {smaller * pps:.1f} pt for labels {3 + w:.1f} + 8'
+        if smaller * pps >= 3 + w + GAP + 1:
+            return False, f'step {step} not minimal: {smaller} gives {smaller * pps:.1f} pt for labels {3 + w:.1f} + {GAP}'
     parts = PARTS[step]
     if step / parts * pps >= 4:
         wantm = [m * step / parts for m in range(math.ceil(lo / (step / parts) - 1e-9),
@@ -227,7 +228,7 @@ for orientation in ['horizontal', 'vertical']:
           'follow during playback', all(r[2][0] for r in steps) and moved[0] > 0,
           [(n, v, r[1]) for n, v, r in steps if not r[0]] or moved)
 
-    # 5. Selection band and lines through the strip (pixel check)
+    # 5. Lines through the strip, no selection band in it (pixel check; review change: was band drawn)
     s.command('view 0,10'); s.command('select 2,3'); s.dump()
     s.command('playhead 4.0'); s.command('select 2,3'); s.dump()  # playhead and last start at 4.0
     s.input('key space')
@@ -259,9 +260,9 @@ for orientation in ['horizontal', 'vertical']:
     p_ph, p_ls, p_in, p_out = px(ph, True), px(ls, True), px(inside), px(outside)
     red = p_ph[0] > 150 and p_ph[0] - max(p_ph[1:]) > 80
     desat = p_ls[0] - max(p_ls[1:]) > 15 and p_ls[0] - max(p_ls[1:]) < p_ph[0] - max(p_ph[1:]) - 30
-    band = np.abs(p_in - p_out).sum() > 20
+    band = max(p_in) - min(p_in) <= 6 and abs(int(p_in.mean()) - int(p_out.mean())) <= 8  # grey, no accent tint
     check(5, f'{orientation}: inside the strip: playhead line red {list(p_ph)}, last-start line desaturated red '
-          f'{list(p_ls)}, selection band {list(p_in)} vs background {list(p_out)}', red and desat and band,
+          f'{list(p_ls)}; no selection band: inside the selection {list(p_in)}, outside {list(p_out)} (both untinted grey)', red and desat and band,
           f'{red} {desat} {band}')
 
     # 6. Stopped: click and drag in the strip set the playhead, keep the selection

@@ -109,7 +109,7 @@ final class WaveformNSView: NSView {
         background.setFill()
         bounds.fill()
         let horizontal = orientation == .horizontal
-        drawSelection()
+        if !isRuler { drawSelection() }
         if isRuler {
             drawRuler()
             drawLines()
@@ -575,7 +575,7 @@ let rulerSteps: [Double] = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5
 /// Space between a tick and its label (right of it / below it).
 let rulerLabelOffset: CGFloat = 3
 /// Minimum space between neighbouring labels.
-let rulerLabelGap: CGFloat = 8
+let rulerLabelGap: CGFloat = 30
 let rulerMinMinorSpacing: CGFloat = 4
 let rulerMinorLength: CGFloat = 4
 /// Height of the strip in horizontal mode.

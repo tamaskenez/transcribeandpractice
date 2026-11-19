@@ -399,6 +399,9 @@ vertical top in the left column.
 
 Status: `verified`
 
+Review changes: the selection band is no longer painted over the strip; labels less dense (at
+least 30 pt between labels instead of 8).
+
 Acceptance criteria:
 
 Test audio: the milestone 4 10 s noise WAV and the milestone 2 sine, plus a generated 12-minute
@@ -413,14 +416,15 @@ both orientations unless noted.
    no strip. No file loaded: no ticks. (dump of frames + screenshots)
 3. Ticks, for the views 0–10 s (whole file), 1–2 s, 1–1.1 s (maximum zoom) and the whole 12-minute
    file, at two window sizes: major ticks at the multiples of the expected step (the smallest one
-   in the list whose labels keep ≥ 8 pt apart, computed from the dumped label frames), each tick
+   in the list whose labels keep ≥ 30 pt apart (review change; was 8), computed from the dumped label frames), each tick
    within 0.5 pt of its time's position in the waveform's mapping; minor ticks evenly between, with
    the specified count; labels in the specified format (e.g. `0:05`, `0:01.5`, `0:01.05`, `10:00`);
    no label overlaps another or leaves the strip; no ticks outside 0 … duration. (dump +
    screenshots)
 4. The ticks follow zoom, pan, window resize, divider drag, orientation switch and follow during
    playback (dump after each matches the visible range as in 3). (commands, synthetic events, dump)
-5. Selection band, playhead and last-start lines are drawn through the strip. (screenshot,
+5. Playhead and last-start lines are drawn through the strip; the selection band is not (review
+   change; was drawn). (screenshot,
    pixel check at the line positions inside the strip)
 6. Stopped, with a selection 2–3 s: a click in the strip at 5.0 puts the playhead, last start and
    clear point at 5.0; a drag 5.0 → 6.0 → 4.0 ends with them at 4.0 (playhead at ~6.0 in a dump
@@ -438,19 +442,20 @@ both orientations unless noted.
    a selection edge's position in the strip acts as a plain strip press (moves the playhead), the
    selection is unchanged. (synthetic events + dumps)
 
-Verification results (`python3 verify/verify_m5.py`, run from `prototype/`; screenshots in
-`verify/out/m5/`): 39/39 checks passed.
+Verification results after the review changes (`python3 verify/verify_m5.py`, run from
+`prototype/`; screenshots in `verify/out/m5/`): 39/39 checks passed.
 
 1. `verify_m4.py` (which runs `verify_m3.py` → m2, m1, `build.sh`, the CMake build) and
    `verify_m4_review.py` pass unchanged.
 2. Horizontal: strip 18 pt at the navigator's top, waveform below, scrollbar at the bottom.
    Vertical: 53 pt left column. Not in the main pane; no ticks without a file.
-3. Both orientations, 1000×700 and 700×450: e.g. whole file at 1000 pt: 0.5 s step (`0:00.0`,
-   `0:00.5` …, 4 minors per step); 700 pt: 1 s; 1–2 s: 0.05 s / 0.1 s; 1–1.1 s: 0.01 s (0.005 s in
-   the taller vertical strip); the 12-minute file: 30 s step up to `12:00`. Steps minimal, ticks
-   within 0.5 pt, labels ≥ 8 pt apart and inside the strip.
+3. Both orientations, 1000×700 and 700×450: whole file: 1 s step (`0:00`, `0:01` …, 5 minor
+   parts; 2 s in the shorter vertical strip); 1–2 s: 0.1 s (0.2 s); 1–1.1 s: 0.01 s or 0.02 s;
+   the 12-minute file: 1 min step up to `12:00`. Steps minimal, ticks within 0.5 pt, labels
+   ≥ 30 pt apart and inside the strip.
 4. Ticks match the view after zoom, pan, resize, divider drag, orientation switch and follow.
-5. Pixels inside the strip: playhead red, last start desaturated red, selection band tinted.
+5. Pixels inside the strip: playhead red, last start desaturated red; inside the selection the
+   strip stays untinted grey like outside it.
 6. Click / drag (with a mid-drag dump) / drag past the view end, selection kept, no playback;
    ← afterwards plays from the clicked point.
 7. A press at 6.0 during playback: the rendered audio continues sample-exactly from 6.0; dragging
