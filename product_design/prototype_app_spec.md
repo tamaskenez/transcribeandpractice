@@ -237,6 +237,51 @@ Follow playhead (toolbar toggle button):
   scrollbar, zoom buttons) turns follow off. When stopped, manual view changes don't affect the
   flag.
 
+### Time markers (from milestone 5)
+
+Layout:
+
+- The navigator has a time-marker strip along its time axis, on the side away from the
+  scrollbar: across the top in horizontal mode (about 18 points tall), down the left side in
+  vertical mode (wide enough for the longest label of the file plus padding). The navigator
+  waveform takes the rest of the pane; the scrollbar stays where it is. The main pane has no
+  strip.
+- The strip shows labelled (major) ticks and shorter unlabelled (minor) ticks between them. Each
+  label sits right of its tick in horizontal mode and below it in vertical mode, in normal
+  (unrotated) text.
+- The selection band, the playhead line and the last-playback-start line extend through the strip.
+- Ticks are only drawn within the file (0 … duration). With no file loaded the strip is empty.
+- The strip follows every change of the visible range (zoom, pan, follow, resize, divider,
+  orientation).
+
+Ticks and labels:
+
+- The major step is the smallest value from 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5,
+  1, 2, 5, 10, 15, 30 s, 1, 2, 5, 10, 15, 30, 60 min… at which neighbouring labels don't overlap
+  (at least 8 points of space between them). Major ticks are at the multiples of the step.
+- Minor ticks divide each step evenly: 5 parts for steps starting with 1 or 5 (1 s, 5 s, 0.1 s…),
+  4 parts for steps starting with 2, 3 parts for 15 s / 15 min, 6 parts for 30 s / 30 min. Minor
+  ticks are drawn only if they are at least 4 points apart.
+- Labels are `m:ss`, with as many decimals as the step needs (no trailing zeros forced beyond
+  that): 5 s step → `0:05`, `0:10`; 0.5 s → `0:01.5`; 0.05 s → `0:01.25`; 0.001 s → `0:01.234`.
+  Minutes are not wrapped into hours (`75:00`).
+
+Mouse in the strip (does not change the selection):
+
+- Stopped: a press puts the playhead at the pointer (limited to the visible range and the file),
+  and dragging moves it with the pointer (silently). As with any direct playhead change, the last
+  start and the clear point (the rewind point when there is no selection) go to the playhead.
+  Playback does not start.
+- Playing: a press jumps playback to the pointer and it keeps playing, as if play-again were
+  invoked from there: the last start goes there, and the stop/loop rules are decided anew from
+  that start (see Where playback ends); the follow latch is reset. Moving the pointer afterwards
+  does nothing until release.
+- The last-playback-start line can be grabbed in the strip (within 4 points, resize arrows on
+  hover) and dragged like in the waveform panes, stopped or playing. Grabbing it when it coincides
+  with the playhead (stopped) moves both, as a playhead drag. Selection edges can't be grabbed in
+  the strip, and dragging there never selects. Shift and plain clicks behave the same.
+- Option/middle drag, scrolling, ⌘ + scroll and pinch work in the strip as in the navigator.
+
 ### Loading audio files
 
 - File → Open… (⌘O) shows the standard open dialog, limited to audio files. This is the only way to
@@ -288,7 +333,8 @@ button states, and the scrollbar's frame and knob position/proportion. From mile
 the dump adds the playback state (playing, playhead, rewind point, last start, loop, follow,
 I/O buffer size, latency, display refresh rate); the command `record <path>` / `record stop`
 writes what the source node renders (the app's output before the system mixer) to a float WAV
-file. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
+file. From milestone 5 on, also: the dump adds the navigator's strip frame and its ticks
+(time, axis position, major/minor, label text and label frame). From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
 `screencapture -l <window number>` (needs Screen Recording permission for the terminal that
 launches the app). These are a development aid, not a user feature.
 
