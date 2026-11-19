@@ -397,7 +397,7 @@ vertical top in the left column.
 - If the user clicks or drags in the time markers area, it behaves differently: it does not change the
   selection, only the playhead or last-playback-started position.
 
-Status: `criteria approved`
+Status: `verified`
 
 Acceptance criteria:
 
@@ -430,12 +430,36 @@ both orientations unless noted.
 7. Playing from 1.0: a press in the strip at 6.0 jumps the playback there: the rendered audio
    continues with the file's samples from 6.0 (record), playing stays on, last start 6.0,
    selection unchanged; moving the pointer to 7.0 before release changes nothing. With a
-   selection 2–3 s and loop on, a press at 2.0 during playback from 5.0 then loops in 2–3.
+   selection 2–3 s and loop on, a press at 2.2 during playback from 5.0 then loops in 2–3
+   (2.2 rather than 2.0: a press at 2.0 can land a pixel before the selection, which is outside it).
    (synthetic events + record + dumps)
 8. Last-start line in the strip: hovering it shows the resize cursor; stopped (away from the
    playhead) and playing, dragging it moves only the last start, playback unaffected; a press on
    a selection edge's position in the strip acts as a plain strip press (moves the playhead), the
    selection is unchanged. (synthetic events + dumps)
+
+Verification results (`python3 verify/verify_m5.py`, run from `prototype/`; screenshots in
+`verify/out/m5/`): 39/39 checks passed.
+
+1. `verify_m4.py` (which runs `verify_m3.py` → m2, m1, `build.sh`, the CMake build) and
+   `verify_m4_review.py` pass unchanged.
+2. Horizontal: strip 18 pt at the navigator's top, waveform below, scrollbar at the bottom.
+   Vertical: 53 pt left column. Not in the main pane; no ticks without a file.
+3. Both orientations, 1000×700 and 700×450: e.g. whole file at 1000 pt: 0.5 s step (`0:00.0`,
+   `0:00.5` …, 4 minors per step); 700 pt: 1 s; 1–2 s: 0.05 s / 0.1 s; 1–1.1 s: 0.01 s (0.005 s in
+   the taller vertical strip); the 12-minute file: 30 s step up to `12:00`. Steps minimal, ticks
+   within 0.5 pt, labels ≥ 8 pt apart and inside the strip.
+4. Ticks match the view after zoom, pan, resize, divider drag, orientation switch and follow.
+5. Pixels inside the strip: playhead red, last start desaturated red, selection band tinted.
+6. Click / drag (with a mid-drag dump) / drag past the view end, selection kept, no playback;
+   ← afterwards plays from the clicked point.
+7. A press at 6.0 during playback: the rendered audio continues sample-exactly from 6.0; dragging
+   on changes nothing. Loop case loops in 2–3.
+8. Last-start line: resize cursor; dragged alone stopped and during playback; presses at the
+   selection edges in the strip move the playhead, the selection stays.
+
+Not checked automatically: Option/middle-drag pan, scrolling and pinch inside the strip itself
+(the same code as the navigator, which `verify_m3.py` covers).
 
 ## Fine-tuning (to do later)
 

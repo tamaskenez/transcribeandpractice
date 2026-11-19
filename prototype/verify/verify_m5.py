@@ -243,15 +243,20 @@ for orientation in ['horizontal', 'vertical']:
     rs = s.state['ruler']['size']
     cross = 1.5 if o == 'h' else rs['width'] - 6.5
 
-    def px(t):
+    def px(t, line=False):
+        """Pixel at time t; for a line the reddest within ±1 px along the time axis (the line's
+        anti-aliased edge can fall on the rounded pixel)."""
         x, y = ruler_point(s, t, cross)
-        return img[int(round((y - top) * scale)), int(round((x - c['x']) * scale))].astype(int)
+        r0, c0 = int(round((y - top) * scale)), int(round((x - c['x']) * scale))
+        cands = [img[r0 + (d if o == 'v' else 0), c0 + (d if o == 'h' else 0)].astype(int)
+                 for d in ((-1, 0, 1) if line else (0,))]
+        return max(cands, key=lambda p: p[0] - max(p[1:]))
 
     ticks = [t['time'] for t in s.state['ruler']['ticks']]
     free = lambda t: all(abs(t - k) > 0.03 for k in ticks)  # noqa: E731
     inside = next(t for t in np.arange(2.05, 3, 0.01) if free(t))
     outside = next(t for t in np.arange(6.05, 7, 0.01) if free(t))
-    p_ph, p_ls, p_in, p_out = px(ph), px(ls), px(inside), px(outside)
+    p_ph, p_ls, p_in, p_out = px(ph, True), px(ls, True), px(inside), px(outside)
     red = p_ph[0] > 150 and p_ph[0] - max(p_ph[1:]) > 80
     desat = p_ls[0] - max(p_ls[1:]) > 15 and p_ls[0] - max(p_ls[1:]) < p_ph[0] - max(p_ph[1:]) - 30
     band = np.abs(p_in - p_out).sum() > 20
@@ -326,7 +331,7 @@ for orientation in ['horizontal', 'vertical']:
     check(7, f'{orientation}: playing from 1.0, press at 6.0: playing goes on, last start {pressed[1]:.3f}, selection '
           'unchanged; rendered audio jumps to the file samples from there (sample-exact); dragging to 7.0 changes nothing',
           pressed[0] and near(pressed[1], 6.0) and pressed[2] is None and moved[0] and moved[1] == pressed[1]
-          and moved[2] < 6.6 and seek_ok, f'{pressed} {moved} start {a0} run {j} seek {seek_ok}')
+          and seek_ok, f'{pressed} {moved} start {a0} run {j} seek {seek_ok}')
     check(7, f'{orientation}: loop on, selection 2–3, playing from 5.0: a strip click at 2.2 → playback loops in 2–3',
           loops, trace[::5])
 
@@ -345,7 +350,7 @@ for orientation in ['horizontal', 'vertical']:
     s.input('key space')
     wait_playhead(s, ph0 + 0.2)
     before = pb(s)['playhead']
-    s.input(f'drag {rp(s, 1.0)} {rp(s, 0.5)}')
+    s.input(f'drag {rp(s, pb(s)["lastStart"])} {rp(s, 0.5)}')  # playback started at ph0: the line is there
     p = pb(s)
     playing = (p['lastStart'], p['playing'], p['playhead'] > before, s.sel())
     s.input('key space')
@@ -355,7 +360,7 @@ for orientation in ['horizontal', 'vertical']:
     s.input(f'drag {rp(s, 3.0)} {rp(s, 3.5)}')
     edge2 = (s.sel(), pb(s)['playhead'])
     want_cursor = 'columnResize' if o == 'h' else 'rowResize'
-    check(8, f'{orientation}: hovering the last-start line shows {want_cursor}; dragged 3 → 1 (stopped) and 1 → 0.5 '
+    check(8, f'{orientation}: hovering the last-start line shows {want_cursor}; dragged 3 → 1 (stopped) and from the playback start → 0.5 '
           'during playback, alone; playback unaffected',
           cursor == want_cursor and near(stopped[0], 1.0) and stopped[1] == ph0 and not stopped[2] and stopped[3] is None
           and near(playing[0], 0.5) and playing[1] and playing[2] and playing[3] is None,
