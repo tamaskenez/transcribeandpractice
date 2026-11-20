@@ -203,7 +203,7 @@ for orientation in ['horizontal', 'vertical']:
     L = s.length('navigator')
     res = []
     for pane, t, k in [('navigator', 1.0, 'b'), ('ruler', 2.0, 'b'), ('main', 3.0, 'b shift')]:
-        before = {b['sample'] for b in beats(s)}
+        before = {b['sample'] for b in placed_of(beats(s))}  # (3.0 replaces a computed beat)
         s.input(f'move {pane_point(s, pane, t)}' if pane != 'ruler' else f'move {rp(s, t)}')
         ax = s.state['ruler']['pointerAxis']
         vs, ve = s.view()
