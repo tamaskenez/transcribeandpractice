@@ -360,17 +360,17 @@ for orientation in ['horizontal', 'vertical']:
     # 8. Strip mouse in beats mode
     s.command('select 2,3'); s.dump()
     tol = 10 / L + 1e-9
-    s.input(f'click {rp(s, 5.0)}')
+    s.input(f'click {rp(s, 5.25)}')
     p = pb(s)
     clicked = (p['playhead'], p['lastStart'], s.sel(), p['playing'])
-    s.input(f'drag {rp(s, 5.0)} {rp(s, 6.0)}')
+    s.input(f'drag {rp(s, 5.25)} {rp(s, 6.25)}')
     p = pb(s)
     dragged = (p['playhead'], s.sel(), p['playing'], s.state['ruler']['mode'])
     near = lambda a, b: abs(a - b) <= tol  # noqa: E731
-    check(8, f'{orientation}: beats mode: a strip click at 5.0 puts the playhead and last start there; a drag '
-          '5 → 6 moves the playhead to 6; the selection stays 2–3; no playback',
-          near(clicked[0], 5.0) and near(clicked[1], 5.0) and clicked[2] == (2, 3) and not clicked[3]
-          and near(dragged[0], 6.0) and dragged[1] == (2, 3) and not dragged[2] and dragged[3] == 'beats',
+    check(8, f'{orientation}: beats mode: a strip click at 5.25 (between beat marks: since milestone 7 a press on a mark grabs the beat) puts the playhead and last start there; a drag '
+          '5.25 → 6.25 moves the playhead to 6.25; the selection stays 2–3; no playback',
+          near(clicked[0], 5.25) and near(clicked[1], 5.25) and clicked[2] == (2, 3) and not clicked[3]
+          and near(dragged[0], 6.25) and dragged[1] == (2, 3) and not dragged[2] and dragged[3] == 'beats',
           f'{clicked} {dragged}')
     s.command('select')
     s.quit()

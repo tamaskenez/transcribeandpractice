@@ -602,7 +602,7 @@ Interview additions: placed beats are autosaved to the sidecar file; a time sign
 when a new beat becomes the first one; beats per bar rounded up; dragging and deleting beat
 marks in the strip (see the spec, "Placing and editing beats").
 
-Status: `criteria approved`
+Status: `verified`
 
 Acceptance criteria:
 
@@ -634,6 +634,31 @@ key input use the synthetic-event driver; checks run in both orientations unless
 6. Autosave: after each change the sidecar file equals the dumped beat list; reopening the file
    restores the beats; a sidecar in a read-only folder → "Could not save beats" alert, beats
    kept in memory. (CLI + dump)
+
+Verification results (`python3 verify/verify_m7.py`, run from `prototype/`; screenshots in
+`verify/out/m7/`): 31/31 checks passed in the full run.
+
+1. `verify_m6.py` (with m1 … m5, m4_review) passes. `verify_m6.py` criterion 8 now presses the
+   strip at 5.25 / 6.25 s, between beat marks: since this milestone a press on a mark grabs the
+   beat (and its autosave rewrote the test's sidecar, which broke the later vertical checks).
+2. Seven configurations equal the Python reference, sample-exact: 2 beats extrapolated; N = 0,
+   0, 1, 3 inserted beats; a first pair slower than 30 BPM; 3/4 → 6/8 mid-file; 5/8 (3 per bar);
+   7/8 (4 per bar) with a placed downbeat resetting the bar; no signature (no bars). Ties are not
+   covered: an exact tie of two N values needs an irrational ratio of beat distances, which
+   integer sample positions can't give.
+3. Both orientations: B over the navigator and the strip, Shift+B over the main pane place at the
+   pointer's sample; during playback B places at the playhead; refused with a beep within 0.25 s
+   of a placed beat, over the scrollbar, and with no file.
+4. Dialog for the first beat and for a beat before all others, not for a later beat; prefilled
+   4 and 4 of 1 … 128; "1a2b" → "12"; OK sets 7/8 and 4/4; "Don't set" leaves none; during
+   playback pending until the stop.
+5. Both orientations: open hand on hover, closed hand while dragging, live recompute mid-drag,
+   saved on release, stops at 1.75 before the 2.0 neighbour; a dragged computed beat becomes
+   placed; a click seeks; Backspace deletes a placed beat, beeps on a computed one; signatures
+   move to the next placed beat (4/4 to the new first, 3/4 from 4.0 to 6.0); during playback no
+   hand, no drag, no delete.
+6. The sidecar equals the dumped beats after each change; reopening restores them; a read-only
+   folder gives "Could not save beats" and keeps the beats in memory.
 
 ## Fine-tuning (to do later)
 
