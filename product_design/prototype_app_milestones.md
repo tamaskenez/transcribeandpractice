@@ -602,7 +602,7 @@ Interview additions: placed beats are autosaved to the sidecar file; a time sign
 when a new beat becomes the first one; beats per bar rounded up; dragging and deleting beat
 marks in the strip (see the spec, "Placing and editing beats").
 
-Status: `criteria proposed`
+Status: `criteria approved`
 
 Acceptance criteria:
 

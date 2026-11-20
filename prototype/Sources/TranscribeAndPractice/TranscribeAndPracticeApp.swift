@@ -37,13 +37,18 @@ struct TranscribeAndPracticeApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Escape, Space, Left, Right and Down Arrow (unless an alert or sheet is shown).
+        // Escape, Space, Left, Right, Down Arrow, B, Shift+B, Backspace (unless an alert or sheet is shown).
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let state = AppState.shared
             guard event.window?.attachedSheet == nil, event.window?.isSheet == false, state.errorMessage == nil,
-                  event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
+                  !state.timeSignatureDialogShown,
+                  event.modifierFlags.intersection([.command, .option, .control]).isEmpty
             else { return event }
+            // B / Shift+B: place a beat (Shift: a downbeat).
+            if event.keyCode == 11 { state.beatKey(downbeat: event.modifierFlags.contains(.shift)); return nil }
+            guard !event.modifierFlags.contains(.shift) else { return event }
             switch event.keyCode {
+            case 51 where !state.isPlaying && state.hoveredBeatSample != nil: state.deleteHoveredBeat()  // Backspace
             case 53 where state.selection != nil: state.clearSelectionWithKey()  // Escape
             case 49: state.playOrStop()                                          // Space
             case 123: state.rewindAndPlay()                                      // Left Arrow
