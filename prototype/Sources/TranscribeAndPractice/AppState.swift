@@ -17,6 +17,24 @@ final class AppState {
     private(set) var audio: LoadedAudio?
     /// Text of the error alert; non-nil while the alert is shown.
     var errorMessage: String?
+    var errorTitle = "Could not open file"
+
+    /// Beats of the loaded file, sorted by sample (from the sidecar file, see Beats.swift).
+    private(set) var beats: [Beat] = []
+    /// Stored "Show Beats" choice (remembered); the strip shows beats only if there are any.
+    var showBeats: Bool {
+        didSet { UserDefaults.standard.set(showBeats, forKey: Self.showBeatsKey) }
+    }
+    var beatsAvailable: Bool { !beats.isEmpty }
+    /// Number of downbeats (bars) in the file.
+    var barCount: Int { beats.count { $0.isDownbeat } }
+    var stripShowsBeats: Bool { showBeats && beatsAvailable }
+    private static let showBeatsKey = "showBeats"
+
+    /// Time under the mouse pointer while it is over a waveform pane or the strip (nil otherwise),
+    /// as the pane's name and the fraction along its time axis, so that it follows view changes.
+    var pointer: (pane: String, fraction: Double)?
+    var pointerTime: Double? { pointer.map { viewStart + $0.fraction * viewLength } }
 
     var orientation: TimeOrientation {
         didSet { UserDefaults.standard.set(orientation.rawValue, forKey: Self.orientationKey) }
@@ -78,6 +96,7 @@ final class AppState {
             .flatMap(TimeOrientation.init(rawValue:)) ?? .horizontal
         loopEnabled = UserDefaults.standard.bool(forKey: Self.loopKey)
         followPlayhead = UserDefaults.standard.bool(forKey: Self.followKey)
+        showBeats = UserDefaults.standard.object(forKey: Self.showBeatsKey) as? Bool ?? true
         player.core.setLoop(loopEnabled)
     }
 
@@ -201,8 +220,22 @@ final class AppState {
             playhead = 0
             clearPoint = 0
             lastStart = 0
+            loadBeats(for: loaded)
         } catch {
+            errorTitle = "Could not open file"
             errorMessage = "“\(url.lastPathComponent)” could not be opened. \(describe(error))"
+        }
+    }
+
+    /// Beats from the sidecar file; an invalid file shows an alert and leaves no beats.
+    private func loadBeats(for audio: LoadedAudio) {
+        do {
+            beats = try BeatFile.load(for: audio.url, frameCount: audio.frameCount) ?? []
+        } catch {
+            beats = []
+            errorTitle = "Could not read beats"
+            errorMessage = "“\(BeatFile.sidecarURL(for: audio.url).lastPathComponent)”: \(error.localizedDescription) "
+                + "The audio file is loaded without beats."
         }
     }
 }

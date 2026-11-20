@@ -69,8 +69,8 @@ labels = [i['label'] for i in s.state['toolbar']['items']]
 st = s.state
 ax = [s.input(f'enabled {s.proc.pid} {t}') for t in ('Zoom Out Full', 'Zoom to Selection')]
 check(2, 'toolbar: Zoom Out Full, Zoom to Selection, selection indicator, orientation toggle',
-      # (milestone 4 added Follow Playhead before the orientation toggle)
-      labels[:2] == ['Zoom Out Full', 'Zoom to Selection'] and len(labels) in (4, 5) and labels[-1] == 'Time Orientation',
+      # (milestone 4 added Follow Playhead, milestone 6 Show Beats, before the orientation toggle)
+      labels[:2] == ['Zoom Out Full', 'Zoom to Selection'] and len(labels) in (4, 5, 6) and labels[-1] == 'Time Orientation',
       labels)
 check(2, 'after load: whole file plus margins (-0.05–4.05 s), no selection, indicator "–", both buttons disabled (dump and AX)',
       close(s.view(), FULL, 1e-9) and s.sel() is None and st['selectionText'] == '–'
