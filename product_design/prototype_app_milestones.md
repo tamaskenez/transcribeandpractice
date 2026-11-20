@@ -481,7 +481,7 @@ Not checked automatically: Option/middle-drag pan, scrolling and pinch inside th
   - if there are no beats at all, the toggle is disabled and display time
 - add a new indicator line in the time/beat marker area, a vertical line for horizontal time or horizontal line for vertical line. It should follow the mouse pointer's time coordinate.
 
-Status: `verified`
+Status: `done`
 
 Acceptance criteria:
 
