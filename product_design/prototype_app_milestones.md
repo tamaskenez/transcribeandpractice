@@ -481,7 +481,7 @@ Not checked automatically: Option/middle-drag pan, scrolling and pinch inside th
   - if there are no beats at all, the toggle is disabled and display time
 - add a new indicator line in the time/beat marker area, a vertical line for horizontal time or horizontal line for vertical line. It should follow the mouse pointer's time coordinate.
 
-Status: `criteria approved`
+Status: `verified`
 
 Acceptance criteria:
 
@@ -523,6 +523,32 @@ noted.
    screenshot (pixel check). (synthetic events + dump + screenshot)
 8. A click and a drag in the strip in beats mode move the playhead as in milestone 5, the
    selection unchanged. (synthetic events + dump)
+
+Verification results (`python3 verify/verify_m6.py`, run from `prototype/`; screenshots in
+`verify/out/m6/`): 51/52 checks passed in the full run; the one failure was criterion 1, from two
+timing flakes in the earlier scripts (`verify_m3` criterion 18, a vertical edge flip, and
+`verify_m4` criterion 7, a loop recording cut to 0.33 s), both unrelated to the strip; a rerun of
+`verify_m4.py` (with m3, m2, m1 and the builds) passed 28/28. With `SKIP_EARLIER=1`: 51/51.
+
+1. `verify_m5.py` (with m1 … m4, m4_review) passes; `verify_m3.py`'s toolbar check now allows the
+   Show Beats button.
+2. The valid sidecar loads sorted with all fields; no sidecar / empty array: no beats, no alert;
+   10 invalid cases (incl. "not an array of objects") each give an alert naming the file
+   (“Could not read beats”), the audio loads without beats; opening another file replaces the
+   beats.
+3. Both orientations, 1000×700 and 700×450, views 0–10, 2–4, 0–1: marks within 0.5 pt, all four
+   kinds, bars 1–5, no number on the pickup, no time ticks.
+4. Dense list (12 min, 240 BPM), whole file → 0–150 → 0–60 → 0–10 s: horizontal k 64, 8, 4, 1 and
+   small marks none, downbeats, all, all; vertical k 64, 16, 8, 1 and none, downbeats,
+   downbeats, all; each k minimal.
+5. Default beats; toolbar button and ⌘B toggle (menu checkmark follows); the choice survives a
+   relaunch; without beats the button (AX) and the menu item are disabled, ⌘B does nothing, the
+   stored choice is kept; vertical strip 53 pt in both modes.
+6. Marks match the view after zoom, pan, resize, divider drag and orientation switch.
+7. Pointer line at the pointer's time over the navigator, the strip and the main pane in both
+   modes; none over the scrollbar or the transport pane; follows a pan under a still pointer;
+   visible in screenshots.
+8. Strip click and drag in beats mode move the playhead; the selection stays.
 
 ## 7. Computed beats and bars
 

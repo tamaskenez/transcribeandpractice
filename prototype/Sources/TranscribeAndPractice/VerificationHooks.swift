@@ -328,7 +328,9 @@ enum VerificationHooks {
     private static func menuDump(_ menu: NSMenu?) -> [[String: Any]] {
         guard let menu else { return [] }
         return menu.items.filter { !$0.isSeparatorItem }.map { item in
-            var d: [String: Any] = ["title": item.title, "enabled": item.isEnabled, "checked": item.state == .on]
+            var d: [String: Any] = ["title": item.title]
+            d["enabled"] = item.isEnabled
+            d["checked"] = item.state == .on
             if !item.keyEquivalent.isEmpty {
                 var mods: [String] = []
                 let m = item.keyEquivalentModifierMask
@@ -338,7 +340,12 @@ enum VerificationHooks {
                 if m.contains(.command) { mods.append("cmd") }
                 d["shortcut"] = (mods + [item.keyEquivalent]).joined(separator: "+")
             }
-            if let sub = item.submenu { d["items"] = menuDump(sub) }
+            if let sub = item.submenu {
+                // SwiftUI refreshes menu items (enabled, checkmark) when a menu is about to open.
+                sub.delegate?.menuNeedsUpdate?(sub)
+                sub.update()
+                d["items"] = menuDump(sub)
+            }
             return d
         }
     }

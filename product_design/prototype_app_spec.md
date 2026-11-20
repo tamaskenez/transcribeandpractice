@@ -529,3 +529,6 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
   playhead and last-start lines.
 - Unknown keys in a sidecar beat entry are ignored (room for later fields). A time signature is
   `n/d` with n ≥ 1 and d one of 1, 2, 4, 8, 16, 32, 64.
+- The state dump's menu items carry `enabled` and `checked`; the dump refreshes each menu first
+  (`menuNeedsUpdate`), because SwiftUI updates menu items only when a menu is about to open. The
+  input driver's `key` command accepts `b` and modifiers (for ⌘B).

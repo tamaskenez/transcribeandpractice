@@ -348,11 +348,13 @@ for orientation in ['horizontal', 'vertical']:
     def px(x, y, d=(0,)):
         r0, c0 = int(round((y - top) * scale)), int(round((x - c['x']) * scale))
         return [img[r0 + (k if o == 'v' else 0), c0 + (k if o == 'h' else 0)].astype(int) for k in d]
-    on_line = min(px(x, y, (-1, 0, 1)), key=lambda p: int(p.sum()))
     off = ruler_point(s, tp + 0.08, cross)
     beside = px(*off)[0]
+    # The line is lighter (dark mode) or darker (light mode) than the strip; it can be anti-aliased
+    # over two pixels.
+    on_line = max(px(x, y, (-1, 0, 1)), key=lambda p: abs(int(p.sum()) - int(beside.sum())))
     check(7, f'{orientation}: screenshot: the pointer line is visible in the strip ({list(on_line)} vs '
-          f'{list(beside)} beside it)', beside.sum() - on_line.sum() > 60 and s.state['ruler']['pointerAxis'] is not None,
+          f'{list(beside)} beside it)', abs(int(beside.sum()) - int(on_line.sum())) > 60 and s.state['ruler']['pointerAxis'] is not None,
           s.state['ruler']['pointerAxis'])
 
     # 8. Strip mouse in beats mode
