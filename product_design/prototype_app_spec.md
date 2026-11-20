@@ -346,6 +346,89 @@ Pointer line:
 - It follows the pointer's time also when the view moves under a still pointer (pan, zoom,
   follow), and during drags.
 
+### Placing and editing beats (from milestone 7)
+
+Constants (not on the UI yet): `beat_note` = 1/4 (a rational number: the note value BPM refers
+to), `min_reasonable_bpm` = 30, `max_reasonable_bpm` = 240. The minimum distance between placed
+beats is 60 / `max_reasonable_bpm` = 0.25 s.
+
+Placing (keyboard; plain B and Shift+B, no Command / Option / Control):
+
+- B places a placed beat (`firstBeat: no`) at the sample under the mouse pointer, while the
+  pointer is over the navigator waveform, the time-marker strip or the main pane (the pointer
+  line's time, rounded to the nearest sample). During playback it uses the playhead instead of
+  the pointer (wherever the pointer is).
+- Shift+B does the same with `firstBeat: placed` (a placed downbeat).
+- Refused, with a system beep and no change: no file loaded; the pointer not over those panes
+  (when stopped); the time outside the file; another placed beat closer than 0.25 s.
+- A new beat at the position of a computed beat replaces it.
+- Works in both strip modes (the beats are placed even while the strip shows time).
+
+Time signature dialog:
+
+- When a new beat becomes the first beat of the file (the first beat at all, or placed before
+  all others), a modal dialog asks for its time signature: a numerator text field (digits only,
+  prefilled with 4, at least 1) and a denominator popup (1, 2, 4, 8, 16, 32, 64, 128; 4
+  preselected), with the buttons "Don't set" and "OK". OK sets the new beat's time signature;
+  "Don't set" leaves it without one. The beat is placed either way.
+- During playback the beat is placed at once and the dialog appears when playback stops (once,
+  for the beat that is then first, if it is still first and still has no signature).
+- Time signatures with a denominator up to 128 are valid (the milestone 6 sidecar validation is
+  extended from 64).
+
+Editing in the strip (beats mode, stopped only):
+
+- Hovering a drawn beat mark in the strip (within 4 points along the time axis) shows the open
+  hand cursor (closed while dragging). This takes precedence over the last-start line's grab and
+  the plain strip press there.
+- Dragging moves the beat: it stays at least 0.25 s from the neighbouring placed beats (it can't
+  pass them), within the file and the visible range. The computed beats are recomputed live
+  while dragging. A computed beat that is dragged becomes a placed beat. `firstBeat` and
+  `timeSignature` are not changed by dragging (the order of placed beats can't change, so the
+  signature stays where it was).
+- A click without a drag on a beat mark acts as a plain strip press (the playhead moves there).
+- Backspace deletes the hovered placed beat (no click needed). Computed beats can't be deleted
+  (beep). A deleted beat's time signature moves to the next placed beat after it (the first
+  placed beat when the deleted beat was the first), unless that beat has its own.
+- During playback beat marks can't be grabbed or deleted (the strip behaves as in milestone 5).
+
+Recomputation, after every change of the placed beats (place, drag, delete): delete all computed
+beats, set every `firstBeat: computed` to `no`, then:
+
+```
+If there are fewer than 2 placed beats, stop here.
+current_bpm = none
+for each pair of adjacent placed beats (b1, b2):
+    if current_bpm is not none:
+        insert N computed beats between b1 and b2, evenly spaced; N ≥ 0 minimizes
+        abs(log(current_bpm / result_bpm)) with result_bpm = (N + 1) · 60 / (time(b2) − time(b1))
+        (ties: the smaller N)
+        current_bpm = result_bpm
+    else:
+        result_bpm = 60 / (time(b2) − time(b1))
+        if result_bpm ≥ min_reasonable_bpm: current_bpm = result_bpm
+if current_bpm is not none:
+    insert computed beats after the last placed beat, every 60 / current_bpm s, up to the end of
+    the file
+current_time_signature = none
+beat_in_bar = 1
+for each beat (computed and placed) in order:
+    if beat.timeSignature: current_time_signature = beat.timeSignature
+    if current_time_signature is none: continue
+    if beat.firstBeat == placed: beat_in_bar = 1
+    elif beat_in_bar == 1: beat.firstBeat = computed
+    beat_in_bar = beat_in_bar mod beats_per_bar + 1
+```
+
+`beats_per_bar` = ⌈time signature ÷ `beat_note`⌉, computed with exact fractions (4/4 → 4, 3/4 →
+3, 6/8 → 3, 5/8 → 3, 7/8 → 4). Computed beat positions are rounded to the nearest sample. Beats
+loaded from a sidecar file are shown as stored (no recomputation until the first change).
+
+Saving: after every change (on release for a drag) the beats, placed and computed, are written
+to the sidecar file (milestone 6 format, `timeSignature` left out when absent), replacing it
+atomically. If writing fails, an alert ("Could not save beats") names the file and the reason;
+the beats stay in memory.
+
 ### Loading audio files
 
 - File → Open… (⌘O) shows the standard open dialog, limited to audio files. This is the only way to
@@ -401,7 +484,11 @@ file. From milestone 5 on, also: the dump adds the navigator's strip frame and i
 (time, axis position, major/minor, label text and label frame). From milestone 6 on, also: the dump adds the
 loaded beats, the strip mode (beats/time) with the toggle's state and enablement, the strip's beat
 marks (time, kind, bar number, label frame) and the pointer line's axis position; the command
-`beats on|off` sets the toggle through the same code path as the button. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
+`beats on|off` sets the toggle through the same code path as the button. From milestone 7 on, also:
+the dump adds the computed constants, the beep count, the time signature dialog (shown,
+pending), and the strip's hovered beat; commands `beatkey [shift]` (B / Shift+B through the key
+handler's code path), `tsdialog <n>/<d>|dontset` (answers the dialog through its buttons' code
+path). From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
 `screencapture -l <window number>` (needs Screen Recording permission for the terminal that
 launches the app). These are a development aid, not a user feature.
 
@@ -528,7 +615,12 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
 - Pointer line: 1 point, system grey (secondary label colour), drawn above the ticks and below the
   playhead and last-start lines.
 - Unknown keys in a sidecar beat entry are ignored (room for later fields). A time signature is
-  `n/d` with n ≥ 1 and d one of 1, 2, 4, 8, 16, 32, 64.
+  `n/d` with n ≥ 1 and d one of 1, 2, 4, 8, 16, 32, 64 (128 from milestone 7).
 - The state dump's menu items carry `enabled` and `checked`; the dump refreshes each menu first
   (`menuNeedsUpdate`), because SwiftUI updates menu items only when a menu is about to open. The
   input driver's `key` command accepts `b` and modifiers (for ⌘B).
+- (Milestone 7) Beat grab distance in the strip: 4 points, like the lines. Where a beat mark and
+  the last-start line are both in reach, the beat wins.
+- Beat cursor: open hand, closed hand while dragging.
+- Placing at the pointer uses the pointer line's time (the pane's mapping), so B over the main
+  pane and over the navigator at the same axis position gives the same sample.

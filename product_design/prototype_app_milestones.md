@@ -552,27 +552,35 @@ timing flakes in the earlier scripts (`verify_m3` criterion 18, a vertical edge 
 
 ## 7. Computed beats and bars
 
-- we also introduce a constant "beat_note". Later, we will expose it on the UI but now it's a constant but we already use it in calculations. The value is a rational number, the note duration to which BPM refers to. Now it's fixed to 1/4.
+- Introduce a new constant "beat_note". Later, we will expose it on the UI but now it's a constant but we already use it in calculations. The value is a rational number, the note duration to which BPM refers to. For now it's fixed to 1/4.
+- Also, introduce 2 constants min_reasonable_bpm = 30 and max_reasonable_bpm = 240
+- The the 'B' key is pressed, place a "placed" beat marker at the sample position where the mouse is hovering.  Don't add beat if there's another (placed) beat closer than 60/max_reasonable_bpm seconds.
+- During playback 'B' works, too, but it's not the current mouse position but the playhead what counts.
+- Shift+B also places a beat marker, with the first_bar field set to "placed".
 
-What to do with computed beats:
+Here's how we're handling computed beats and when first_bar == computed:
 
 Whenever the user changes (creates, deletes, modifies) a "placed" beat,
 - delete all computed beats
-- set all beat.bar == computed fields to no
+- clear all beat.bar == computed fields to "no"
 - run this recomputation algorithm:
 
 ```
-If there are less then 2 placed beats, done.
+If there are less then 2 placed beats, done. Else do this:
 current_bpm = none
 loop, examine all adjacent (placed) beat pairs (b1, b2):
     if current_bpm is not none:
-        insert as many computed beats between b1 and b2 which minimizes the difference between current_bpm and the resulting bpm between b1 and b2. Minimize log(current_bpm / result_bpm)
-        set current_bpm = result_bpm
+        insert as many computed beats between b1 and b2, distributed equally, which minimizes the
+        difference between current_bpm and the resulting bpm between b1 and b2.
+        The resulting bpm is `(N+1) * 60 / (time(b2) - time(b1))` where N is the number of computed beats inserted.
+        Minimize abs(log(current_bpm / result_bpm))
+        Then, set current_bpm = result_bpm
     else:
-        result_bpm = bpm between b1 and b2 (60 / (time(b2) - time(b1))
-        if result_bpm >= 30:
+        result_bpm = bpm between b1 and b2 (`60 / (time(b2) - time(b1)`)
+        if result_bpm >= min_reasonable_bpm:
             current_bpm = result_bpm
-if current_bpm is not none:
+
+After the loop, if current_bpm is not none:
     continue inserting computed beats after the last beat until end of file, at current_bpm
 
 current_time_signature = none
@@ -590,9 +598,42 @@ loop, for all beats (computed and placed)
     beat_in_bar = (beat_in_bar mod time_signature / beat_note) + 1
 ```
 
+Interview additions: placed beats are autosaved to the sidecar file; a time signature dialog
+when a new beat becomes the first one; beats per bar rounded up; dragging and deleting beat
+marks in the strip (see the spec, "Placing and editing beats").
 
+Status: `criteria proposed`
 
+Acceptance criteria:
 
+Test audio: the milestone 4 10 s noise WAV, copied per test with its own sidecar file. Mouse and
+key input use the synthetic-event driver; checks run in both orientations unless noted.
+
+1. Builds; `verify_m1.py` … `verify_m6.py` and `verify_m4_review.py` still pass. (CLI)
+2. Recomputation: for a set of placed-beat configurations (2 beats; 3+ beats with tempo changes
+   needing N = 0, 1, 3 inserted beats; a first pair slower than 30 BPM; ties; time signatures
+   4/4, 3/4, 6/8, 5/8, 7/8 and a change mid-file; placed downbeats resetting the bar), created by
+   B / Shift+B, the dumped beat list equals a Python reference implementation of the spec's
+   algorithm (samples exact). (CLI + dump)
+3. B over the navigator, the strip and the main pane places a placed beat at the pointer's sample
+   (within one point's worth of samples of the pointer line's time); Shift+B a placed downbeat;
+   during playback B places at the playhead (within one display frame of the dumped playhead);
+   refused with a beep and no change: within 0.25 s of a placed beat, the pointer over the
+   scrollbar, no file. (synthetic events + dump)
+4. Time signature dialog: shown for the first beat and for a beat placed before all others, not
+   for later beats; numerator field digits only, prefilled 4; denominator popup 1 … 128 with 4
+   selected; OK sets the signature (e.g. 3/4, 7/8), "Don't set" leaves none; during playback
+   shown only after the stop. (Accessibility + dump + screenshot)
+5. Strip editing (stopped, beats mode): hovering a beat mark shows the open hand; dragging a
+   placed beat moves it, live recomputation in a mid-drag dump, stops 0.25 s before its
+   neighbour; dragging a computed beat makes it placed, `firstBeat` unchanged; a click on a mark
+   moves the playhead; Backspace over a placed beat deletes it, over a computed beat beeps and
+   keeps it; deleting the signature's beat moves the signature to the next placed beat (and to
+   the new first one when the first is deleted); during playback marks can't be grabbed or
+   deleted. (synthetic events + dump)
+6. Autosave: after each change the sidecar file equals the dumped beat list; reopening the file
+   restores the beats; a sidecar in a read-only folder → "Could not save beats" alert, beats
+   kept in memory. (CLI + dump)
 
 ## Fine-tuning (to do later)
 
