@@ -63,6 +63,9 @@ struct ContentView: View {
                 .help("Time orientation")
             }
         }
+        .sheet(isPresented: $state.timeSignatureDialogShown) {
+            TimeSignatureDialog()
+        }
         .alert(state.errorTitle,
                isPresented: Binding(get: { state.errorMessage != nil },
                                     set: { if !$0 { state.errorMessage = nil } }),
@@ -195,5 +198,44 @@ extension View {
         onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
             AppState.shared.paneFrames[name] = frame
         }
+    }
+}
+
+/// Asks for the time signature of a new first beat (milestone 7).
+private struct TimeSignatureDialog: View {
+    @Environment(AppState.self) private var state
+
+    var body: some View {
+        @Bindable var state = state
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Time Signature").font(.headline)
+            Text("The new beat is the first one. Set the time signature from this beat on.")
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                TextField("Numerator", text: $state.timeSignatureNumerator)
+                    .frame(width: 60)
+                    .multilineTextAlignment(.trailing)
+                    .accessibilityLabel("Numerator")
+                Text("/")
+                Picker("Denominator", selection: $state.timeSignatureDenominator) {
+                    ForEach(timeSignatureDenominators, id: \.self) { Text("\($0)").tag($0) }
+                }
+                .labelsHidden()
+                .frame(width: 80)
+                .accessibilityLabel("Denominator")
+            }
+            HStack {
+                Spacer()
+                Button("Don't set") { state.answerTimeSignatureDialog(ok: false) }
+                    .keyboardShortcut(.cancelAction)
+                Button("OK") { state.answerTimeSignatureDialog(ok: true) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!state.timeSignatureDialogValid)
+            }
+        }
+        .padding(20)
+        .frame(width: 320)
+        .interactiveDismissDisabled()
     }
 }

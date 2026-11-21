@@ -13,6 +13,7 @@ import SwiftUI
 ///                         | orientation <o> | open <path> | resize <w>,<h> | activate
 ///                         | amplitude <dB> | playhead <s> | loop on|off | follow on|off
 ///                         | record <path> | record stop | beats on|off
+///                         | beatkey [shift] | tsdialog ok|dontset|numerator <text>|denominator <d>
 ///   --quit                quit when done
 /// Values must use the `=` form: a bare path argument can make AppKit treat the launch as
 /// "open this file", and then SwiftUI doesn't create the main window.
@@ -106,6 +107,16 @@ enum VerificationHooks {
                     case "loop": state.loopEnabled = arg == "on"
                     case "follow": state.followPlayhead = arg == "on"
                     case "beats": state.showBeats = arg == "on"
+                    case "beatkey": state.beatKey(downbeat: arg == "shift")
+                    case "tsdialog":
+                        let a = arg.split(separator: " ", maxSplits: 1).map(String.init)
+                        switch a.first ?? "" {
+                        case "ok": state.answerTimeSignatureDialog(ok: true)
+                        case "dontset": state.answerTimeSignatureDialog(ok: false)
+                        case "numerator": state.timeSignatureNumerator = a.count > 1 ? a[1] : ""
+                        case "denominator": if a.count > 1, let d = Int(a[1]) { state.timeSignatureDenominator = d }
+                        default: break
+                        }
                     case "record":
                         if arg == "stop" {
                             let data = state.player.core.stopRecording()
@@ -149,6 +160,14 @@ enum VerificationHooks {
                 ["sample": b.sample, "source": b.source.rawValue, "timeSignature": b.timeSignature ?? NSNull(),
                  "firstBeat": b.firstBeat.rawValue]
             },
+            "beepCount": state.beepCount,
+            "hoveredBeat": state.hoveredBeatSample ?? NSNull(),
+            "timeSignatureDialog": ["shown": state.timeSignatureDialogShown, "pending": state.timeSignatureDialogPending,
+                                    "numerator": state.timeSignatureNumerator, "denominator": state.timeSignatureDenominator,
+                                    "okEnabled": state.timeSignatureDialogValid, "denominatorOptions": timeSignatureDenominators,
+                                    "sheetVisible": mainWindow?.attachedSheet?.isVisible ?? false] as [String: Any],
+            "beatConstants": ["beatNote": BeatConstants.beatNote.description, "minReasonableBPM": BeatConstants.minReasonableBPM,
+                              "maxReasonableBPM": BeatConstants.maxReasonableBPM],
             "showBeats": ["stored": state.showBeats, "enabled": state.beatsAvailable, "on": state.stripShowsBeats],
             "allWindows": NSApp.windows.map { "\($0.className) visible=\($0.isVisible) title=\($0.title)" },
             "hintVisible": state.audio == nil,

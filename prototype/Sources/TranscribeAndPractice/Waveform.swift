@@ -57,6 +57,9 @@ final class WaveformNSView: NSView {
         /// Ruler: a plain press. Stopped at the press: the playhead follows the pointer; playing:
         /// playback jumped to the press point and the rest of the drag does nothing.
         case seek(playing: Bool)
+        /// Ruler: a beat mark (`sample` at the press); `placedIndex` is set once it moves (a
+        /// computed beat becomes placed then). `offset` = beat time − press time.
+        case beat(sample: Int, placedIndex: Int?, offset: Double)
     }
 
     /// Lines grabbed by a press: the nearest one within the tolerance, plus the other lines at
@@ -67,7 +70,7 @@ final class WaveformNSView: NSView {
         var edge: Bool { startEdge || endEdge }
     }
     /// What a plain press at a point would do; also decides the cursor.
-    private enum Hover: Equatable { case none, lines(Grab), inside }
+    private enum Hover: Equatable { case none, lines(Grab), inside, beat(sample: Int) }
     /// Distance (points) from a line within which it can be grabbed.
     private static let edgeTolerance: CGFloat = 4
     /// Name of the cursor the view last set, for the state dump.
@@ -212,6 +215,7 @@ final class WaveformNSView: NSView {
         /// Bar number shown as the label (numbered downbeats only).
         var bar: Int?
         var labelFrame: CGRect?
+        var sample = 0
     }
 
     /// Whether the strip draws beats (otherwise time ticks).
@@ -266,9 +270,9 @@ final class WaveformNSView: NSView {
                     ? CGRect(x: a + rulerLabelOffset, y: ((bounds.height - size.height) / 2).rounded(), width: size.width, height: size.height)
                     : CGRect(x: rulerLabelOffset, y: a + rulerLabelOffset, width: size.width, height: size.height)
                 marks.append(BeatMark(time: t(i), axis: a, kind: beat.firstBeat == .computed ? .bigDotted : .big,
-                                      bar: n, labelFrame: bounds.contains(frame) ? frame : nil))
+                                      bar: n, labelFrame: bounds.contains(frame) ? frame : nil, sample: beat.sample))
             } else if smallAll || (smallDown && beat.isDownbeat) {
-                marks.append(BeatMark(time: t(i), axis: a, kind: beat.source == .computed ? .dot : .small))
+                marks.append(BeatMark(time: t(i), axis: a, kind: beat.source == .computed ? .dot : .small, sample: beat.sample))
             }
         }
         return marks
@@ -376,7 +380,13 @@ final class WaveformNSView: NSView {
     private func hover(at p: CGPoint) -> Hover {
         guard let state, let audio = state.audio else { return .none }
         if isRuler {
-            // Only the last-start line (with the playhead if they coincide while stopped).
+            // Beat marks first (beats mode, stopped), the nearest within reach.
+            if showsBeats, !state.isPlaying,
+               let m = beatMarks().min(by: { abs($0.axis - axisPosition(p)) < abs($1.axis - axisPosition(p)) }),
+               abs(m.axis - axisPosition(p)) <= Self.edgeTolerance {
+                return .beat(sample: m.sample)
+            }
+            // Then only the last-start line (with the playhead if they coincide while stopped).
             guard abs(axisPosition(p) - axis(ofTime: state.lastStart)) <= Self.edgeTolerance else { return .none }
             var g = Grab(time: state.lastStart)
             g.lastStart = true
@@ -419,7 +429,17 @@ final class WaveformNSView: NSView {
     /// moving); otherwise the arrow. Modifier drags (pan, extend) keep the arrow.
     private func updateCursor(at p: CGPoint, flags: NSEvent.ModifierFlags) {
         let cursor: NSCursor, name: String
+        if isRuler {
+            // The beat mark under the pointer, for Backspace.
+            if case let .beat(sample) = hover(at: p), drag == nil, bounds.contains(p) {
+                state?.hoveredBeatSample = sample
+            } else if drag == nil {
+                state?.hoveredBeatSample = nil
+            }
+        }
         if case .move = drag {
+            (cursor, name) = (.closedHand, "closedHand")
+        } else if case .beat = drag {
             (cursor, name) = (.closedHand, "closedHand")
         } else if case .lines = drag {
             (cursor, name) = orientation == .horizontal ? (.columnResize, "columnResize") : (.rowResize, "rowResize")
@@ -429,7 +449,7 @@ final class WaveformNSView: NSView {
             switch hover(at: p) {
             case .lines:
                 (cursor, name) = orientation == .horizontal ? (.columnResize, "columnResize") : (.rowResize, "rowResize")
-            case .inside: (cursor, name) = (.openHand, "openHand")
+            case .inside, .beat: (cursor, name) = (.openHand, "openHand")
             case .none: (cursor, name) = (.arrow, "arrow")
             }
         }
@@ -445,6 +465,7 @@ final class WaveformNSView: NSView {
     override func mouseEntered(with event: NSEvent) { updatePointer(location(event)) }
     override func mouseExited(with event: NSEvent) {
         if state?.pointer?.pane == name { state?.pointer = nil }
+        if isRuler, drag == nil { state?.hoveredBeatSample = nil }
         if drag == nil { NSCursor.arrow.set(); cursorName = "arrow" }
     }
 
@@ -469,6 +490,9 @@ final class WaveformNSView: NSView {
         let t = time(atAxis: clampedAxis(p))
         if event.modifierFlags.contains(.option) {
             drag = .pan(grabbedTime: time(atAxis: axisPosition(p)))
+        } else if isRuler, case let .beat(sample) = hover(at: p) {
+            let bt = Double(sample) / (state.audio?.sampleRate ?? 44100)
+            drag = .beat(sample: sample, placedIndex: nil, offset: bt - time(atAxis: axisPosition(p)))
         } else if isRuler, hover(at: p) == .none {
             let playing = state.isPlaying
             drag = .seek(playing: playing)
@@ -519,7 +543,12 @@ final class WaveformNSView: NSView {
             default: break
             }
             if case .pan = drag { state.manualViewChange() }
+            if case let .beat(sample, nil, offset) = drag {
+                let k = state.beginBeatDrag(sample: sample)
+                self.drag = .beat(sample: sample, placedIndex: k, offset: offset)
+            }
         }
+        guard let drag = self.drag else { return }
         switch drag {
         case let .select(anchor, extend):
             if dragged || extend { state.select(anchor, time(atAxis: clampedAxis(p))) }
@@ -540,6 +569,9 @@ final class WaveformNSView: NSView {
             state.moveSelection(from: original, by: time(atAxis: axisPosition(p)) - pressTime)
         case let .seek(playing):
             if !playing { state.dragPlayhead(to: time(atAxis: clampedAxis(p))) }
+        case let .beat(_, placedIndex, offset):
+            guard dragged, let k = placedIndex else { return }
+            state.dragBeat(placedIndex: k, to: time(atAxis: axisPosition(p)) + offset)
         }
     }
 
@@ -556,6 +588,9 @@ final class WaveformNSView: NSView {
         case .lines where isRuler: if !dragged { seek(to: time(atAxis: clampedAxis(p))) }
         case .lines, .move: if !dragged { state.clickedToClear(at: clicked) }
         case .pan, .seek: break
+        case .beat:
+            // A click without a drag acts as a plain strip press.
+            if dragged { state.endBeatDrag() } else { seek(to: time(atAxis: clampedAxis(p))) }
         }
         self.drag = nil
         updateCursor(at: p, flags: event.modifierFlags)

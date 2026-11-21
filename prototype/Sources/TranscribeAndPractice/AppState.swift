@@ -21,6 +21,25 @@ final class AppState {
 
     /// Beats of the loaded file, sorted by sample (from the sidecar file, see Beats.swift).
     private(set) var beats: [Beat] = []
+    func setBeats(_ list: [Beat], save: Bool) {
+        beats = list
+        if save { saveBeats() }
+    }
+    /// Beeps so far (for the state dump).
+    var beepCount = 0
+    /// Time signature dialog (see BeatEditing.swift).
+    var timeSignatureDialogShown = false
+    var timeSignatureDialogPending = false
+    /// The numerator field: digits only.
+    var timeSignatureNumerator = "4" {
+        didSet {
+            let digits = timeSignatureNumerator.filter { $0.isASCII && $0.isNumber }
+            if digits != timeSignatureNumerator { timeSignatureNumerator = digits }
+        }
+    }
+    var timeSignatureDenominator = 4
+    /// The beat mark under the pointer in the strip (stopped, beats mode), by sample.
+    var hoveredBeatSample: Int?
     /// Stored "Show Beats" choice (remembered); the strip shows beats only if there are any.
     var showBeats: Bool {
         didSet { UserDefaults.standard.set(showBeats, forKey: Self.showBeatsKey) }
@@ -82,7 +101,11 @@ final class AppState {
     private static let loopKey = "loopEnabled"
     private static let followKey = "followPlayhead"
 
-    func setPlaying(_ on: Bool) { isPlaying = on }
+    func setPlaying(_ on: Bool) {
+        let was = isPlaying
+        isPlaying = on
+        if was && !on { playbackStopped() }
+    }
 
     /// Shortest visible range (maximum zoom), in seconds.
     static let minViewLength = 0.1
@@ -220,6 +243,9 @@ final class AppState {
             playhead = 0
             clearPoint = 0
             lastStart = 0
+            timeSignatureDialogPending = false
+            timeSignatureDialogShown = false
+            hoveredBeatSample = nil
             loadBeats(for: loaded)
         } catch {
             errorTitle = "Could not open file"
