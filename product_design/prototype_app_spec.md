@@ -788,3 +788,5 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
   FFT); the last result is cached by (file, window length, sample).
 - The spectrum view sets `clipsToBounds`: since macOS 14 views don't clip their drawing by default,
   and the key outlines spilled onto the neighbouring panes.
+- Verification: the input driver's `scrollp x y dx dy phase [flags]` posts a continuous scroll
+  event with a gesture phase (1 began, 2 changed, 4 ended); macOS passes the phase on to NSEvent.

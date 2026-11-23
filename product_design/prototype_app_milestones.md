@@ -747,7 +747,7 @@ axes aligned; (2) changed to an overlay on the spectrogram only, the navigator a
 (3) the key outlines clipped to the pane; (4) the ⌘-scroll axis lock and the analysis window in
 the navigator.
 
-Status: `criteria proposed`
+Status: `verified`
 
 Acceptance criteria:
 
@@ -789,6 +789,16 @@ run in both orientations unless noted. The dump additions are listed in the spec
    across it; one starting across zooms only amplitude; wheel events without phases decide per
    event. (input driver with scroll-phase fields + dump; if macOS drops the synthesized phase
    fields, this check is done by the human on the trackpad)
+
+Verification results (`python3 verify/verify_m9.py`, run from `prototype/`; screenshots in
+`verify/out/m9/`): 96 of 98 checks passed in the full run; the two failures were a test bug (in
+horizontal mode the "low end" / "high end" frequency drags went the other way; the geometry
+matched there too). After the fix the rerun of criterion 5 passed 21/21, and criterion 2 was
+rerun to see its output: 8/8. Spectrum levels match the numpy reference to 0.0000 dB at 10, 50
+and 500 ms. Criterion 8 ran with synthesized scroll-phase events (the driver's new `scrollp`);
+macOS delivered the phases, so no manual check was needed. One fix during verification: the
+analysis window curve now has an even number of steps, so its peak is a sample and touches the
+pane edges exactly.
 
 ## Fine-tuning (to do later)
 

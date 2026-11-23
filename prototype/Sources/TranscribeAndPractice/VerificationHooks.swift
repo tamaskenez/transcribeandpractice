@@ -208,6 +208,7 @@ enum VerificationHooks {
             "scrollbar": scrollerDump(),
             "screenFrames": screenFrames(state: state),
             "spectrogram": spectrogramDump(state: state),
+            "spectrum": spectrumDump(),
         ]
         if let audio = state.audio {
             let format = audio.buffer.format
@@ -265,6 +266,22 @@ enum VerificationHooks {
         ]
     }
 
+    /// The spectrum pane (milestone 9): its column and key outline lines as drawn.
+    private static func spectrumDump() -> [String: Any] {
+        guard let v = allViews().compactMap({ $0 as? SpectrumNSView }).first else { return ["shown": false] }
+        var d: [String: Any] = ["shown": true, "size": size(v.bounds.size), "orientation": v.orientation.rawValue]
+        if let c = v.columnDump() {
+            d["centreSample"] = c.centre
+            d["firstRow"] = c.firstRow
+            d["levels"] = c.levels.map { $0.map { Double($0) as Any } ?? NSNull() }
+        }
+        d["keyLines"] = v.keyLines().map {
+            ["kind": $0.kind, "freq": [$0.freq.lowerBound, $0.freq.upperBound],
+             "depth": [$0.depth.lowerBound, $0.depth.upperBound], "rect": rect($0.rect)] as [String: Any]
+        }
+        return d
+    }
+
     private static func rect(_ r: CGRect) -> [String: Double] {
         ["x": r.minX, "y": r.minY, "width": r.width, "height": r.height]
     }
@@ -293,6 +310,8 @@ enum VerificationHooks {
                     "playheadAxis": w.playheadAxis.map { Double($0) } ?? NSNull(),
                     "lastStartAxis": w.lastStartAxis.map { Double($0) } ?? NSNull(),
                     "points": points.map { [$0.x, $0.y] },
+                    "analysisWindow": w.analysisWindowPolylines().map { $0.map { $0.map { [$0.x, $0.y] } } } ?? NSNull(),
+                    "zoomAxis": w.zoomTimeAxis.map { $0 ? "time" : "amplitude" } ?? NSNull(),
                 ] as [String: Any]
             }
             view.subviews.forEach(visit)

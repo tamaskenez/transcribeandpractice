@@ -172,17 +172,18 @@ final class WaveformNSView: NSView {
     }
 
     /// Navigator in spectrogram mode: the spectrogram's window function centred at the playhead,
-    /// mirrored like the waveform, its peak touching the pane's edges (milestone 9).
-    private func drawAnalysisWindow() {
-        guard let state, let audio = state.audio, timeLength > 0, state.viewLength > 0 else { return }
+    /// mirrored like the waveform, its peak touching the pane's edges (milestone 9). Two
+    /// polylines (+w, −w), each starting and ending on the zero line; nil when not shown.
+    func analysisWindowPolylines() -> [[CGPoint]]? {
+        guard name == "navigator", let state, state.mainMode == .spectrogram, let audio = state.audio,
+              timeLength > 0, state.viewLength > 0 else { return nil }
         let fs = audio.sampleRate
         let n = SpectrogramConstants.windowLength(seconds: state.windowLengthMs / 1000, sampleRate: fs)
-        let halfSamples = Double(n - 1) / 2
-        let half = halfSamples / fs
+        let half = Double(n - 1) / 2 / fs
         let centre = Double(roundSample(state.playhead * fs)) / fs
         let a0 = axis(ofTime: centre - half), a1 = axis(ofTime: centre + half)
-        guard a1 > 0, a0 < timeLength else { return }
-        let steps = max(Int((a1 - a0).rounded(.up)), 64)
+        guard a1 > 0, a0 < timeLength else { return [] }
+        let steps = 2 * max(Int(((a1 - a0) / 2).rounded(.up)), 32) // even: the peak is a sample
         let cross = crossLength
         func point(_ a: CGFloat, _ v: Double) -> CGPoint {
             orientation == .horizontal ? CGPoint(x: a, y: cross / 2 * (1 - CGFloat(v))) : CGPoint(x: cross / 2 * (1 + CGFloat(v)), y: a)
@@ -192,11 +193,18 @@ final class WaveformNSView: NSView {
             let x = SpectrogramConstants.alpha * (2 * u - 1)
             return (a0 + CGFloat(u) * (a1 - a0), exp(-0.5 * x * x))
         }
-        for sign in [1.0, -1.0] {
+        return [1.0, -1.0].map { sign in
+            [point(a0, 0)] + samples.map { point($0.0, sign * $0.1) } + [point(a1, 0)]
+        }
+    }
+
+    private func drawAnalysisWindow() {
+        guard let lines = analysisWindowPolylines() else { return }
+        for pts in lines {
+            guard let first = pts.first else { continue }
             let path = NSBezierPath()
-            path.move(to: point(a0, 0))
-            for (a, v) in samples { path.line(to: point(a, sign * v)) }
-            path.line(to: point(a1, 0))
+            path.move(to: first)
+            for p in pts.dropFirst() { path.line(to: p) }
             NSColor.systemOrange.setStroke()
             path.lineWidth = 1.5
             path.stroke()
@@ -718,7 +726,7 @@ final class WaveformNSView: NSView {
     // MARK: Scroll and pinch
 
     /// Command-scroll zoom: the axis chosen at the gesture's start (true: time, false: amplitude).
-    private var zoomTimeAxis: Bool?
+    private(set) var zoomTimeAxis: Bool?
 
     override func scrollWheel(with event: NSEvent) {
         guard let state, state.audio != nil, timeLength > 0 else { return }

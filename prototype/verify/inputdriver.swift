@@ -117,6 +117,22 @@ while let line = readLine() {
         }
         pause(30)
         setModifiers([])
+    case "scrollp":
+        // scrollp x y dx dy phase [flags]: a continuous (trackpad-like) scroll event with a gesture
+        // phase (1 began, 2 changed, 4 ended, 0 none).
+        let p = CGPoint(x: d(1), y: d(2)), f = flags(a.count > 6 ? a[6] : nil)
+        setModifiers(f)
+        post(.mouseMoved, p, f); pause(20)
+        if let e = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
+                           wheel1: Int32(d(4)), wheel2: Int32(d(3)), wheel3: 0) {
+            e.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            e.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(d(5)))
+            e.flags = f
+            e.location = p
+            e.post(tap: .cghidEventTap)
+        }
+        pause(30)
+        if d(5) == 0 || d(5) == 4 { setModifiers([]) }
     case "scrollf":
         let p = CGPoint(x: d(1), y: d(2))
         post(.mouseMoved, p); pause(30)

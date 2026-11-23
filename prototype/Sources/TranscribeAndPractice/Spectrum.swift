@@ -19,6 +19,8 @@ final class SpectrumEngine {
     private var inputKey: InputKey?
     private var input: SpectrogramJobInput?
     private var last: (key: InputKey, sample: Int, levels: [Float])?
+    /// The sample the last column was computed at.
+    var lastSample: Int? { last?.sample }
 
     /// Levels of all rows of the frequency range (low to high) at the playhead.
     func levels(state: AppState) -> [Float]? {
@@ -55,7 +57,7 @@ final class SpectrumNSView: NSView {
     override func rightMouseDown(with event: NSEvent) {}
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    private var orientation: TimeOrientation { state?.orientation ?? .horizontal }
+    var orientation: TimeOrientation { state?.orientation ?? .horizontal }
     /// Along the frequency axis / along the amplitude (key length) axis.
     private var crossLength: CGFloat { orientation == .horizontal ? bounds.height : bounds.width }
     private var depth: CGFloat { orientation == .horizontal ? bounds.width : bounds.height }
@@ -131,43 +133,77 @@ final class SpectrumNSView: NSView {
         }
     }
 
+    /// A key outline line as drawn: `freq` is the span along the frequency axis (points from the
+    /// pane's low edge), `depth` along the keys (points from the back end); `rect` in view
+    /// coordinates.
+    struct KeyLine {
+        var kind: String
+        var freq: ClosedRange<CGFloat>
+        var depth: ClosedRange<CGFloat>
+        var rect: NSRect
+    }
+
     /// Piano-key outlines over the whole frequency range: each key spans its semitone on the
     /// frequency axis; black keys run from the back end for `blackKeyFraction` of the length;
     /// white keys run the full length, their boundaries at the semitone edge (E|F, B|C) or, past
-    /// the black keys, at the middle of the black key between them.
-    private func drawKeys(_ state: AppState) {
+    /// the black keys, at the middle of the black key between them. Lines entirely outside the
+    /// pane are left out (the rest is clipped when drawn).
+    func keyLines() -> [KeyLine] {
+        guard let state else { return [] }
         let pps = CGFloat(SpectrogramConstants.pointsPerSemitone)
         let bottom = state.freqBottom
         let len = depth
         let blackLen = (len * SpectrumConstants.blackKeyFraction).rounded()
         func pos(_ note: Int) -> CGFloat { (CGFloat(Double(note - SpectrogramConstants.lowestNote) - bottom) * pps).rounded() }
         func isBlack(_ note: Int) -> Bool { [1, 3, 6, 8, 10].contains(note % 12) }
-        NSColor.labelColor.withAlphaComponent(0.45).setFill()
         let w: CGFloat = 1
+        var lines: [KeyLine] = []
+        func add(_ kind: String, _ f0: CGFloat, _ f1: CGFloat, _ d0: CGFloat, _ d1: CGFloat) {
+            guard f1 > 0, f0 < crossLength else { return }
+            lines.append(KeyLine(kind: kind, freq: f0...f1, depth: d0...d1, rect: rect(freq: f0, f1, depth: d0, d1)))
+        }
         // A boundary line across the keys at frequency position f, from depth d0 to d1.
-        func across(_ f: CGFloat, _ d0: CGFloat, _ d1: CGFloat) { rect(freq: f - w / 2, f + w / 2, depth: d0, d1).fill() }
+        func across(_ kind: String, _ f: CGFloat, _ d0: CGFloat, _ d1: CGFloat) { add(kind, f - w / 2, f + w / 2, d0, d1) }
         // A line along the keys at depth d, over a frequency span.
-        func along(_ d: CGFloat, _ f0: CGFloat, _ f1: CGFloat) { rect(freq: f0 - w / 2, f1 + w / 2, depth: d - w / 2, d + w / 2).fill() }
+        func along(_ kind: String, _ d: CGFloat, _ f0: CGFloat, _ f1: CGFloat) { add(kind, f0 - w / 2, f1 + w / 2, d - w / 2, d + w / 2) }
         let lo = SpectrogramConstants.lowestNote, hi = SpectrogramConstants.highestNote
         let rangeLow = pos(lo), rangeHigh = pos(hi + 1)
         // Bounding box: the range's edges and the back and front ends (inset half a line).
-        across(rangeLow + w / 2, 0, len)
-        across(rangeHigh - w / 2, 0, len)
-        along(w / 2, rangeLow, rangeHigh)
-        along(len - w / 2, rangeLow, rangeHigh)
+        across("rangeLow", rangeLow + w / 2, 0, len)
+        across("rangeHigh", rangeHigh - w / 2, 0, len)
+        along("backEnd", w / 2, rangeLow, rangeHigh)
+        along("frontEnd", len - w / 2, rangeLow, rangeHigh)
         for note in lo...hi {
             let f0 = pos(note), f1 = pos(note + 1)
             if f1 < 0 || f0 > crossLength { continue }
             if isBlack(note) {
-                across(f0, 0, blackLen)
-                across(f1, 0, blackLen)
-                along(blackLen, f0, f1)
+                across("blackSide", f0, 0, blackLen)
+                across("blackSide", f1, 0, blackLen)
+                along("blackEnd", blackLen, f0, f1)
                 // The white keys' boundary past the black key: its middle.
-                across(((f0 + f1) / 2).rounded(), blackLen, len)
+                across("whiteBoundaryMiddle", ((f0 + f1) / 2).rounded(), blackLen, len)
             } else if note < hi, !isBlack(note + 1) {
-                across(f1, 0, len)
+                across("whiteBoundaryEdge", f1, 0, len)
             }
         }
+        return lines
+    }
+
+    private func drawKeys(_ state: AppState) {
+        NSColor.labelColor.withAlphaComponent(0.45).setFill()
+        for line in keyLines() { line.rect.fill() }
+    }
+
+    /// The visible part of the column: centre sample, first row, and the levels (dB, before the
+    /// amplitude zoom) of the pane's rows, low to high (nil outside the range). For the dump.
+    func columnDump() -> (centre: Int, firstRow: Int, levels: [Float?])? {
+        guard let state, let levels = state.spectrum.levels(state: state), let c = state.spectrum.lastSample else { return nil }
+        let firstRow = Int((state.freqBottom * state.rowsPerSemitone).rounded())
+        let rows = Int(crossLength.rounded())
+        return (c, firstRow, (0..<max(rows, 0)).map { q in
+            let r = firstRow + q
+            return r >= 0 && r < levels.count ? levels[r] : nil
+        })
     }
 }
 
