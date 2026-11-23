@@ -168,6 +168,39 @@ final class WaveformNSView: NSView {
         NSColor.controlAccentColor.setStroke()
         path.lineWidth = 1
         path.stroke()
+        if name == "navigator", state?.mainMode == .spectrogram { drawAnalysisWindow() }
+    }
+
+    /// Navigator in spectrogram mode: the spectrogram's window function centred at the playhead,
+    /// mirrored like the waveform, its peak touching the pane's edges (milestone 9).
+    private func drawAnalysisWindow() {
+        guard let state, let audio = state.audio, timeLength > 0, state.viewLength > 0 else { return }
+        let fs = audio.sampleRate
+        let n = SpectrogramConstants.windowLength(seconds: state.windowLengthMs / 1000, sampleRate: fs)
+        let halfSamples = Double(n - 1) / 2
+        let half = halfSamples / fs
+        let centre = Double(roundSample(state.playhead * fs)) / fs
+        let a0 = axis(ofTime: centre - half), a1 = axis(ofTime: centre + half)
+        guard a1 > 0, a0 < timeLength else { return }
+        let steps = max(Int((a1 - a0).rounded(.up)), 64)
+        let cross = crossLength
+        func point(_ a: CGFloat, _ v: Double) -> CGPoint {
+            orientation == .horizontal ? CGPoint(x: a, y: cross / 2 * (1 - CGFloat(v))) : CGPoint(x: cross / 2 * (1 + CGFloat(v)), y: a)
+        }
+        let samples: [(CGFloat, Double)] = (0...steps).map { i in
+            let u = Double(i) / Double(steps)
+            let x = SpectrogramConstants.alpha * (2 * u - 1)
+            return (a0 + CGFloat(u) * (a1 - a0), exp(-0.5 * x * x))
+        }
+        for sign in [1.0, -1.0] {
+            let path = NSBezierPath()
+            path.move(to: point(a0, 0))
+            for (a, v) in samples { path.line(to: point(a, sign * v)) }
+            path.line(to: point(a1, 0))
+            NSColor.systemOrange.setStroke()
+            path.lineWidth = 1.5
+            path.stroke()
+        }
     }
 
     /// The spectrogram image: while columns are missing, the last complete image stretched to
@@ -684,6 +717,9 @@ final class WaveformNSView: NSView {
 
     // MARK: Scroll and pinch
 
+    /// Command-scroll zoom: the axis chosen at the gesture's start (true: time, false: amplitude).
+    private var zoomTimeAxis: Bool?
+
     override func scrollWheel(with event: NSEvent) {
         guard let state, state.audio != nil, timeLength > 0 else { return }
         // Line-based wheels report small deltas; scale them to roughly 10 points per line.
@@ -693,11 +729,15 @@ final class WaveformNSView: NSView {
         state.manualViewChange()
         if event.modifierFlags.contains(.command) {
             // Scrolling along the time axis zooms time; across it, amplitude. Positive zooms in.
+            // One axis per gesture: the one with the larger delta in the gesture's first event
+            // (every event of a wheel without gesture phases).
             let (dTime, dAmp) = orientation == .horizontal ? (dx, dy) : (dy, dx)
-            if dTime != 0 {
+            if event.phase == .began || (event.phase.isEmpty && event.momentumPhase.isEmpty) { zoomTimeAxis = nil }
+            if zoomTimeAxis == nil, dTime != 0 || dAmp != 0 { zoomTimeAxis = abs(dTime) >= abs(dAmp) }
+            if zoomTimeAxis == true, dTime != 0 {
                 state.zoom(by: exp(Double(dTime) * 0.01), anchor: time(atAxis: clampedAxis(location(event))))
             }
-            if dAmp != 0 { state.zoomAmplitude(by: exp(Double(dAmp) * 0.01)) }
+            if zoomTimeAxis == false, dAmp != 0 { state.zoomAmplitude(by: exp(Double(dAmp) * 0.01)) }
         } else {
             scrollPan(dx: dx, dy: dy)
         }
@@ -740,6 +780,7 @@ struct WaveformView: NSViewRepresentable {
                  state.mainCrossLength, state.mainAxisLength, state.loadID)
             view.reportSize()
         }
+        if name == "navigator" { _ = (state.mainMode, state.windowLengthMs) }
         if isRuler { _ = (state.beats.count, state.showBeats, state.pointer?.fraction, state.pointer?.pane) }
         view.needsDisplay = true
     }
