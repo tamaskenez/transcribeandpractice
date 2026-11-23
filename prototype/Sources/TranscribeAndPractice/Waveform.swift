@@ -168,6 +168,47 @@ final class WaveformNSView: NSView {
         NSColor.controlAccentColor.setStroke()
         path.lineWidth = 1
         path.stroke()
+        if name == "navigator", state?.mainMode == .spectrogram { drawAnalysisWindow() }
+    }
+
+    /// Navigator in spectrogram mode: the spectrogram's window function centred at the playhead,
+    /// mirrored like the waveform, its peak touching the pane's edges (milestone 9). Two
+    /// polylines (+w, −w), each starting and ending on the zero line; nil when not shown.
+    func analysisWindowPolylines() -> [[CGPoint]]? {
+        guard name == "navigator", let state, state.mainMode == .spectrogram, let audio = state.audio,
+              timeLength > 0, state.viewLength > 0 else { return nil }
+        let fs = audio.sampleRate
+        let n = SpectrogramConstants.windowLength(seconds: state.windowLengthMs / 1000, sampleRate: fs)
+        let half = Double(n - 1) / 2 / fs
+        let centre = Double(roundSample(state.playhead * fs)) / fs
+        let a0 = axis(ofTime: centre - half), a1 = axis(ofTime: centre + half)
+        guard a1 > 0, a0 < timeLength else { return [] }
+        let steps = 2 * max(Int(((a1 - a0) / 2).rounded(.up)), 32) // even: the peak is a sample
+        let cross = crossLength
+        func point(_ a: CGFloat, _ v: Double) -> CGPoint {
+            orientation == .horizontal ? CGPoint(x: a, y: cross / 2 * (1 - CGFloat(v))) : CGPoint(x: cross / 2 * (1 + CGFloat(v)), y: a)
+        }
+        let samples: [(CGFloat, Double)] = (0...steps).map { i in
+            let u = Double(i) / Double(steps)
+            let x = SpectrogramConstants.alpha * (2 * u - 1)
+            return (a0 + CGFloat(u) * (a1 - a0), exp(-0.5 * x * x))
+        }
+        return [1.0, -1.0].map { sign in
+            [point(a0, 0)] + samples.map { point($0.0, sign * $0.1) } + [point(a1, 0)]
+        }
+    }
+
+    private func drawAnalysisWindow() {
+        guard let lines = analysisWindowPolylines() else { return }
+        for pts in lines {
+            guard let first = pts.first else { continue }
+            let path = NSBezierPath()
+            path.move(to: first)
+            for p in pts.dropFirst() { path.line(to: p) }
+            NSColor.systemOrange.setStroke()
+            path.lineWidth = 1.5
+            path.stroke()
+        }
     }
 
     /// The spectrogram image: while columns are missing, the last complete image stretched to
@@ -513,12 +554,32 @@ final class WaveformNSView: NSView {
         cursorName = name
     }
 
-    override func cursorUpdate(with event: NSEvent) { updateCursor(at: location(event), flags: event.modifierFlags) }
+    /// Spectrogram mode: whether a point is under the spectrum pane (milestone 9), which covers
+    /// the main pane's left side (horizontal) or bottom (vertical).
+    private func underSpectrum(_ p: CGPoint) -> Bool {
+        guard isSpectrogram, state?.audio != nil else { return false }
+        let cover = SpectrumConstants.thickness + 1
+        return orientation == .horizontal ? p.x < cover : p.y > bounds.height - cover
+    }
+
+    /// Under the spectrum pane (no drag): no pointer line, the arrow cursor.
+    private func leaveForSpectrum(_ p: CGPoint) -> Bool {
+        guard drag == nil, underSpectrum(p) else { return false }
+        if state?.pointer?.pane == name { state?.pointer = nil }
+        NSCursor.arrow.set(); cursorName = "arrow"
+        return true
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        if leaveForSpectrum(location(event)) { return }
+        updateCursor(at: location(event), flags: event.modifierFlags)
+    }
     override func mouseMoved(with event: NSEvent) {
+        if leaveForSpectrum(location(event)) { return }
         updatePointer(location(event))
         updateCursor(at: location(event), flags: event.modifierFlags)
     }
-    override func mouseEntered(with event: NSEvent) { updatePointer(location(event)) }
+    override func mouseEntered(with event: NSEvent) { if !leaveForSpectrum(location(event)) { updatePointer(location(event)) } }
     override func mouseExited(with event: NSEvent) {
         if state?.pointer?.pane == name { state?.pointer = nil }
         if isRuler, drag == nil { state?.hoveredBeatSample = nil }
@@ -664,6 +725,9 @@ final class WaveformNSView: NSView {
 
     // MARK: Scroll and pinch
 
+    /// Command-scroll zoom: the axis chosen at the gesture's start (true: time, false: amplitude).
+    private(set) var zoomTimeAxis: Bool?
+
     override func scrollWheel(with event: NSEvent) {
         guard let state, state.audio != nil, timeLength > 0 else { return }
         // Line-based wheels report small deltas; scale them to roughly 10 points per line.
@@ -673,11 +737,15 @@ final class WaveformNSView: NSView {
         state.manualViewChange()
         if event.modifierFlags.contains(.command) {
             // Scrolling along the time axis zooms time; across it, amplitude. Positive zooms in.
+            // One axis per gesture: the one with the larger delta in the gesture's first event
+            // (every event of a wheel without gesture phases).
             let (dTime, dAmp) = orientation == .horizontal ? (dx, dy) : (dy, dx)
-            if dTime != 0 {
+            if event.phase == .began || (event.phase.isEmpty && event.momentumPhase.isEmpty) { zoomTimeAxis = nil }
+            if zoomTimeAxis == nil, dTime != 0 || dAmp != 0 { zoomTimeAxis = abs(dTime) >= abs(dAmp) }
+            if zoomTimeAxis == true, dTime != 0 {
                 state.zoom(by: exp(Double(dTime) * 0.01), anchor: time(atAxis: clampedAxis(location(event))))
             }
-            if dAmp != 0 { state.zoomAmplitude(by: exp(Double(dAmp) * 0.01)) }
+            if zoomTimeAxis == false, dAmp != 0 { state.zoomAmplitude(by: exp(Double(dAmp) * 0.01)) }
         } else {
             scrollPan(dx: dx, dy: dy)
         }
@@ -720,6 +788,7 @@ struct WaveformView: NSViewRepresentable {
                  state.mainCrossLength, state.mainAxisLength, state.loadID)
             view.reportSize()
         }
+        if name == "navigator" { _ = (state.mainMode, state.windowLengthMs) }
         if isRuler { _ = (state.beats.count, state.showBeats, state.pointer?.fraction, state.pointer?.pane) }
         view.needsDisplay = true
     }

@@ -98,6 +98,8 @@ Zoom:
 - ⌘ + scroll across the time axis (vertical scroll in horizontal mode, e.g. a plain mouse wheel;
   horizontal scroll in vertical mode): amplitude zoom. A positive scroll delta zooms in, in both
   directions. (Changed in the milestone 3 review; originally any ⌘ + scroll zoomed time.)
+- (Milestone 9) A ⌘ + scroll gesture zooms only one axis: the one with the larger delta in the
+  gesture's first event (see "Spectrum and piano keys").
 - Amplitude zoom: a multiplier applied to the sample values of both waveform panes, between
   0 dB (×1, full scale fills the pane) and +60 dB (×1000). The zero line stays in the middle; the
   waveform is clipped at the pane edges. It is reset to 0 dB by Zoom Out Full and by opening a
@@ -505,6 +507,59 @@ Background computation and cache:
 - The cache keeps the visible columns plus one pane length on each side; nothing is computed
   ahead of need.
 
+### Spectrum and piano keys (from milestone 9)
+
+Spectrum pane (spectrogram mode with a file loaded only):
+
+- Placement: it lies over the main pane's left side in horizontal mode (120 points wide, the
+  main pane's full height) and over its bottom in vertical mode (120 points tall, the main pane's
+  full width), separated from the spectrogram by a 1-point separator line.
+- The navigator keeps its full size, and the main pane keeps its size and its time axis: the
+  spectrogram's time axis stays aligned with the navigator's, and the spectrum pane simply covers
+  the first 121 points (horizontal) or the last 121 points (vertical) of the visible range.
+  The selection band, the playhead and the last-start line are hidden where they are covered.
+- Frequency axis: exactly the spectrogram's (same rows, 14 points per semitone, low notes at the
+  bottom / left, the same frequency view, so it follows the frequency pan).
+- Content: the spectrogram's level column at the playhead: the same computation as a spectrogram
+  column (window, FFT, interpolation, level formula, amplitude zoom, −60 … 0 dB range), with the
+  window centred at the sample nearest to the playhead. It follows the playhead (also during
+  playback), the window length slider, the amplitude zoom and the frequency pan.
+- Drawing: a filled curve (the accent colour, translucent fill, 1-point line), one point per
+  row. The level grows from the left edge rightwards (horizontal) or from the bottom edge upwards
+  (vertical); −60 dB (and below) is at that edge, 0 dB (and above) at the opposite edge.
+- Piano keys, drawn over the curve as outlines only (no filled keys), in a translucent label
+  colour, 1-point lines:
+  - Each key spans exactly its own semitone on the frequency axis (so the keys line up with the
+    spectrogram rows); the keys cover the whole range A0 … C9 and are clipped to the pane.
+  - Along the amplitude axis the keys fill the pane. Back end: the left edge (horizontal) or the
+    top edge (vertical), common to all keys. White keys run to the opposite edge (the
+    spectrogram side in horizontal mode, the bottom in vertical mode); black keys run 63 % of
+    that length from the back end (a real piano's ≈ 95 / 150 mm).
+  - Black keys: a rectangle over their semitone. White keys: the boundary between E|F and B|C is
+    the semitone edge over the full length; between other neighbouring white keys it is the
+    middle of the black key between them, from the black key's end to the front end. (So C, E, F
+    and B are 1.5 semitones wide, D, G and A 2 semitones; the lowest A and the highest C are
+    bounded by the range's edges.)
+  - An outline around the whole keyboard (the range's edges and the back and front ends).
+- Everything is clipped to the pane's bounds.
+- Mouse: presses on the spectrum pane do nothing (they don't reach the spectrogram under it).
+  Over the pane the cursor is the arrow and there is no pointer line; a drag that started on the
+  spectrogram continues when the pointer moves over the spectrum pane.
+- Known limitation (experiment): follow, Zoom to Selection and the other view changes don't know
+  about the covered part, so the playhead or the selection can end up under the spectrum pane.
+
+Analysis window in the navigator (spectrogram mode only): the spectrogram's window function
+(the Gaussian of N samples, see "Spectrogram") is drawn over the navigator's waveform, centred at
+the sample nearest to the playhead, spanning N samples along the time axis in the navigator's
+mapping. It is mirrored like the waveform (+w and −w around the zero line), scaled so its peak
+touches both edges of the pane; the curve starts and ends on the zero line. Orange, 1.5-point
+lines. It follows the playhead, the window length slider and the navigator's view.
+
+Command-scroll zoom picks one axis per gesture: the first event of a trackpad scroll gesture
+(scroll phase "began") decides, by the larger absolute delta, whether the whole gesture
+(including its momentum) zooms time or amplitude; the other axis' deltas are ignored. A wheel
+without gesture phases decides on every event.
+
 ### Loading audio files
 
 - File → Open… (⌘O) shows the standard open dialog, limited to audio files. This is the only way to
@@ -572,7 +627,11 @@ controls' code paths), `specdelay <ms>` (slows each background step, to observe 
 `scrollpan <dx>,<dy>` (a plain scroll's
 pan in the main pane, with fractional points), and `specdump <path>`, which writes the current image's levels in dB
 (before the amplitude zoom and the clipping) with each column's centre sample and each row's
-frequency, as JSON with a little-endian float32 matrix. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
+frequency, as JSON with a little-endian float32 matrix. From milestone 9 on, also: the dump adds the spectrum
+pane (shown, frame, centre sample, first row and row count, the levels of its visible rows in dB
+before the amplitude zoom, and the key outline lines as drawn, in pane coordinates), the
+navigator's analysis window polyline (shown, points), and the zoom axis chosen for the current
+⌘-scroll gesture. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
 `screencapture -l <window number>` (needs Screen Recording permission for the terminal that
 launches the app). These are a development aid, not a user feature.
 
@@ -718,3 +777,16 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
 - The FFT runs in double precision (vDSP), one worker per core; columns arrive in steps of 48.
 - Synthesized scroll events reach the app with whole-point deltas only, so the fractional-scroll
   checks use the `scrollpan` hook (the scroll handler's own pan code).
+- (Milestone 9) Spectrum pane thickness: a fixed 120 points (not resizable); a constant, like
+  the black key length (63 % of the white keys).
+- The spectrum pane is an overlay on the main pane rather than a split, so the main pane, the
+  spectrogram cache and the whole-pixel pan grid are unchanged; the covered columns are still
+  computed.
+- Spectrum level direction: rightwards / upwards from the keys' back end (horizontal) or the
+  pane's bottom (vertical), the natural reading in each orientation (not a rotation of one layout).
+- The spectrum column is computed on the main thread at each playhead move (one 65,536-point
+  FFT); the last result is cached by (file, window length, sample).
+- The spectrum view sets `clipsToBounds`: since macOS 14 views don't clip their drawing by default,
+  and the key outlines spilled onto the neighbouring panes.
+- Verification: the input driver's `scrollp x y dx dy phase [flags]` posts a continuous scroll
+  event with a gesture phase (1 began, 2 changed, 4 ended); macOS passes the phase on to NSEvent.

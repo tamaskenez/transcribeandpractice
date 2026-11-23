@@ -735,6 +735,71 @@ per point. The criteria above that mention Retina no longer apply. `verify_m8.py
 Retina checks: 109/110 in the full run (one follow check saw only 4 view moves in its 3 s
 sampling window, none off the pixel grid); the rerun of criterion 6 passed 43/43.
 
+## 9. Spectrum and piano keys
+
+Developed interactively (experiments first, the specification written from the result): a small
+spectrum pane showing the spectrogram's column at the playhead, with a piano-key outline on the
+spectrogram's frequency axis; the analysis window drawn in the navigator; one zoom axis per
+⌘-scroll gesture. Details: the spec, "Spectrum and piano keys".
+
+Iterations: (1) the spectrum pane split off the main pane, the navigator inset to keep the time
+axes aligned; (2) changed to an overlay on the spectrogram only, the navigator at full size;
+(3) the key outlines clipped to the pane; (4) the ⌘-scroll axis lock and the analysis window in
+the navigator.
+
+Status: `done`
+
+Acceptance criteria:
+
+Only the milestone 9 checks are run (`verify_m9.py`); earlier milestones are not re-verified.
+Test audio: the milestone 8 tones file (A2 −6 dBFS, A4 −20 dBFS, C8 −40 dBFS, a chord). Checks
+run in both orientations unless noted. The dump additions are listed in the spec's
+"Verification hooks".
+
+1. Builds. (CLI)
+2. Layout: the spectrum pane exists only in spectrogram mode with a file loaded. Horizontal: at
+   the main pane's left edge, 120 points wide, the main pane's height; vertical: at its bottom
+   edge, 120 points tall, the main pane's width. The navigator's and the main pane's frames are
+   the same in both modes, so their time axes stay aligned. (dump; screenshots)
+3. Spectrum levels: the dumped column matches the numpy reference (the milestone 8 formulas) at
+   the playhead's sample within 0.01 dB wherever the reference is above −100 dB, for window
+   lengths 10, 50 and 500 ms, with the playhead in each tone; its peak is in the tone's semitone
+   row band. During playback the centre sample follows the playhead. (CLI: dump + numpy)
+4. Frequency alignment: the spectrum's first row and row count equal the spectrogram's, also
+   after a frequency pan (Option-drag on the spectrogram); in the screenshot the A4 tone's peak
+   in the spectrum and its line in the spectrogram are at the same cross position (±1 point).
+   (input driver + dump; screenshots)
+5. Keys: the dumped outline lines follow the spec's geometry for the visible notes (black keys
+   over their semitone, 63 % long from the back end; the white-key boundaries at E|F and B|C
+   full length, the others at the black key's middle from its end to the front end; the back
+   end at the left / top edge). No outline pixel is drawn outside the pane: in the screenshot the
+   spectrogram next to the pane and the panes beyond its ends look the same as in waveform mode
+   with the same view, apart from the spectrogram content. (dump; screenshots)
+6. Input over the spectrum pane: a click and a drag there change neither the selection nor the
+   playhead; the cursor is the arrow and there is no pointer line while the pointer is over it;
+   a selection drag started on the spectrogram keeps working when the pointer moves over the
+   pane. (input driver + dump)
+7. Analysis window: in spectrogram mode the navigator's dumped polyline is centred at the
+   playhead's axis position, spans N samples (from the window length) in the navigator's
+   mapping, reaches both pane edges at its peak, and starts and ends on the zero line; it is
+   absent in waveform mode and follows the window length slider and the playhead.
+   (dump; screenshots at 50 and 500 ms)
+8. ⌘-scroll zoom axis: a synthesized ⌘-scroll gesture (phases began / changed / ended) whose
+   first event is mostly along the time axis zooms only time, even if later events are mostly
+   across it; one starting across zooms only amplitude; wheel events without phases decide per
+   event. (input driver with scroll-phase fields + dump; if macOS drops the synthesized phase
+   fields, this check is done by the human on the trackpad)
+
+Verification results (`python3 verify/verify_m9.py`, run from `prototype/`; screenshots in
+`verify/out/m9/`): 96 of 98 checks passed in the full run; the two failures were a test bug (in
+horizontal mode the "low end" / "high end" frequency drags went the other way; the geometry
+matched there too). After the fix the rerun of criterion 5 passed 21/21, and criterion 2 was
+rerun to see its output: 8/8. Spectrum levels match the numpy reference to 0.0000 dB at 10, 50
+and 500 ms. Criterion 8 ran with synthesized scroll-phase events (the driver's new `scrollp`);
+macOS delivered the phases, so no manual check was needed. One fix during verification: the
+analysis window curve now has an even number of steps, so its peak is a sample and touches the
+pane edges exactly.
+
 ## Fine-tuning (to do later)
 
 - Don't drag playhead/last-playback-start when dragging selection edge

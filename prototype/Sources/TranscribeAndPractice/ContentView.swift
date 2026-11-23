@@ -90,6 +90,7 @@ private struct MiddleSection: View {
             let total = horizontal ? geo.size.height : geo.size.width
             let nav = (max(total - dividerThickness, 0) * state.navigatorFraction).rounded()
             let layout = horizontal ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+            let spectrum = state.mainMode == .spectrogram && state.audio != nil
             layout {
                 navigator(horizontal: horizontal)
                     .frame(width: horizontal ? nil : nav, height: horizontal ? nav : nil)
@@ -101,11 +102,34 @@ private struct MiddleSection: View {
                             Text("Open an audio file (⌘O)").font(.title3).foregroundStyle(.secondary)
                         }
                     }
+                    .overlay(alignment: horizontal ? .leading : .bottom) {
+                        if spectrum { spectrumPane(horizontal: horizontal) }
+                    }
                     .overlay(alignment: .topTrailing) {
                         if state.audio != nil { SpectrogramControls() }
                     }
             }
             .coordinateSpace(.named("middle"))
+        }
+    }
+
+    /// Spectrogram mode: the spectrum pane over the main pane's left side (horizontal time) or
+    /// bottom (vertical time) (milestone 9). The main pane keeps the navigator's time axis; the
+    /// spectrum covers the start (horizontal) or end (vertical) of the visible range.
+    @ViewBuilder
+    private func spectrumPane(horizontal: Bool) -> some View {
+        let t = SpectrumConstants.thickness
+        let line = Rectangle().fill(Color(nsColor: .separatorColor))
+        if horizontal {
+            HStack(spacing: 0) {
+                SpectrumView(state: state).frame(width: t).reportFrame("spectrum")
+                line.frame(width: dividerThickness)
+            }
+        } else {
+            VStack(spacing: 0) {
+                line.frame(height: dividerThickness)
+                SpectrumView(state: state).frame(height: t).reportFrame("spectrum")
+            }
         }
     }
 
