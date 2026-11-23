@@ -90,22 +90,68 @@ private struct MiddleSection: View {
             let total = horizontal ? geo.size.height : geo.size.width
             let nav = (max(total - dividerThickness, 0) * state.navigatorFraction).rounded()
             let layout = horizontal ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+            let spectrum = state.mainMode == .spectrogram
             layout {
-                navigator(horizontal: horizontal)
-                    .frame(width: horizontal ? nil : nav, height: horizontal ? nav : nil)
-                    .reportFrame("navigator")
+                withSpectrumInset(spectrum, horizontal: horizontal) {
+                    navigator(horizontal: horizontal)
+                }
+                .frame(width: horizontal ? nil : nav, height: horizontal ? nav : nil)
                 divider(horizontal: horizontal, total: total)
-                pane("main", background: .textBackgroundColor)
-                    .overlay {
-                        if state.audio == nil {
-                            Text("Open an audio file (⌘O)").font(.title3).foregroundStyle(.secondary)
+                withSpectrum(spectrum, horizontal: horizontal) {
+                    pane("main", background: .textBackgroundColor)
+                        .overlay {
+                            if state.audio == nil {
+                                Text("Open an audio file (⌘O)").font(.title3).foregroundStyle(.secondary)
+                            }
                         }
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        if state.audio != nil { SpectrogramControls() }
-                    }
+                        .overlay(alignment: .topTrailing) {
+                            if state.audio != nil { SpectrogramControls() }
+                        }
+                }
             }
             .coordinateSpace(.named("middle"))
+        }
+    }
+
+    /// Spectrogram mode: the spectrum pane split off the main pane's left side (horizontal time)
+    /// or bottom (vertical time) (milestone 9).
+    @ViewBuilder
+    private func withSpectrum(_ on: Bool, horizontal: Bool, @ViewBuilder main: () -> some View) -> some View {
+        let t = SpectrumConstants.thickness
+        if !on {
+            main()
+        } else if horizontal {
+            HStack(spacing: 0) {
+                SpectrumView(state: state).frame(width: t).reportFrame("spectrum")
+                Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: dividerThickness)
+                main()
+            }
+        } else {
+            VStack(spacing: 0) {
+                main()
+                Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: dividerThickness)
+                SpectrumView(state: state).frame(height: t).reportFrame("spectrum")
+            }
+        }
+    }
+
+    /// The navigator, inset by the spectrum pane (and its divider) so that its time axis stays
+    /// aligned with the main pane's.
+    @ViewBuilder
+    private func withSpectrumInset(_ on: Bool, horizontal: Bool, @ViewBuilder navigator: () -> some View) -> some View {
+        let t = SpectrumConstants.thickness + dividerThickness
+        if !on {
+            navigator().reportFrame("navigator")
+        } else if horizontal {
+            HStack(spacing: 0) {
+                Color(nsColor: .underPageBackgroundColor).frame(width: t)
+                navigator().reportFrame("navigator")
+            }
+        } else {
+            VStack(spacing: 0) {
+                navigator().reportFrame("navigator")
+                Color(nsColor: .underPageBackgroundColor).frame(height: t)
+            }
         }
     }
 

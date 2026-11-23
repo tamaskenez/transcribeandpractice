@@ -144,6 +144,7 @@ final class AppState {
     /// Increments on every file open (identifies the audio for the spectrogram cache).
     var loadID = 0
     @ObservationIgnored let spectrogram = SpectrogramEngine()
+    @ObservationIgnored let spectrum = SpectrumEngine()
     static let minWindowMs = 10.0, maxWindowMs = 500.0
     private static let mainModeKey = "mainPaneMode", windowKey = "spectrogramWindowMs"
 
