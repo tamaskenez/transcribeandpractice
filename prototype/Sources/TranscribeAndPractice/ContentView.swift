@@ -153,7 +153,7 @@ private struct MiddleSection: View {
 }
 
 /// Main pane mode dropdown and, in spectrogram mode, the progress indicator, the window length
-/// slider (logarithmic, 10…500 ms) and the Retina toggle (milestone 8).
+/// slider (logarithmic, 10…500 ms) (milestone 8).
 private struct SpectrogramControls: View {
     @Environment(AppState.self) private var state
 
@@ -169,10 +169,6 @@ private struct SpectrogramControls: View {
         @Bindable var state = state
         HStack(spacing: 8) {
             if state.mainMode == .spectrogram {
-                Toggle("Retina", isOn: $state.retina)
-                    .toggleStyle(.button)
-                    .help("Compute per physical pixel")
-                    .reportFrame("retinaToggle")
                 Slider(value: Binding(get: { Self.position(state.windowLengthMs) }, set: { state.windowLengthMs = Self.ms($0) }),
                        in: 0...1)
                     .frame(width: 140)

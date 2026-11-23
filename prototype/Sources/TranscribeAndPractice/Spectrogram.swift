@@ -195,7 +195,7 @@ final class SpectrogramEngine {
         }
         let first = Int(m.rounded())
         let n = state.timePixels
-        let rows = Int((Double(state.mainCrossLength) * state.pixelScale).rounded())
+        let rows = Int(Double(state.mainCrossLength).rounded())
         let firstRow = Int((state.freqBottom * p.rowsPerSemitone).rounded())
         layout = Layout(firstColumn: first, columns: n, firstRow: firstRow, rows: rows)
         // Keep one pane length on each side.

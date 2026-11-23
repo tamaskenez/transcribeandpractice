@@ -441,10 +441,10 @@ both orientations (right to left):
 - Spectrogram mode only:
   - A small spinning progress indicator, shown while the background computation is working.
   - The window length slider: 10 ms … 500 ms, logarithmic, with a readout in ms.
-  - A Retina toggle: off computes one column per point along the time axis and one row per point
-    across it; on computes per physical pixel (the screen's backing scale factor).
-- The mode, the window length and the Retina toggle are remembered across launches. Defaults:
-  waveform, 50 ms, Retina off.
+- One column per point along the time axis and one row per point across it (screen points, not
+  physical pixels). (A Retina toggle computing per physical pixel was removed after milestone 8:
+  it made no visible difference.)
+- The mode and the window length are remembered across launches. Defaults: waveform, 50 ms.
 - With no file loaded the controls are hidden.
 
 Everything else in the main pane stays as in waveform mode: the selection band, the playhead and
@@ -459,7 +459,7 @@ Computation (a short-time Fourier transform of the mono mix, the signal the wave
   N is the odd integer nearest to 2.5 · L · fs + 1, ties to the larger (L in seconds, fs the sample rate; the nonzero
   part of the window is 2.5 × L). A window wider than the FFT is cut to its central 65,535
   samples (only above about 52 kHz at the longest windows).
-- Columns: one per time pixel (point or physical pixel). Pixel i of a pane with time-axis length
+- Columns: one per time pixel (point). Pixel i of a pane with time-axis length
   P pixels covers the times from start + i · (end − start) / P to start + (i + 1) · (end − start)
   / P; its window is centred at the sample nearest to the middle of that span. Columns whose
   centre is outside the file are not drawn. Samples outside the file count as zero.
@@ -485,8 +485,8 @@ Frequency axis:
 - Initially the view is centred on C4 (note 60). The frequency view is kept when switching modes
   and opening files, not across launches.
 
-Whole-pixel panning (both modes): every pan moves the view by a whole number of pixels (points,
-or physical pixels in spectrogram mode with Retina on), so cached columns can be reused exactly.
+Whole-pixel panning (both modes): every pan moves the view by a whole number of pixels (points),
+so cached columns can be reused exactly.
 This covers scrolling, Option/middle drag (both axes), the scrollbar (drag and click) and follow.
 The left-over fraction is carried to the next pan of the same gesture or input, so slow scrolling
 still moves. At the view limits the view stops exactly at the limit. Zooming, resizing and the
@@ -497,9 +497,9 @@ Background computation and cache:
 - Columns are computed on a background thread; the newest request supersedes older ones.
 - A computed column holds the levels (before the amplitude zoom) for every pixel row of the
   whole frequency range. It is reused when the window length, the time scale, the orientation and
-  the Retina setting are unchanged: after a pan only the newly visible columns are computed; a
+  the pane size are unchanged: after a pan only the newly visible columns are computed; a
   frequency pan and an amplitude zoom compute nothing.
-- Zooming, resizing, switching orientation or Retina: until the new columns are ready, the
+- Zooming, resizing, switching orientation: until the new columns are ready, the
   previous image is shown stretched and shifted to the new mapping.
 - Moving the window length slider invalidates the whole cache.
 - The cache keeps the visible columns plus one pane length on each side; nothing is computed
@@ -565,11 +565,11 @@ the dump adds the computed constants, the beep count, the time signature dialog 
 pending), and the strip's hovered beat; commands `beatkey [shift]` (B / Shift+B through the key
 handler's code path), `tsdialog <n>/<d>|dontset` (answers the dialog through its buttons' code
 path). From milestone 8 on, also: the dump adds the main pane's mode, the window length, N, the
-Retina setting, the frequency view (lowest and highest visible semitone positions, points per
+frequency view (lowest and highest visible semitone positions, points per
 semitone), the busy flag, and the counts of computed and cached columns (computed: FFTs run since
-launch); commands `mode waveform|spectrogram`, `window <ms>` and `retina on|off` (through the
+launch); commands `mode waveform|spectrogram`, and `window <ms>` (through the
 controls' code paths), `specdelay <ms>` (slows each background step, to observe the busy state),
-`screen retina|plain` (moves the window to such a screen), `scrollpan <dx>,<dy>` (a plain scroll's
+`scrollpan <dx>,<dy>` (a plain scroll's
 pan in the main pane, with fractional points), and `specdump <path>`, which writes the current image's levels in dB
 (before the amplitude zoom and the clipping) with each column's centre sample and each row's
 frequency, as JSON with a little-endian float32 matrix. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running

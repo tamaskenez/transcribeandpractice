@@ -21,7 +21,7 @@ AUDIO = os.path.abspath(f'{OUT}/audio')
 TONES = f'{AUDIO}/tones.wav'
 HI96 = f'{AUDIO}/hi96.wav'
 SR = 44100
-KEYS = ['mainPaneMode', 'spectrogramWindowMs', 'spectrogramRetina']
+KEYS = ['mainPaneMode', 'spectrogramWindowMs']
 ONLY = set(os.environ.get('ONLY', '').split(',')) - {''}
 
 
@@ -191,20 +191,8 @@ def whole(delta, px):
     return abs(k - round(k)) < 1e-6 * max(1, abs(k)), k
 
 
-def has_screen(s, retina):
-    return any((sc['scale'] > 1) == retina for sc in sp(s)['screens'])
-
-
-def place(s, where):
-    s.command(f'screen {where}')
-    time.sleep(0.3)
-    s.dump()
-
-
-def session(name, orientation='horizontal', opens=(TONES,), where='plain', size=(1000, 700)):
+def session(name, orientation='horizontal', opens=(TONES,), size=(1000, 700)):
     s = Session(name, opens=opens, orientation=orientation)
-    if where:
-        place(s, where)
     if size:
         s.command(f'resize {size[0]},{size[1]}')
     s.bring_to_front()
@@ -221,24 +209,24 @@ if run(2):
     for o in ('horizontal', 'vertical'):
         s = session(f'c2_{o}', orientation=o)
         g = sp(s)
-        check(2, f'{o}: defaults waveform, 50 ms, Retina off',
-              (g['mode'], g['windowLengthMs'], g['retina']) == ('waveform', 50, False), str(g))
+        check(2, f'{o}: defaults waveform, 50 ms',
+              (g['mode'], g['windowLengthMs']) == ('waveform', 50), str(g))
         pf = s.state['paneFrames']
         m, mp = pf['main'], pf.get('modePicker')
         ok = mp is not None and abs((m['x'] + m['width']) - (mp['x'] + mp['width'])) < 30 and abs(mp['y'] - m['y']) < 30
         check(2, f'{o}: dropdown in the main pane\'s top-right corner', ok, f'main {m} picker {mp}')
-        check(2, f'{o}: waveform mode shows no slider, Retina toggle or progress indicator',
-              not any(k in pf for k in ('windowSlider', 'retinaToggle', 'progress')), str(list(pf)))
+        check(2, f'{o}: waveform mode shows no slider or progress indicator',
+              not any(k in pf for k in ('windowSlider', 'progress')), str(list(pf)))
         s.snapshot('waveform')
         s.command('mode spectrogram')
         wait_idle(s)
         pf = s.state['paneFrames']
-        present = all(k in pf for k in ('windowSlider', 'windowReadout', 'retinaToggle', 'progress'))
+        present = all(k in pf for k in ('windowSlider', 'windowReadout', 'progress'))
         left = present and all(pf[k]['x'] + pf[k]['width'] <= pf['modePicker']['x'] + 1
-                               for k in ('windowSlider', 'retinaToggle', 'progress'))
-        order = present and pf['retinaToggle']['x'] < pf['windowSlider']['x'] < pf['progress']['x'] < pf['modePicker']['x']
-        check(2, f'{o}: spectrogram mode shows Retina, slider with readout, progress (right to left: dropdown, '
-                 'progress, slider, Retina)', present and left and order, str({k: pf.get(k) for k in pf}))
+                               for k in ('windowSlider', 'progress'))
+        order = present and pf['windowSlider']['x'] < pf['progress']['x'] < pf['modePicker']['x']
+        check(2, f'{o}: spectrogram mode shows the slider with readout and the progress indicator (right to left: '
+                 'dropdown, progress, slider)', present and left and order, str({k: pf.get(k) for k in pf}))
         s.snapshot('spectrogram')
         if o == 'horizontal':
             sl = to_screen(s, 'windowSlider')
@@ -253,13 +241,12 @@ if run(2):
             check(2, 'slider ends 10 and 500 ms, middle about 70.7 ms (logarithmic)',
                   abs(lo - 10) < 1e-9 and abs(hi - 500) < 1e-9 and abs(mid / 70.71 - 1) < 0.03, f'{lo} {hi} {mid}')
             s.command('window 120')
-            s.command('retina on')
             s.dump()
             s.quit()
             s = session('c2_relaunch')
             g = sp(s)
-            check(2, 'mode, window length and Retina restored after a relaunch',
-                  (g['mode'], round(g['windowLengthMs'], 6), g['retina']) == ('spectrogram', 120, True), str(g))
+            check(2, 'mode and window length restored after a relaunch',
+                  (g['mode'], round(g['windowLengthMs'], 6)) == ('spectrogram', 120), str(g))
             s.quit()
             reset_defaults()
         else:
@@ -275,7 +262,7 @@ if run(3) or run(4):
         idle = wait_idle(s)
         d, lv = specdump(s, f'w{ms}')
         diff, nan_ok, ref = compare(d, lv)
-        check(3, f'vertical, Retina off, {ms} ms: levels match the reference within 0.01 dB (above −100 dB)',
+        check(3, f'vertical, {ms} ms: levels match the reference within 0.01 dB (above −100 dB)',
               idle and d['complete'] and diff <= 0.01 and nan_ok, f'max diff {diff:.5f} nan_ok {nan_ok} idle {idle}')
         check(4, f'{ms} ms at 44.1 kHz: N = {window_n(ms)}',
               d['windowLength'] == window_n(ms) and sp(s)['windowSamples'] == window_n(ms), str(d['windowLength']))
@@ -307,23 +294,18 @@ if run(3) or run(4):
               cen_ok and margin_ok and blank_ok and nblank > 0, f'cen {cen_ok} margin {margin_ok} blank {blank_ok} n {nblank}')
     s.snapshot('full_vertical')
     s.quit()
-    # Horizontal, Retina on (on a Retina screen if there is one) and off.
-    s = session('c3_retina', where='retina')
+    # Horizontal.
+    s = session('c3_horizontal')
     s.command('mode spectrogram')
-    scale = sp(s)['backingScale']
-    for retina, wins in (('on', (10, 50, 500)), ('off', (50,))):
-        s.command(f'retina {retina}')
-        for ms in wins:
-            s.command(f'window {ms}')
-            idle = wait_idle(s)
-            d, lv = specdump(s, f'r{retina}_w{ms}')
-            diff, nan_ok, _ = compare(d, lv)
-            ps = sp(s)['pixelScale']
-            dims = d['columns'] == sp(s)['timePixels'] and d['rows'] == round(s.state['waveforms']['main']['size']['height'] * ps)
-            check(3, f'horizontal, Retina {retina} (scale {ps:g}), {ms} ms: levels match the reference within 0.01 dB; '
-                     'one column/row per pixel', idle and diff <= 0.01 and nan_ok and dims,
-                  f'diff {diff:.5f} nan {nan_ok} dims {d["columns"]}x{d["rows"]}')
-    s.snapshot('retina')
+    for ms in (10, 50, 500):
+        s.command(f'window {ms}')
+        idle = wait_idle(s)
+        d, lv = specdump(s, f'w{ms}')
+        diff, nan_ok, _ = compare(d, lv)
+        dims = d['columns'] == sp(s)['timePixels'] and d['rows'] == round(s.state['waveforms']['main']['size']['height'])
+        check(3, f'horizontal, {ms} ms: levels match the reference within 0.01 dB; one column/row per point',
+              idle and diff <= 0.01 and nan_ok and dims, f'diff {diff:.5f} nan {nan_ok} dims {d["columns"]}x{d["rows"]}')
+    s.snapshot('horizontal')
     s.quit()
     if run(4):
         s = session('c4_96k', opens=(HI96,))
@@ -358,7 +340,7 @@ if run(5):
         f = fv(s)
         rps = f['rowsPerSemitone']
         check(5, f'{o}: 14 points per semitone; initial view centred on C4',
-              f['pointsPerSemitone'] == 14 and rps == 14 * sp(s)['pixelScale']
+              f['pointsPerSemitone'] == 14 and rps == 14
               and abs((f['low'] + f['high']) / 2 - 39.5) <= 1 / rps + 1e-9, str(f))
         # Direction: A4 (3–5 s) is brightest where its semitone is.
         main = s.state['screenFrames']['main']
@@ -514,17 +496,6 @@ if run(6):
             if o == 'horizontal':
                 follow_check(s, f'{mode}, {o}')
             s.quit()
-    s = session('c6_retina', where='retina')
-    if has_screen(s, True):
-        s.command('mode spectrogram')
-        s.command('retina on')
-        wait_idle(s)
-        sc = sp(s)['pixelScale']
-        check(6, f'Retina on a Retina screen: pixels are physical (scale {sc:g})', sc > 1, str(sc))
-        pan_checks(s, 'spectrogram, Retina', sc)
-    else:
-        check(6, 'Retina screen available for the physical-pixel pan checks', False, 'no Retina screen')
-    s.quit()
 
 # 7. Cache
 if run(7):
