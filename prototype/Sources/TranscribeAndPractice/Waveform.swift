@@ -513,12 +513,32 @@ final class WaveformNSView: NSView {
         cursorName = name
     }
 
-    override func cursorUpdate(with event: NSEvent) { updateCursor(at: location(event), flags: event.modifierFlags) }
+    /// Spectrogram mode: whether a point is under the spectrum pane (milestone 9), which covers
+    /// the main pane's left side (horizontal) or bottom (vertical).
+    private func underSpectrum(_ p: CGPoint) -> Bool {
+        guard isSpectrogram, state?.audio != nil else { return false }
+        let cover = SpectrumConstants.thickness + 1
+        return orientation == .horizontal ? p.x < cover : p.y > bounds.height - cover
+    }
+
+    /// Under the spectrum pane (no drag): no pointer line, the arrow cursor.
+    private func leaveForSpectrum(_ p: CGPoint) -> Bool {
+        guard drag == nil, underSpectrum(p) else { return false }
+        if state?.pointer?.pane == name { state?.pointer = nil }
+        NSCursor.arrow.set(); cursorName = "arrow"
+        return true
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        if leaveForSpectrum(location(event)) { return }
+        updateCursor(at: location(event), flags: event.modifierFlags)
+    }
     override func mouseMoved(with event: NSEvent) {
+        if leaveForSpectrum(location(event)) { return }
         updatePointer(location(event))
         updateCursor(at: location(event), flags: event.modifierFlags)
     }
-    override func mouseEntered(with event: NSEvent) { updatePointer(location(event)) }
+    override func mouseEntered(with event: NSEvent) { if !leaveForSpectrum(location(event)) { updatePointer(location(event)) } }
     override func mouseExited(with event: NSEvent) {
         if state?.pointer?.pane == name { state?.pointer = nil }
         if isRuler, drag == nil { state?.hoveredBeatSample = nil }

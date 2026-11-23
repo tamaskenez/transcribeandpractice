@@ -49,6 +49,12 @@ final class SpectrumNSView: NSView {
     var state: AppState?
     override var isFlipped: Bool { true }
 
+    // The pane lies over the main pane: presses don't reach it.
+    override func mouseDown(with event: NSEvent) {}
+    override func otherMouseDown(with event: NSEvent) {}
+    override func rightMouseDown(with event: NSEvent) {}
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     private var orientation: TimeOrientation { state?.orientation ?? .horizontal }
     /// Along the frequency axis / along the amplitude (key length) axis.
     private var crossLength: CGFloat { orientation == .horizontal ? bounds.height : bounds.width }

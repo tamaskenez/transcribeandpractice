@@ -90,67 +90,45 @@ private struct MiddleSection: View {
             let total = horizontal ? geo.size.height : geo.size.width
             let nav = (max(total - dividerThickness, 0) * state.navigatorFraction).rounded()
             let layout = horizontal ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
-            let spectrum = state.mainMode == .spectrogram
+            let spectrum = state.mainMode == .spectrogram && state.audio != nil
             layout {
-                withSpectrumInset(spectrum, horizontal: horizontal) {
-                    navigator(horizontal: horizontal)
-                }
-                .frame(width: horizontal ? nil : nav, height: horizontal ? nav : nil)
+                navigator(horizontal: horizontal)
+                    .frame(width: horizontal ? nil : nav, height: horizontal ? nav : nil)
+                    .reportFrame("navigator")
                 divider(horizontal: horizontal, total: total)
-                withSpectrum(spectrum, horizontal: horizontal) {
-                    pane("main", background: .textBackgroundColor)
-                        .overlay {
-                            if state.audio == nil {
-                                Text("Open an audio file (⌘O)").font(.title3).foregroundStyle(.secondary)
-                            }
+                pane("main", background: .textBackgroundColor)
+                    .overlay {
+                        if state.audio == nil {
+                            Text("Open an audio file (⌘O)").font(.title3).foregroundStyle(.secondary)
                         }
-                        .overlay(alignment: .topTrailing) {
-                            if state.audio != nil { SpectrogramControls() }
-                        }
-                }
+                    }
+                    .overlay(alignment: horizontal ? .leading : .bottom) {
+                        if spectrum { spectrumPane(horizontal: horizontal) }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        if state.audio != nil { SpectrogramControls() }
+                    }
             }
             .coordinateSpace(.named("middle"))
         }
     }
 
-    /// Spectrogram mode: the spectrum pane split off the main pane's left side (horizontal time)
-    /// or bottom (vertical time) (milestone 9).
+    /// Spectrogram mode: the spectrum pane over the main pane's left side (horizontal time) or
+    /// bottom (vertical time) (milestone 9). The main pane keeps the navigator's time axis; the
+    /// spectrum covers the start (horizontal) or end (vertical) of the visible range.
     @ViewBuilder
-    private func withSpectrum(_ on: Bool, horizontal: Bool, @ViewBuilder main: () -> some View) -> some View {
+    private func spectrumPane(horizontal: Bool) -> some View {
         let t = SpectrumConstants.thickness
-        if !on {
-            main()
-        } else if horizontal {
+        let line = Rectangle().fill(Color(nsColor: .separatorColor))
+        if horizontal {
             HStack(spacing: 0) {
                 SpectrumView(state: state).frame(width: t).reportFrame("spectrum")
-                Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: dividerThickness)
-                main()
+                line.frame(width: dividerThickness)
             }
         } else {
             VStack(spacing: 0) {
-                main()
-                Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: dividerThickness)
+                line.frame(height: dividerThickness)
                 SpectrumView(state: state).frame(height: t).reportFrame("spectrum")
-            }
-        }
-    }
-
-    /// The navigator, inset by the spectrum pane (and its divider) so that its time axis stays
-    /// aligned with the main pane's.
-    @ViewBuilder
-    private func withSpectrumInset(_ on: Bool, horizontal: Bool, @ViewBuilder navigator: () -> some View) -> some View {
-        let t = SpectrumConstants.thickness + dividerThickness
-        if !on {
-            navigator().reportFrame("navigator")
-        } else if horizontal {
-            HStack(spacing: 0) {
-                Color(nsColor: .underPageBackgroundColor).frame(width: t)
-                navigator().reportFrame("navigator")
-            }
-        } else {
-            VStack(spacing: 0) {
-                navigator().reportFrame("navigator")
-                Color(nsColor: .underPageBackgroundColor).frame(height: t)
             }
         }
     }
