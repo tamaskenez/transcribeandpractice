@@ -660,9 +660,24 @@ Verification results (`python3 verify/verify_m7.py`, run from `prototype/`; scre
 6. The sidecar equals the dumped beats after each change; reopening restores them; a read-only
    folder gives "Could not save beats" and keeps the beats in memory.
 
+## 8. Spectrogram
+
+Let's introduce 2 view modes for the middle, analysis pane: waveform (the current) and spectrogram.
+Make the 2 modes switchable by a drowpdown in the top-right corner of the pane.
+When in spectrogram mode we need an additional slider: window length (10 ms - 500 ms, logarithmic)
+The spectrogram is implemented by a simple STFT, the window centers placed at samples corresponding
+to logical pixel coordinates. The window function is a gaussian (the default MATLAB gausswin) with
+the nearest odd width that results in a standard deviation which is the half of the value set by
+the window length slider. The FFT is fixed at 65536 points, we're displaying the logarithm of the
+absolute value of the spectrogram. The FFT also needs to be resampled with a logarithmic frequency
+axis. We need the frequencies from A0 to C9.
+
 ## Fine-tuning (to do later)
 
 - Don't drag playhead/last-playback-start when dragging selection edge
 - Revise follow-logic
 - Better last-playback-start marker color
 - Don't draw the playhead and last-playback-started markers on the scrollbar if they are in the view range. Draw only those which is off screen.
+- Start saving session file to /tmp, on close/exit ask for keep/delete session next to original file.
+- drag-beat should be a different mouse icon like <||> or something
+- right-click on beat brings up beat menu with settings/delete
