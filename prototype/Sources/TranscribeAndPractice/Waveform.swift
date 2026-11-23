@@ -121,18 +121,12 @@ final class WaveformNSView: NSView {
         reportSize()
     }
 
-    override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        reportSize()
-    }
-
-    /// The main pane's size and backing scale, for the pixel grid of panning and the spectrogram.
+    /// The main pane's size, for the pixel grid of panning and the spectrogram.
     func reportSize() {
         guard name == "main", let state else { return }
         let a = timeLength, c = crossLength
         if state.mainAxisLength != a { state.mainAxisLength = a }
         if state.mainCrossLength != c { state.mainCrossLength = c }
-        if let scale = window?.backingScaleFactor, state.backingScale != scale { state.backingScale = scale }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -722,8 +716,8 @@ struct WaveformView: NSViewRepresentable {
         _ = (state.audio?.mono.count, state.orientation, state.viewStart, state.viewEnd, state.selection,
              state.amplitudeZoomDB, state.playhead, state.lastStart, state.isPlaying)
         if name == "main" {
-            _ = (state.mainMode, state.retina, state.windowLengthMs, state.freqLow, state.spectrogramVersion,
-                 state.backingScale, state.mainCrossLength, state.mainAxisLength, state.loadID)
+            _ = (state.mainMode, state.windowLengthMs, state.freqLow, state.spectrogramVersion,
+                 state.mainCrossLength, state.mainAxisLength, state.loadID)
             view.reportSize()
         }
         if isRuler { _ = (state.beats.count, state.showBeats, state.pointer?.fraction, state.pointer?.pane) }

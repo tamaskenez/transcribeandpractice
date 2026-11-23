@@ -128,19 +128,15 @@ final class AppState {
             UserDefaults.standard.set(windowLengthMs, forKey: Self.windowKey)
         }
     }
-    var retina: Bool {
-        didSet { UserDefaults.standard.set(retina, forKey: Self.retinaKey) }
-    }
     /// The background computation is working.
     var spectrogramBusy = false
     /// Bumped when computed columns arrive (redraws the main pane).
     var spectrogramVersion = 0
     /// Frequency view: semitones above A0 − ½ at the pane's low edge; nil = centred on C4.
     var freqLow: Double?
-    /// Main pane size along / across the time axis (points) and the screen's backing scale.
+    /// Main pane size along / across the time axis (points).
     var mainAxisLength: CGFloat = 0
     var mainCrossLength: CGFloat = 0
-    var backingScale: CGFloat = 2
     /// Fraction of a pixel left over from the previous scroll pan.
     var panRemainder = 0.0
     /// The last scroll event's deltas and whether they were precise (for the state dump).
@@ -149,7 +145,7 @@ final class AppState {
     var loadID = 0
     @ObservationIgnored let spectrogram = SpectrogramEngine()
     static let minWindowMs = 10.0, maxWindowMs = 500.0
-    private static let mainModeKey = "mainPaneMode", windowKey = "spectrogramWindowMs", retinaKey = "spectrogramRetina"
+    private static let mainModeKey = "mainPaneMode", windowKey = "spectrogramWindowMs"
 
     init() {
         orientation = UserDefaults.standard.string(forKey: Self.orientationKey)
@@ -159,7 +155,6 @@ final class AppState {
         showBeats = UserDefaults.standard.object(forKey: Self.showBeatsKey) as? Bool ?? true
         mainMode = UserDefaults.standard.string(forKey: Self.mainModeKey).flatMap(MainPaneMode.init(rawValue:)) ?? .waveform
         windowLengthMs = min(max(UserDefaults.standard.object(forKey: Self.windowKey) as? Double ?? 50, Self.minWindowMs), Self.maxWindowMs)
-        retina = UserDefaults.standard.bool(forKey: Self.retinaKey)
         player.core.setLoop(loopEnabled)
     }
 
@@ -239,10 +234,8 @@ final class AppState {
         setView(start: start, end: start + length)
     }
 
-    /// Pixels along the time axis of the panes: points, or physical pixels in spectrogram mode
-    /// with Retina on.
-    var pixelScale: Double { mainMode == .spectrogram && retina ? Double(backingScale) : 1 }
-    var timePixels: Int { Int((Double(mainAxisLength) * pixelScale).rounded()) }
+    /// Pixels (points) along the time axis of the panes.
+    var timePixels: Int { Int(Double(mainAxisLength).rounded()) }
     /// Seconds per pixel; nil before the main pane has a size.
     var pixelSeconds: Double? { timePixels > 0 && viewLength > 0 ? viewLength / Double(timePixels) : nil }
 
@@ -275,7 +268,7 @@ final class AppState {
     // MARK: Frequency view (spectrogram)
 
     /// Rows per semitone of the spectrogram (pixels).
-    var rowsPerSemitone: Double { SpectrogramConstants.pointsPerSemitone * pixelScale }
+    var rowsPerSemitone: Double { SpectrogramConstants.pointsPerSemitone }
     /// Semitones the main pane shows across the time axis.
     var freqSpan: Double { Double(mainCrossLength) / SpectrogramConstants.pointsPerSemitone }
 

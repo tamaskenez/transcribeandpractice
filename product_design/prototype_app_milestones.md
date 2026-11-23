@@ -730,6 +730,11 @@ are not verified. Level match with the numpy reference: within 0.01 dB everywher
 ≤ 4·10⁻⁶ dB offline). Tone levels are compared only where the spectral peak is wider than a row
 (for long windows the narrow peak falls between rows, which sit half a row off the note).
 
+After review: the Retina toggle was removed (no visible difference); the spectrogram is computed
+per point. The criteria above that mention Retina no longer apply. `verify_m8.py` without the
+Retina checks: 109/110 in the full run (one follow check saw only 4 view moves in its 3 s
+sampling window, none off the pixel grid); the rerun of criterion 6 passed 43/43.
+
 ## Fine-tuning (to do later)
 
 - Don't drag playhead/last-playback-start when dragging selection edge

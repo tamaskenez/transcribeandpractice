@@ -14,8 +14,7 @@ import SwiftUI
 ///                         | amplitude <dB> | playhead <s> | loop on|off | follow on|off
 ///                         | record <path> | record stop | beats on|off
 ///                         | beatkey [shift] | tsdialog ok|dontset|numerator <text>|denominator <d>
-///                         | mode waveform|spectrogram | window <ms> | retina on|off | specdump <path>
-///                         | specdelay <ms> | screen retina|plain (move the window to such a screen)
+///                         | mode waveform|spectrogram | window <ms> | specdump <path> | specdelay <ms>
 ///                         | scrollpan <dx>,<dy> (a plain scroll's pan in the main pane, fractional points)
 ///   --quit                quit when done
 /// Values must use the `=` form: a bare path argument can make AppKit treat the launch as
@@ -113,18 +112,11 @@ enum VerificationHooks {
                     case "beatkey": state.beatKey(downbeat: arg == "shift")
                     case "mode": if let m = MainPaneMode(rawValue: arg) { state.mainMode = m }
                     case "window": if let v = Double(arg) { state.windowLengthMs = v }
-                    case "retina": state.retina = arg == "on"
                     case "specdelay": SpectrogramConstants.testDelayMs = Int(arg) ?? 0
                     case "scrollpan":
                         if let (dx, dy) = pair(arg),
                            let v = allViews().compactMap({ $0 as? WaveformNSView }).first(where: { $0.name == "main" }) {
                             v.scrollPan(dx: dx, dy: dy)
-                        }
-                    case "screen":
-                        if let win = mainWindow,
-                           let screen = NSScreen.screens.first(where: { ($0.backingScaleFactor > 1) == (arg == "retina") }) {
-                            let f = screen.visibleFrame
-                            win.setFrameTopLeftPoint(NSPoint(x: f.minX + 40, y: f.maxY - 40))
                         }
                     case "specdump":
                         let d = state.spectrogram.levelsDump(state: state)
@@ -258,12 +250,11 @@ enum VerificationHooks {
         let fs = state.audio?.sampleRate ?? 44100
         let rps = state.rowsPerSemitone
         let low = state.freqBottom
-        let rows = (Double(state.mainCrossLength) * state.pixelScale).rounded()
+        let rows = Double(state.mainCrossLength).rounded()
         return [
             "mode": state.mainMode.rawValue, "windowLengthMs": state.windowLengthMs,
             "windowSamples": SpectrogramConstants.windowLength(seconds: state.windowLengthMs / 1000, sampleRate: fs),
-            "retina": state.retina, "pixelScale": state.pixelScale, "backingScale": state.backingScale,
-            "timePixels": state.timePixels, "pixelSeconds": state.pixelSeconds ?? NSNull(),
+                        "timePixels": state.timePixels, "pixelSeconds": state.pixelSeconds ?? NSNull(),
             "panRemainder": state.panRemainder, "lastScrollDelta": state.lastScrollDelta,
             "freqView": ["low": low, "high": low + rows / rps, "pointsPerSemitone": SpectrogramConstants.pointsPerSemitone,
                          "rowsPerSemitone": rps, "stored": state.freqLow ?? NSNull()] as [String: Any],
@@ -271,8 +262,6 @@ enum VerificationHooks {
             "computedColumns": e.computedColumns, "cachedColumns": e.cachedColumns,
             "staleShown": !e.complete && e.stale != nil, "origin": e.origin, "staleDraws": e.staleDraws,
             "renderedGainDB": e.renderedGainDB ?? NSNull(),
-            "screens": NSScreen.screens.map { ["scale": $0.backingScaleFactor, "frame": rect($0.frame)] as [String: Any] },
-            "windowScale": mainWindow?.backingScaleFactor ?? NSNull(),
         ]
     }
 
