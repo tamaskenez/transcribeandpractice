@@ -678,7 +678,7 @@ scale of 14 points per semitone with Option/middle-drag panning across the time 
 frequency zoom; a 60 dB display range (−60 … 0 dB at amplitude zoom ×1); background computation
 with a progress indicator and a column cache; pans by whole pixels (see the spec, "Spectrogram").
 
-Status: `criteria proposed`
+Status: `criteria approved`
 
 Acceptance criteria:
 
