@@ -747,7 +747,7 @@ axes aligned; (2) changed to an overlay on the spectrogram only, the navigator a
 (3) the key outlines clipped to the pane; (4) the ⌘-scroll axis lock and the analysis window in
 the navigator.
 
-Status: `verified`
+Status: `done`
 
 Acceptance criteria:
 
