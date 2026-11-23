@@ -68,10 +68,19 @@ final class SpectrumNSView: NSView {
             : NSRect(x: f0, y: d0, width: f1 - f0, height: d1 - d0)
     }
 
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        clipsToBounds = true
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
     override func draw(_ dirtyRect: NSRect) {
         NSColor.textBackgroundColor.setFill()
         bounds.fill()
         guard let state, state.audio != nil else { return }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSBezierPath(rect: bounds).setClip()
         drawSpectrum(state)
         drawKeys(state)
     }
