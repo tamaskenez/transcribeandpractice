@@ -5,6 +5,7 @@
 //   click x y [mods]                      mods: comma list of shift,option,cmd or "-"
 //   drag x1 y1 x2 y2 [mods] [left|middle]
 //   scroll x y dx dy [mods]               pixel units; positive dy = wheel up
+//   scrollf x y dx dy                     a continuous (trackpad-like) scroll with fractional deltas
 //   magnify x y m [steps]                 trackpad pinch, total magnification m
 //   key escape|space|left|right|down|b|backspace [mods]
 //   press <pid> <title>                   press a toolbar button via Accessibility
@@ -116,6 +117,19 @@ while let line = readLine() {
         }
         pause(30)
         setModifiers([])
+    case "scrollf":
+        let p = CGPoint(x: d(1), y: d(2))
+        post(.mouseMoved, p); pause(30)
+        if let e = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: 0, wheel3: 0) {
+            e.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            e.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: d(4))
+            e.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: d(3))
+            e.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: d(4))
+            e.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: d(3))
+            e.location = p
+            e.post(tap: .cghidEventTap)
+        }
+        pause(30)
     case "magnify":
         // Undocumented gesture event fields (as used by gesture-synthesis tools):
         // 55 = event type (29 gesture), 110 = HID gesture type (8 zoom), 113 = magnification,

@@ -184,14 +184,30 @@ extension AppState {
         }
         let a = 1 - exp(-max(dt, 0) / Self.followTimeConstant)
         let (lo, hi) = viewLimits
-        let targetLength = max(viewLength, min(Self.followMinLength, hi - lo))
-        let length = viewLength + (targetLength - viewLength) * a
+        // Follow eases its own unrounded view; the shown view pans to it by whole pixels. The
+        // unrounded view is dropped when the shown one was changed elsewhere.
+        let px = pixelSeconds ?? 0
+        var (vs, ve) = (viewStart, viewEnd)
+        if followLastPlayhead != nil, let e = followExact, abs(e.start - viewStart) <= px + 1e-12,
+           abs((e.end - e.start) - viewLength) <= 1e-9 * viewLength {
+            (vs, ve) = e
+        }
+        let current = ve - vs
+        let targetLength = max(current, min(Self.followMinLength, hi - lo))
+        var length = current + (targetLength - current) * a
+        if abs(targetLength - length) < px / 2 { length = targetLength }
         // The center moves along with the playhead; only the remaining offset is eased (easing
         // toward the moving playhead alone would leave the center about τ seconds behind).
-        let center = (viewStart + viewEnd) / 2 + (followLastPlayhead.map { playhead - $0 } ?? 0)
+        let center = (vs + ve) / 2 + (followLastPlayhead.map { playhead - $0 } ?? 0)
         followLastPlayhead = playhead
         let offset = (playhead - center) * (1 - a)
         let newCenter = playhead - offset
-        setView(start: newCenter - length / 2, end: newCenter + length / 2)
+        let start = newCenter - length / 2
+        if abs(length - viewLength) > 1e-9 * viewLength {
+            setView(start: start, end: start + length) // easing the length: a zoom, continuous
+        } else {
+            panTo(start: start)
+        }
+        followExact = (start, start + length)
     }
 }

@@ -101,6 +101,9 @@ private struct MiddleSection: View {
                             Text("Open an audio file (⌘O)").font(.title3).foregroundStyle(.secondary)
                         }
                     }
+                    .overlay(alignment: .topTrailing) {
+                        if state.audio != nil { SpectrogramControls() }
+                    }
             }
             .coordinateSpace(.named("middle"))
         }
@@ -146,6 +149,58 @@ private struct MiddleSection: View {
             }
             .zIndex(1)
             .reportFrame("divider")
+    }
+}
+
+/// Main pane mode dropdown and, in spectrogram mode, the progress indicator, the window length
+/// slider (logarithmic, 10…500 ms) and the Retina toggle (milestone 8).
+private struct SpectrogramControls: View {
+    @Environment(AppState.self) private var state
+
+    /// Slider position 0…1 ↔ window length 10…500 ms.
+    static func ms(_ position: Double) -> Double {
+        AppState.minWindowMs * pow(AppState.maxWindowMs / AppState.minWindowMs, position)
+    }
+    static func position(_ ms: Double) -> Double {
+        log(ms / AppState.minWindowMs) / log(AppState.maxWindowMs / AppState.minWindowMs)
+    }
+
+    var body: some View {
+        @Bindable var state = state
+        HStack(spacing: 8) {
+            if state.mainMode == .spectrogram {
+                Toggle("Retina", isOn: $state.retina)
+                    .toggleStyle(.button)
+                    .help("Compute per physical pixel")
+                    .reportFrame("retinaToggle")
+                Slider(value: Binding(get: { Self.position(state.windowLengthMs) }, set: { state.windowLengthMs = Self.ms($0) }),
+                       in: 0...1)
+                    .frame(width: 140)
+                    .accessibilityLabel("Window length")
+                    .help("Window length")
+                    .reportFrame("windowSlider")
+                Text(String(format: "%.1f ms", state.windowLengthMs))
+                    .monospacedDigit()
+                    .frame(width: 58, alignment: .trailing)
+                    .reportFrame("windowReadout")
+                ProgressView()
+                    .controlSize(.small)
+                    .opacity(state.spectrogramBusy ? 1 : 0)
+                    .reportFrame("progress")
+            }
+            Picker("View", selection: $state.mainMode) {
+                Text("Waveform").tag(MainPaneMode.waveform)
+                Text("Spectrogram").tag(MainPaneMode.spectrogram)
+            }
+            .labelsHidden()
+            .frame(width: 130)
+            .help("Main pane view")
+            .reportFrame("modePicker")
+        }
+        .padding(6)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding(8)
+        .reportFrame("spectrogramControls")
     }
 }
 
@@ -198,6 +253,7 @@ extension View {
         onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
             AppState.shared.paneFrames[name] = frame
         }
+        .onDisappear { AppState.shared.paneFrames[name] = nil }
     }
 }
 
