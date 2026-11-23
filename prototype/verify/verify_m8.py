@@ -141,7 +141,7 @@ def semitone(f):
 
 def window_n(ms, fs=SR):
     n = 2.5 * ms / 1000 * fs + 1
-    return min(2 * round((n - 1) / 2) + 1, 65535)
+    return min(2 * math.floor((n - 1) / 2 + 0.5) + 1, 65535)  # ties: the larger odd number
 
 
 def to_screen(s, name):
@@ -445,7 +445,12 @@ def pan_checks(s, label, scale):
 
     def step(desc, *lines, expect_move=True):
         a, px = view_px(s)
-        s.input(*lines)
+        for line in lines:
+            if line.startswith('scrollpan'):
+                s.command(line)
+                s.dump()
+            else:
+                s.input(line)
         b, px2 = view_px(s)
         w, k = whole(b - a, px)
         ok = w and (abs(k) >= 0.5 if expect_move else True)
@@ -453,11 +458,14 @@ def pan_checks(s, label, scale):
         return k
 
     half = 0.5 / scale
-    k1 = step(f'a {half:g}-point scroll (half a pixel)', f'scrollf {P(c)} {sc_(half)}', expect_move=False)
-    k2 = step(f'a second {half:g}-point scroll', f'scrollf {P(c)} {sc_(half)}')
+    # Synthesized scroll events carry whole points only: fractional deltas go through the scroll
+    # handler's pan code via the `scrollpan` hook.
+    k1 = step(f'a {half:g}-point scroll (half a pixel; hook)', f'scrollpan {sc_(half).replace(" ", ",")}', expect_move=False)
+    k2 = step(f'a second {half:g}-point scroll (hook)', f'scrollpan {sc_(half).replace(" ", ",")}')
     check(6, f'{label}: two half-pixel scrolls move one pixel in total', round(k1) == 0 and abs(round(k2)) == 1,
           f'{k1} {k2}')
-    step('a 3.3-pixel scroll', f'scrollf {P(c)} {sc_(3.3 / scale)}')
+    step('a 3.3-pixel scroll (hook)', f'scrollpan {sc_(3.3 / scale).replace(" ", ",")}')
+    step('a 7-point scroll event', f'scroll {P(c)} {sc_(7)}')
     step('an Option-drag of 37.3 points', f'drag {P(c)} {P(along(c, 37.3))} option')
     step('a middle drag of 21.7 points', f'drag {P(c)} {P(along(c, -21.7))} - middle')
     sc = s.state['screenFrames']['scrollbar']

@@ -448,7 +448,7 @@ both orientations (right to left):
 - With no file loaded the controls are hidden.
 
 Everything else in the main pane stays as in waveform mode: the selection band, the playhead and
-last-start lines, the pointer line, and all mouse and keyboard behaviour (selection, line drags,
+last-start lines (the pointer line stays in the strip, as before), and all mouse and keyboard behaviour (selection, line drags,
 seeking, B / Shift+B, pan, zoom). The ±50 ms margins and the time outside the file are blank.
 
 Computation (a short-time Fourier transform of the mono mix, the signal the waveform shows):
@@ -456,7 +456,7 @@ Computation (a short-time Fourier transform of the mono mix, the signal the wave
 - Window: a Gaussian, MATLAB's default `gausswin(N)`:
   w[k] = exp(−½ · (α · k / ((N − 1) / 2))²), k = −(N − 1)/2 … (N − 1)/2, α = 2.5.
   Its standard deviation is (N − 1) / (2α) samples. It is set to half of the slider value L, so
-  N is the odd integer nearest to 2.5 · L · fs + 1 (L in seconds, fs the sample rate; the nonzero
+  N is the odd integer nearest to 2.5 · L · fs + 1, ties to the larger (L in seconds, fs the sample rate; the nonzero
   part of the window is 2.5 × L). A window wider than the FFT is cut to its central 65,535
   samples (only above about 52 kHz at the longest windows).
 - Columns: one per time pixel (point or physical pixel). Pixel i of a pane with time-axis length
@@ -568,7 +568,9 @@ path). From milestone 8 on, also: the dump adds the main pane's mode, the window
 Retina setting, the frequency view (lowest and highest visible semitone positions, points per
 semitone), the busy flag, and the counts of computed and cached columns (computed: FFTs run since
 launch); commands `mode waveform|spectrogram`, `window <ms>` and `retina on|off` (through the
-controls' code paths), and `specdump <path>`, which writes the current image's levels in dB
+controls' code paths), `specdelay <ms>` (slows each background step, to observe the busy state),
+`screen retina|plain` (moves the window to such a screen), `scrollpan <dx>,<dy>` (a plain scroll's
+pan in the main pane, with fractional points), and `specdump <path>`, which writes the current image's levels in dB
 (before the amplitude zoom and the clipping) with each column's centre sample and each row's
 frequency, as JSON with a little-endian float32 matrix. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
 `screencapture -l <window number>` (needs Screen Recording permission for the terminal that
@@ -710,4 +712,9 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
   wide and 12 points tall). A single constant, to be tuned with the note grid.
 - Frequency view initially centred on C4.
 - Spectrogram controls are hidden with no file loaded.
-- Colour map: magma (perceptual, dark for quiet).
+- Colour map: magma (perceptual, dark for quiet), interpolated from 11 anchor colours.
+- The window length's odd-number rounding takes the larger one on a tie (500 ms at 44.1 kHz:
+  2.5 · 0.5 · 44100 + 1 = 55,126 → 55,127).
+- The FFT runs in double precision (vDSP), one worker per core; columns arrive in steps of 48.
+- Synthesized scroll events reach the app with whole-point deltas only, so the fractional-scroll
+  checks use the `scrollpan` hook (the scroll handler's own pan code).

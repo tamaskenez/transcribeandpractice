@@ -678,7 +678,7 @@ scale of 14 points per semitone with Option/middle-drag panning across the time 
 frequency zoom; a 60 dB display range (−60 … 0 dB at amplitude zoom ×1); background computation
 with a progress indicator and a column cache; pans by whole pixels (see the spec, "Spectrogram").
 
-Status: `criteria approved`
+Status: `done`
 
 Acceptance criteria:
 
@@ -717,7 +717,18 @@ uses the synthetic-event driver; checks run in both orientations unless noted.
 8. Spectrogram mode keeps the main pane's behaviour: the selection band, playhead, last-start and
    pointer lines are drawn over the spectrogram; a drag selects, a click seeks, B places a beat;
    ⌘ + scroll across adds its dB to the image levels (the displayed range shifts accordingly).
+   (The pointer line is the strip's: checked while the pointer is over the spectrogram.)
    (input driver + dump; screenshots)
+
+Verification results (`python3 verify/verify_m8.py`, run from `prototype/`; screenshots in
+`verify/out/m8/`): 107 of 108 checks passed in the full run plus the rerun of criteria 4 and 6
+after two test fixes. The fixes were the tie rounding of N (the app takes 55,127 at 500 ms) and
+fractional scrolls through the `scrollpan` hook (synthesized events carry whole points only).
+The remaining check needs a Retina screen. The built-in display was not available, so the Retina
+toggle could only be run at scale 1, and the physical-pixel pan and 28-rows-per-semitone checks
+are not verified. Level match with the numpy reference: within 0.01 dB everywhere (measured
+≤ 4·10⁻⁶ dB offline). Tone levels are compared only where the spectral peak is wider than a row
+(for long windows the narrow peak falls between rows, which sit half a row off the note).
 
 ## Fine-tuning (to do later)
 

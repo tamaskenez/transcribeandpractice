@@ -675,6 +675,7 @@ final class WaveformNSView: NSView {
         // Line-based wheels report small deltas; scale them to roughly 10 points per line.
         let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
         let dx = event.scrollingDeltaX * scale, dy = event.scrollingDeltaY * scale
+        state.lastScrollDelta = [Double(dx), Double(dy), event.hasPreciseScrollingDeltas ? 1 : 0]
         state.manualViewChange()
         if event.modifierFlags.contains(.command) {
             // Scrolling along the time axis zooms time; across it, amplitude. Positive zooms in.
@@ -684,10 +685,17 @@ final class WaveformNSView: NSView {
             }
             if dAmp != 0 { state.zoomAmplitude(by: exp(Double(dAmp) * 0.01)) }
         } else {
-            // Content follows the scroll: a positive delta brings earlier times into view.
-            let d = orientation == .horizontal ? dx + dy : dy
-            state.pan(by: -Double(d / timeLength) * state.viewLength)
+            scrollPan(dx: dx, dy: dy)
         }
+    }
+
+    /// A plain scroll's pan (also the `scrollpan` verification hook, which can pass the fractional
+    /// deltas synthesized events can't carry).
+    func scrollPan(dx: CGFloat, dy: CGFloat) {
+        guard let state, timeLength > 0 else { return }
+        // Content follows the scroll: a positive delta brings earlier times into view.
+        let d = orientation == .horizontal ? dx + dy : dy
+        state.pan(by: -Double(d / timeLength) * state.viewLength)
     }
 
     override func magnify(with event: NSEvent) {

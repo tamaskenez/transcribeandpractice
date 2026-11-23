@@ -16,6 +16,7 @@ import SwiftUI
 ///                         | beatkey [shift] | tsdialog ok|dontset|numerator <text>|denominator <d>
 ///                         | mode waveform|spectrogram | window <ms> | retina on|off | specdump <path>
 ///                         | specdelay <ms> | screen retina|plain (move the window to such a screen)
+///                         | scrollpan <dx>,<dy> (a plain scroll's pan in the main pane, fractional points)
 ///   --quit                quit when done
 /// Values must use the `=` form: a bare path argument can make AppKit treat the launch as
 /// "open this file", and then SwiftUI doesn't create the main window.
@@ -114,6 +115,11 @@ enum VerificationHooks {
                     case "window": if let v = Double(arg) { state.windowLengthMs = v }
                     case "retina": state.retina = arg == "on"
                     case "specdelay": SpectrogramConstants.testDelayMs = Int(arg) ?? 0
+                    case "scrollpan":
+                        if let (dx, dy) = pair(arg),
+                           let v = allViews().compactMap({ $0 as? WaveformNSView }).first(where: { $0.name == "main" }) {
+                            v.scrollPan(dx: dx, dy: dy)
+                        }
                     case "screen":
                         if let win = mainWindow,
                            let screen = NSScreen.screens.first(where: { ($0.backingScaleFactor > 1) == (arg == "retina") }) {
@@ -258,7 +264,7 @@ enum VerificationHooks {
             "windowSamples": SpectrogramConstants.windowLength(seconds: state.windowLengthMs / 1000, sampleRate: fs),
             "retina": state.retina, "pixelScale": state.pixelScale, "backingScale": state.backingScale,
             "timePixels": state.timePixels, "pixelSeconds": state.pixelSeconds ?? NSNull(),
-            "panRemainder": state.panRemainder,
+            "panRemainder": state.panRemainder, "lastScrollDelta": state.lastScrollDelta,
             "freqView": ["low": low, "high": low + rows / rps, "pointsPerSemitone": SpectrogramConstants.pointsPerSemitone,
                          "rowsPerSemitone": rps, "stored": state.freqLow ?? NSNull()] as [String: Any],
             "busy": state.spectrogramBusy, "complete": e.complete,

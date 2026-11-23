@@ -143,6 +143,8 @@ final class AppState {
     var backingScale: CGFloat = 2
     /// Fraction of a pixel left over from the previous scroll pan.
     var panRemainder = 0.0
+    /// The last scroll event's deltas and whether they were precise (for the state dump).
+    var lastScrollDelta: [Double] = []
     /// Increments on every file open (identifies the audio for the spectrogram cache).
     var loadID = 0
     @ObservationIgnored let spectrogram = SpectrogramEngine()
