@@ -672,6 +672,64 @@ the window length slider. The FFT is fixed at 65536 points, we're displaying the
 absolute value of the spectrogram. The FFT also needs to be resampled with a logarithmic frequency
 axis. We need the frequencies from A0 to C9.
 
+Interview additions: the Gaussian's standard deviation is half the slider value (window cut to
+the FFT length if wider); a Retina toggle (per point or per physical pixel); a fixed frequency
+scale of 14 points per semitone with Option/middle-drag panning across the time axis instead of a
+frequency zoom; a 60 dB display range (−60 … 0 dB at amplitude zoom ×1); background computation
+with a progress indicator and a column cache; pans by whole pixels (see the spec, "Spectrogram").
+
+Status: `done`
+
+Acceptance criteria:
+
+Only the milestone 8 checks are run (`verify_m8.py`); earlier milestones are not re-verified.
+Test audio (generated): 44.1 kHz WAV with separate tones, e.g. A2 (110 Hz) at −6 dBFS, A4
+(440 Hz) at −20 dBFS, C8 (4186 Hz) at −40 dBFS and a chord, with silence between; a 96 kHz file
+for the window cut. The Python reference is numpy, following the spec's formulas. Mouse input
+uses the synthetic-event driver; checks run in both orientations unless noted.
+
+1. Builds. (CLI)
+2. Controls: the dropdown sits in the main pane's top-right corner; the progress indicator, the
+   slider with its ms readout and the Retina toggle appear only in spectrogram mode; no controls
+   with no file. The slider's ends give 10 and 500 ms and its middle about 70.7 ms (logarithmic).
+   Mode, window length and Retina are restored after a relaunch; defaults are waveform, 50 ms,
+   off. (screenshots; input driver + dump)
+3. Levels: `specdump` matches the numpy reference within 0.01 dB wherever the reference is above
+   −100 dB, for window lengths 10, 50 and 500 ms, Retina off and on. Each tone's peak row is the
+   row of its note (±1 pixel) and reads its level within 0.5 dB. Columns are at the pixel-centre
+   samples; nothing is drawn in the margins. (CLI)
+4. Window: the dumped N equals the formula at 44.1 kHz (10, 50, 500 ms); the 96 kHz file at
+   500 ms gives 65,535. (CLI)
+5. Frequency axis: 14 points (28 pixels with Retina) per semitone; low notes at the bottom
+   (horizontal) or left (vertical); the initial view centred on C4; Option-drag and middle-drag
+   across the time axis pan it, stopping at A0 − ½ and C9 + ½ semitone; a pane larger than the
+   range shows it centred; the view is kept across a mode switch and opening a file.
+   (input driver + dump; screenshots of the test file)
+6. Whole-pixel panning, both modes: after scrolls with fractional deltas, Option-drags (both
+   axes), scrollbar drags and clicks, and follow during playback, every change of the view start
+   is a whole number of pixels (relative error below 1e-6), except where it stops at a limit;
+   small scrolls add up (two half-pixel scrolls move one pixel). (input driver + dump)
+7. Cache: after a full computation, a pan by k pixels computes exactly k columns; a frequency pan
+   and an amplitude zoom compute none; a window length change recomputes all visible columns.
+   While busy (e.g. at 500 ms after a zoom), the busy flag is set and the progress indicator is
+   visible, and the previous image is shown stretched; afterwards the image matches the
+   reference (criterion 3). (input driver + dump; screenshot while busy)
+8. Spectrogram mode keeps the main pane's behaviour: the selection band, playhead, last-start and
+   pointer lines are drawn over the spectrogram; a drag selects, a click seeks, B places a beat;
+   ⌘ + scroll across adds its dB to the image levels (the displayed range shifts accordingly).
+   (The pointer line is the strip's: checked while the pointer is over the spectrogram.)
+   (input driver + dump; screenshots)
+
+Verification results (`python3 verify/verify_m8.py`, run from `prototype/`; screenshots in
+`verify/out/m8/`): 107 of 108 checks passed in the full run plus the rerun of criteria 4 and 6
+after two test fixes. The fixes were the tie rounding of N (the app takes 55,127 at 500 ms) and
+fractional scrolls through the `scrollpan` hook (synthesized events carry whole points only).
+The remaining check needs a Retina screen. The built-in display was not available, so the Retina
+toggle could only be run at scale 1, and the physical-pixel pan and 28-rows-per-semitone checks
+are not verified. Level match with the numpy reference: within 0.01 dB everywhere (measured
+≤ 4·10⁻⁶ dB offline). Tone levels are compared only where the spectral peak is wider than a row
+(for long windows the narrow peak falls between rows, which sit half a row off the note).
+
 ## Fine-tuning (to do later)
 
 - Don't drag playhead/last-playback-start when dragging selection edge

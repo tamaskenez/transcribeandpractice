@@ -14,6 +14,9 @@ import SwiftUI
 ///                         | amplitude <dB> | playhead <s> | loop on|off | follow on|off
 ///                         | record <path> | record stop | beats on|off
 ///                         | beatkey [shift] | tsdialog ok|dontset|numerator <text>|denominator <d>
+///                         | mode waveform|spectrogram | window <ms> | retina on|off | specdump <path>
+///                         | specdelay <ms> | screen retina|plain (move the window to such a screen)
+///                         | scrollpan <dx>,<dy> (a plain scroll's pan in the main pane, fractional points)
 ///   --quit                quit when done
 /// Values must use the `=` form: a bare path argument can make AppKit treat the launch as
 /// "open this file", and then SwiftUI doesn't create the main window.
@@ -108,6 +111,26 @@ enum VerificationHooks {
                     case "follow": state.followPlayhead = arg == "on"
                     case "beats": state.showBeats = arg == "on"
                     case "beatkey": state.beatKey(downbeat: arg == "shift")
+                    case "mode": if let m = MainPaneMode(rawValue: arg) { state.mainMode = m }
+                    case "window": if let v = Double(arg) { state.windowLengthMs = v }
+                    case "retina": state.retina = arg == "on"
+                    case "specdelay": SpectrogramConstants.testDelayMs = Int(arg) ?? 0
+                    case "scrollpan":
+                        if let (dx, dy) = pair(arg),
+                           let v = allViews().compactMap({ $0 as? WaveformNSView }).first(where: { $0.name == "main" }) {
+                            v.scrollPan(dx: dx, dy: dy)
+                        }
+                    case "screen":
+                        if let win = mainWindow,
+                           let screen = NSScreen.screens.first(where: { ($0.backingScaleFactor > 1) == (arg == "retina") }) {
+                            let f = screen.visibleFrame
+                            win.setFrameTopLeftPoint(NSPoint(x: f.minX + 40, y: f.maxY - 40))
+                        }
+                    case "specdump":
+                        let d = state.spectrogram.levelsDump(state: state)
+                        if let data = try? JSONSerialization.data(withJSONObject: d, options: [.sortedKeys]) {
+                            try? data.write(to: URL(fileURLWithPath: arg))
+                        }
                     case "tsdialog":
                         let a = arg.split(separator: " ", maxSplits: 1).map(String.init)
                         switch a.first ?? "" {
@@ -192,6 +215,7 @@ enum VerificationHooks {
             "buttons": ["zoomOutFull": state.canZoomOutFull, "zoomToSelection": state.canZoomToSelection],
             "scrollbar": scrollerDump(),
             "screenFrames": screenFrames(state: state),
+            "spectrogram": spectrogramDump(state: state),
         ]
         if let audio = state.audio {
             let format = audio.buffer.format
@@ -227,6 +251,29 @@ enum VerificationHooks {
         } catch {
             FileHandle.standardError.write(Data("dump-state failed: \(error)\n".utf8))
         }
+    }
+
+    private static func spectrogramDump(state: AppState) -> [String: Any] {
+        let e = state.spectrogram
+        let fs = state.audio?.sampleRate ?? 44100
+        let rps = state.rowsPerSemitone
+        let low = state.freqBottom
+        let rows = (Double(state.mainCrossLength) * state.pixelScale).rounded()
+        return [
+            "mode": state.mainMode.rawValue, "windowLengthMs": state.windowLengthMs,
+            "windowSamples": SpectrogramConstants.windowLength(seconds: state.windowLengthMs / 1000, sampleRate: fs),
+            "retina": state.retina, "pixelScale": state.pixelScale, "backingScale": state.backingScale,
+            "timePixels": state.timePixels, "pixelSeconds": state.pixelSeconds ?? NSNull(),
+            "panRemainder": state.panRemainder, "lastScrollDelta": state.lastScrollDelta,
+            "freqView": ["low": low, "high": low + rows / rps, "pointsPerSemitone": SpectrogramConstants.pointsPerSemitone,
+                         "rowsPerSemitone": rps, "stored": state.freqLow ?? NSNull()] as [String: Any],
+            "busy": state.spectrogramBusy, "complete": e.complete,
+            "computedColumns": e.computedColumns, "cachedColumns": e.cachedColumns,
+            "staleShown": !e.complete && e.stale != nil, "origin": e.origin, "staleDraws": e.staleDraws,
+            "renderedGainDB": e.renderedGainDB ?? NSNull(),
+            "screens": NSScreen.screens.map { ["scale": $0.backingScaleFactor, "frame": rect($0.frame)] as [String: Any] },
+            "windowScale": mainWindow?.backingScaleFactor ?? NSNull(),
+        ]
     }
 
     private static func rect(_ r: CGRect) -> [String: Double] {
@@ -341,6 +388,8 @@ enum VerificationHooks {
             if v is TimeScroller { out["scrollbar"] = cg(v) }
         }
         if let c = win.contentView { out["content"] = cg(c) }
+        let wf = win.frame
+        out["window"] = rect(CGRect(x: wf.minX, y: primary.frame.maxY - wf.maxY, width: wf.width, height: wf.height))
         return out
     }
 

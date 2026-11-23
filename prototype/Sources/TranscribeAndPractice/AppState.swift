@@ -99,6 +99,8 @@ final class AppState {
     var followLastPlayhead: Double?
     var ticker: Ticker?
     private static let loopKey = "loopEnabled"
+    /// Follow's own unrounded view (the view itself pans by whole pixels).
+    var followExact: (start: Double, end: Double)?
     private static let followKey = "followPlayhead"
 
     func setPlaying(_ on: Bool) {
@@ -114,12 +116,50 @@ final class AppState {
 
     private static let orientationKey = "timeOrientation"
 
+    // Spectrogram (milestone 8; see Spectrogram.swift).
+    var mainMode: MainPaneMode {
+        didSet { UserDefaults.standard.set(mainMode.rawValue, forKey: Self.mainModeKey) }
+    }
+    /// Window length slider value (ms), 10…500.
+    var windowLengthMs: Double {
+        didSet {
+            let v = min(max(windowLengthMs, Self.minWindowMs), Self.maxWindowMs)
+            if v != windowLengthMs { windowLengthMs = v; return }
+            UserDefaults.standard.set(windowLengthMs, forKey: Self.windowKey)
+        }
+    }
+    var retina: Bool {
+        didSet { UserDefaults.standard.set(retina, forKey: Self.retinaKey) }
+    }
+    /// The background computation is working.
+    var spectrogramBusy = false
+    /// Bumped when computed columns arrive (redraws the main pane).
+    var spectrogramVersion = 0
+    /// Frequency view: semitones above A0 − ½ at the pane's low edge; nil = centred on C4.
+    var freqLow: Double?
+    /// Main pane size along / across the time axis (points) and the screen's backing scale.
+    var mainAxisLength: CGFloat = 0
+    var mainCrossLength: CGFloat = 0
+    var backingScale: CGFloat = 2
+    /// Fraction of a pixel left over from the previous scroll pan.
+    var panRemainder = 0.0
+    /// The last scroll event's deltas and whether they were precise (for the state dump).
+    var lastScrollDelta: [Double] = []
+    /// Increments on every file open (identifies the audio for the spectrogram cache).
+    var loadID = 0
+    @ObservationIgnored let spectrogram = SpectrogramEngine()
+    static let minWindowMs = 10.0, maxWindowMs = 500.0
+    private static let mainModeKey = "mainPaneMode", windowKey = "spectrogramWindowMs", retinaKey = "spectrogramRetina"
+
     init() {
         orientation = UserDefaults.standard.string(forKey: Self.orientationKey)
             .flatMap(TimeOrientation.init(rawValue:)) ?? .horizontal
         loopEnabled = UserDefaults.standard.bool(forKey: Self.loopKey)
         followPlayhead = UserDefaults.standard.bool(forKey: Self.followKey)
         showBeats = UserDefaults.standard.object(forKey: Self.showBeatsKey) as? Bool ?? true
+        mainMode = UserDefaults.standard.string(forKey: Self.mainModeKey).flatMap(MainPaneMode.init(rawValue:)) ?? .waveform
+        windowLengthMs = min(max(UserDefaults.standard.object(forKey: Self.windowKey) as? Double ?? 50, Self.minWindowMs), Self.maxWindowMs)
+        retina = UserDefaults.standard.bool(forKey: Self.retinaKey)
         player.core.setLoop(loopEnabled)
     }
 
@@ -167,7 +207,13 @@ final class AppState {
 
     /// Sets the visible range, applying the limits: length at least minViewLength and at most
     /// the limits' span, keeping the requested center; then shifted inside the limits.
+    /// Continuous (not a pan): drops the pan remainder.
     func setView(start: Double, end: Double) {
+        panRemainder = 0
+        applyView(start: start, end: end)
+    }
+
+    private func applyView(start: Double, end: Double) {
         let (lo, hi) = viewLimits
         guard duration > 0, start.isFinite, end.isFinite else { viewStart = 0; viewEnd = duration; return }
         var a = min(start, end), b = max(start, end)
@@ -193,9 +239,61 @@ final class AppState {
         setView(start: start, end: start + length)
     }
 
-    /// Moves the visible range by `seconds`, keeping its length; stops at the file's ends.
+    /// Pixels along the time axis of the panes: points, or physical pixels in spectrogram mode
+    /// with Retina on.
+    var pixelScale: Double { mainMode == .spectrogram && retina ? Double(backingScale) : 1 }
+    var timePixels: Int { Int((Double(mainAxisLength) * pixelScale).rounded()) }
+    /// Seconds per pixel; nil before the main pane has a size.
+    var pixelSeconds: Double? { timePixels > 0 && viewLength > 0 ? viewLength / Double(timePixels) : nil }
+
+    /// Scroll pan by `seconds`, keeping the length: moves by whole pixels, carrying the fraction
+    /// to the next scroll; stops at the file's ends.
     func pan(by seconds: Double) {
-        setView(start: viewStart + seconds, end: viewEnd + seconds)
+        guard let px = pixelSeconds else { applyView(start: viewStart + seconds, end: viewEnd + seconds); return }
+        let total = seconds / px + panRemainder
+        let n = (total + (total < 0 ? -1e-9 : 1e-9)).rounded(.towardZero)
+        panRemainder = total - n
+        shiftView(pixels: n, px: px)
+    }
+
+    /// Pan towards the view starting at `start` (drag, scrollbar, follow): the nearest whole
+    /// number of pixels.
+    func panTo(start: Double) {
+        guard let px = pixelSeconds else { applyView(start: start, end: start + viewLength); return }
+        panRemainder = 0
+        shiftView(pixels: ((start - viewStart) / px).rounded(), px: px)
+    }
+
+    private func shiftView(pixels n: Double, px: Double) {
+        guard n != 0 else { return }
+        let length = viewLength
+        let s = viewStart + n * px
+        applyView(start: s, end: s + length)
+        if abs(viewStart - s) > px * 1e-6 { panRemainder = 0 } // stopped at a limit
+    }
+
+    // MARK: Frequency view (spectrogram)
+
+    /// Rows per semitone of the spectrogram (pixels).
+    var rowsPerSemitone: Double { SpectrogramConstants.pointsPerSemitone * pixelScale }
+    /// Semitones the main pane shows across the time axis.
+    var freqSpan: Double { Double(mainCrossLength) / SpectrogramConstants.pointsPerSemitone }
+
+    /// The frequency view's low edge (semitones above A0 − ½), clamped to the range (centred if
+    /// the pane is larger) and on whole pixels.
+    var freqBottom: Double {
+        let span = freqSpan, total = SpectrogramConstants.rangeSemitones
+        let rps = rowsPerSemitone
+        if span >= total { return (((total - span) / 2) * rps).rounded() / rps }
+        let lo = min(max(freqLow ?? (SpectrogramConstants.c4Position - span / 2), 0), total - span)
+        return (lo * rps).rounded() / rps
+    }
+
+    /// Sets the low edge (clamped).
+    func setFreqLow(_ v: Double) {
+        let span = freqSpan, total = SpectrogramConstants.rangeSemitones
+        guard span < total else { return }
+        freqLow = min(max(v, 0), total - span)
     }
 
     /// Whole file plus margins, amplitude zoom 0 dB.
@@ -247,6 +345,7 @@ final class AppState {
             timeSignatureDialogShown = false
             hoveredBeatSample = nil
             loadBeats(for: loaded)
+            loadID += 1
         } catch {
             errorTitle = "Could not open file"
             errorMessage = "“\(url.lastPathComponent)” could not be opened. \(describe(error))"

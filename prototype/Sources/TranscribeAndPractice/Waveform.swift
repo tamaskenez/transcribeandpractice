@@ -47,7 +47,9 @@ final class WaveformNSView: NSView {
 
     private enum Drag {
         case select(anchor: Double, extend: Bool)
-        case pan(grabbedTime: Double)
+        /// Option/middle drag: the grabbed time (and, in the spectrogram, the grabbed frequency
+        /// position in semitones) follows the pointer.
+        case pan(grabbedTime: Double, grabbedSemitone: Double?)
         /// Moving the grabbed lines (a selection edge, the playhead, the last start) together:
         /// `anchor` is the other selection edge if an edge is grabbed; `offset` = line time −
         /// press time.
@@ -108,10 +110,41 @@ final class WaveformNSView: NSView {
 
     // MARK: Drawing
 
+    /// The main pane in spectrogram mode.
+    var isSpectrogram: Bool { name == "main" && state?.mainMode == .spectrogram }
+    private var crossLength: CGFloat { orientation == .horizontal ? bounds.height : bounds.width }
+    /// Distance (points) from the pane's low-frequency edge: the bottom (horizontal) or left (vertical).
+    private func crossFromLow(_ p: CGPoint) -> CGFloat { orientation == .horizontal ? bounds.height - p.y : p.x }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        reportSize()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        reportSize()
+    }
+
+    /// The main pane's size and backing scale, for the pixel grid of panning and the spectrogram.
+    func reportSize() {
+        guard name == "main", let state else { return }
+        let a = timeLength, c = crossLength
+        if state.mainAxisLength != a { state.mainAxisLength = a }
+        if state.mainCrossLength != c { state.mainCrossLength = c }
+        if let scale = window?.backingScaleFactor, state.backingScale != scale { state.backingScale = scale }
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         background.setFill()
         bounds.fill()
         let horizontal = orientation == .horizontal
+        if isSpectrogram {
+            drawSpectrogram()
+            drawSelection()
+            drawLines()
+            return
+        }
         if !isRuler { drawSelection() }
         if isRuler {
             drawRuler()
@@ -141,6 +174,35 @@ final class WaveformNSView: NSView {
         NSColor.controlAccentColor.setStroke()
         path.lineWidth = 1
         path.stroke()
+    }
+
+    /// The spectrogram image: while columns are missing, the last complete image stretched to
+    /// the current mapping, under the current (partial) one. The image is laid out with time
+    /// along u and high frequencies at the top (v = 0); vertical mode rotates it.
+    private func drawSpectrogram() {
+        guard let state, let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let engine = state.spectrogram
+        let picture = engine.update(state: state)
+        let cross = crossLength
+        let bottom = state.freqBottom
+        let pps = CGFloat(SpectrogramConstants.pointsPerSemitone)
+        func rect(_ p: SpectrogramEngine.Picture) -> CGRect {
+            let u0 = axis(ofTime: p.start), u1 = axis(ofTime: p.start + Double(p.columns) * p.secondsPerPixel)
+            let top = p.bottomSemitone + Double(p.rows) / p.rowsPerSemitone
+            let v0 = cross - CGFloat(top - bottom) * pps, v1 = cross - CGFloat(p.bottomSemitone - bottom) * pps
+            return CGRect(x: u0, y: v0, width: u1 - u0, height: v1 - v0)
+        }
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        ctx.clip(to: bounds)
+        if orientation == .vertical { ctx.concatenate(CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: cross, ty: 0)) }
+        ctx.interpolationQuality = .none
+        // In the flipped view the image's first data row (the lowest frequency) lands at the bottom.
+        if !engine.complete, let stale = engine.stale {
+            ctx.draw(stale.image, in: rect(stale))
+            engine.staleDraws += 1
+        }
+        if let picture { ctx.draw(picture.image, in: rect(picture)) }
     }
 
     private func drawSelection() {
@@ -489,7 +551,7 @@ final class WaveformNSView: NSView {
         dragged = false
         let t = time(atAxis: clampedAxis(p))
         if event.modifierFlags.contains(.option) {
-            drag = .pan(grabbedTime: time(atAxis: axisPosition(p)))
+            drag = panDrag(at: p)
         } else if isRuler, case let .beat(sample) = hover(at: p) {
             let bt = Double(sample) / (state.audio?.sampleRate ?? 44100)
             drag = .beat(sample: sample, placedIndex: nil, offset: bt - time(atAxis: axisPosition(p)))
@@ -518,7 +580,12 @@ final class WaveformNSView: NSView {
 
     override func otherMouseDown(with event: NSEvent) {
         guard event.buttonNumber == 2, state?.audio != nil else { return }
-        drag = .pan(grabbedTime: time(atAxis: axisPosition(location(event))))
+        drag = panDrag(at: location(event))
+    }
+
+    private func panDrag(at p: CGPoint) -> Drag {
+        let semitone = isSpectrogram ? state.map { $0.freqBottom + Double(crossFromLow(p)) / SpectrogramConstants.pointsPerSemitone } : nil
+        return .pan(grabbedTime: time(atAxis: axisPosition(p)), grabbedSemitone: semitone)
     }
 
     override func mouseDragged(with event: NSEvent) { updatePointer(location(event)); dragTo(location(event)) }
@@ -553,10 +620,10 @@ final class WaveformNSView: NSView {
         case let .select(anchor, extend):
             if dragged || extend { state.select(anchor, time(atAxis: clampedAxis(p))) }
             if dragged && !extend { state.newSelectionChanged() }
-        case let .pan(grabbed):
+        case let .pan(grabbed, semitone):
             guard timeLength > 0 else { return }
-            let start = grabbed - Double(axisPosition(p) / timeLength) * state.viewLength
-            state.setView(start: start, end: start + state.viewLength)
+            state.panTo(start: grabbed - Double(axisPosition(p) / timeLength) * state.viewLength)
+            if let semitone { state.setFreqLow(semitone - Double(crossFromLow(p)) / SpectrogramConstants.pointsPerSemitone) }
         case let .lines(g, anchor, offset):
             // The lines keep their offset from the pointer, limited to the visible range and the file.
             guard dragged else { return }
@@ -608,6 +675,7 @@ final class WaveformNSView: NSView {
         // Line-based wheels report small deltas; scale them to roughly 10 points per line.
         let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
         let dx = event.scrollingDeltaX * scale, dy = event.scrollingDeltaY * scale
+        state.lastScrollDelta = [Double(dx), Double(dy), event.hasPreciseScrollingDeltas ? 1 : 0]
         state.manualViewChange()
         if event.modifierFlags.contains(.command) {
             // Scrolling along the time axis zooms time; across it, amplitude. Positive zooms in.
@@ -617,10 +685,17 @@ final class WaveformNSView: NSView {
             }
             if dAmp != 0 { state.zoomAmplitude(by: exp(Double(dAmp) * 0.01)) }
         } else {
-            // Content follows the scroll: a positive delta brings earlier times into view.
-            let d = orientation == .horizontal ? dx + dy : dy
-            state.pan(by: -Double(d / timeLength) * state.viewLength)
+            scrollPan(dx: dx, dy: dy)
         }
+    }
+
+    /// A plain scroll's pan (also the `scrollpan` verification hook, which can pass the fractional
+    /// deltas synthesized events can't carry).
+    func scrollPan(dx: CGFloat, dy: CGFloat) {
+        guard let state, timeLength > 0 else { return }
+        // Content follows the scroll: a positive delta brings earlier times into view.
+        let d = orientation == .horizontal ? dx + dy : dy
+        state.pan(by: -Double(d / timeLength) * state.viewLength)
     }
 
     override func magnify(with event: NSEvent) {
@@ -646,6 +721,11 @@ struct WaveformView: NSViewRepresentable {
         // Read the observed properties here so SwiftUI calls this again when they change.
         _ = (state.audio?.mono.count, state.orientation, state.viewStart, state.viewEnd, state.selection,
              state.amplitudeZoomDB, state.playhead, state.lastStart, state.isPlaying)
+        if name == "main" {
+            _ = (state.mainMode, state.retina, state.windowLengthMs, state.freqLow, state.spectrogramVersion,
+                 state.backingScale, state.mainCrossLength, state.mainAxisLength, state.loadID)
+            view.reportSize()
+        }
         if isRuler { _ = (state.beats.count, state.showBeats, state.pointer?.fraction, state.pointer?.pane) }
         view.needsDisplay = true
     }
@@ -699,11 +779,9 @@ final class TimeScroller: NSScroller {
         let (lo, hi) = state.viewLimits
         let rest = hi - lo - state.viewLength
         switch hitPart {
-        case .decrementPage: state.pan(by: -state.viewLength)
-        case .incrementPage: state.pan(by: state.viewLength)
-        default:
-            let start = lo + doubleValue * rest
-            state.setView(start: start, end: start + state.viewLength)
+        case .decrementPage: state.panTo(start: state.viewStart - state.viewLength)
+        case .incrementPage: state.panTo(start: state.viewStart + state.viewLength)
+        default: state.panTo(start: lo + doubleValue * rest)
         }
         update()
     }
