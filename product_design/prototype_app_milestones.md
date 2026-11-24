@@ -800,6 +800,44 @@ macOS delivered the phases, so no manual check was needed. One fix during verifi
 analysis window curve now has an even number of steps, so its peak is a sample and touches the
 pane edges exactly.
 
+## 10. Replace waveform display with min/max/rms
+
+Replace the current simplistic waveform display method with the more common where for each pixel
+column which corresponds to to a time point (horizontal time) or pixel row (vertical time) we
+draw a line between the min and max samples in the neighborhood and also display a usually short line
+from -rms to +rms. Where rms is the signal's RMS in the neighborhood of the time point.
+
+Details: the spec, "Waveform display" (the neighbourhood is the column's time slice; the RMS bar
+in a lighter accent tint over the accent-colored min/max bar).
+
+Status: `criteria proposed`
+
+Acceptance criteria:
+
+Only the milestone 10 checks are run (`verify_m10.py`); earlier milestones are not re-verified.
+Test audio (generated): the milestone 2 mono and stereo files (44.1 kHz), an 8 kHz mono file (so
+that at maximum zoom a column holds less than one sample), a file with a silent stretch, and a
+10-minute stereo file for timing. The reference is a numpy implementation of the spec's column
+definition. Checks run in both orientations and in both waveform panes unless noted.
+
+1. Builds. (CLI)
+2. Column values: the dumped min, max and rms of every column match the reference within 1e-5,
+   fully zoomed out (thousands of samples per column), at a middle zoom, and at maximum zoom on
+   the 8 kHz file (under one sample per column); the column count is L (minus the columns in the
+   margins); the columns at the file's ends use only the part inside the file. (dump + numpy)
+3. Drawing: the dumped bar extents follow from the values: the min/max bar from max to min
+   (positive up / right), at least 1 point thick (checked on the silent stretch); the RMS bar
+   symmetric around the zero line; with +20 dB amplitude zoom the values are multiplied by 10
+   and the bars clipped at the pane edges. (dump)
+4. Continuity: neighbouring columns' value ranges overlap or touch (they share the edge value),
+   at all three zoom levels. (dump)
+5. Speed: on the 10-minute file, fully zoomed out, computing a pane's columns takes under 5 ms
+   (the dumped time); a dump during playback with the view unchanged shows the cached columns
+   reused. (dump)
+6. Appearance: the accent-colored min/max bars with the lighter RMS bars over them, in both
+   orientations, zoomed out and zoomed in; in spectrogram mode the navigator still shows the
+   analysis window over the waveform. (screenshots, checked by the human)
+
 ## Fine-tuning (to do later)
 
 - Don't drag playhead/last-playback-start when dragging selection edge
