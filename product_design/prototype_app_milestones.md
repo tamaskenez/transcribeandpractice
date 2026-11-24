@@ -814,7 +814,7 @@ Review changes (before verification): the RMS is drawn as its two endpoint marks
 filled bar, and not at all at 1 ms per column or closer; ⌘ + vertical scroll in horizontal mode
 zooms amplitude the other way (negative delta, two fingers up, zooms in) (criterion 7).
 
-Status: `verified`
+Status: `done`
 
 Acceptance criteria:
 
