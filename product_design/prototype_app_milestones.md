@@ -800,6 +800,63 @@ macOS delivered the phases, so no manual check was needed. One fix during verifi
 analysis window curve now has an even number of steps, so its peak is a sample and touches the
 pane edges exactly.
 
+## 10. Replace waveform display with min/max/rms
+
+Replace the current simplistic waveform display method with the more common where for each pixel
+column which corresponds to to a time point (horizontal time) or pixel row (vertical time) we
+draw a line between the min and max samples in the neighborhood and also display a usually short line
+from -rms to +rms. Where rms is the signal's RMS in the neighborhood of the time point.
+
+Details: the spec, "Waveform display" (the neighbourhood is the column's time slice; the RMS
+endpoints in a lighter accent tint over the accent-colored min/max bar).
+
+Review changes (before verification): the RMS is drawn as its two endpoint marks instead of a
+filled bar, and not at all at 1 ms per column or closer; ⌘ + vertical scroll in horizontal mode
+zooms amplitude the other way (negative delta, two fingers up, zooms in) (criterion 7).
+
+Status: `done`
+
+Acceptance criteria:
+
+Only the milestone 10 checks are run (`verify_m10.py`); earlier milestones are not re-verified.
+Test audio (generated): the milestone 2 mono and stereo files (44.1 kHz), an 8 kHz mono file (so
+that at maximum zoom a column holds less than one sample), a file with a silent stretch, and a
+10-minute stereo file for timing. The reference is a numpy implementation of the spec's column
+definition. Checks run in both orientations and in both waveform panes unless noted.
+
+1. Builds. (CLI)
+2. Column values: the dumped min, max and rms of every column match the reference within 1e-5,
+   fully zoomed out (thousands of samples per column), at a middle zoom, and at maximum zoom on
+   the 8 kHz file (under one sample per column); the column count is L (minus the columns in the
+   margins); the columns at the file's ends use only the part inside the file. (dump + numpy)
+3. Drawing: the dumped extents follow from the values: the min/max bar from max to min
+   (positive up / right), at least 1 point thick (checked on the silent stretch); the RMS span
+   symmetric around the zero line, absent at 1 ms per column or less and where rms is 0; with
+   +20 dB amplitude zoom the values are multiplied by 10 and the extents clipped at the pane
+   edges. (dump)
+4. Continuity: neighbouring columns' value ranges overlap or touch (they share the edge value),
+   at all three zoom levels. (dump)
+5. Speed: on the 10-minute file, fully zoomed out, computing a pane's columns takes under 5 ms
+   (the dumped time); a dump during playback with the view unchanged shows the cached columns
+   reused. (dump)
+6. Appearance: the accent-colored min/max bars with the lighter RMS endpoint marks over them,
+   in both orientations, zoomed out and zoomed in (no marks at 1 ms per column or closer); in
+   spectrogram mode the navigator still shows the analysis window over the waveform.
+   (screenshots, checked by the human)
+7. Amplitude zoom direction: in horizontal mode a ⌘ + scroll with a negative vertical delta
+   raises the amplitude zoom and a positive one lowers it; in vertical mode a positive horizontal
+   delta still raises it. (input driver + dump)
+
+Verification results (`python3 verify/verify_m10.py`, run from `prototype/`; screenshots in
+`verify/out/m10/`): 167 of 167 checks passed. Column values match the reference to within 1e-5
+from 1.3 samples per column (8 kHz file at maximum zoom) up to 26,460 (10-minute file); the
+margin and file-end columns are as specified. On the 10-minute file, fully zoomed out, a pane's
+columns took 0.5–1.2 ms (debug build), and during playback they were reused, not recomputed.
+The RMS marks are absent at 1 ms per column or less, and at +20 dB the bars are clipped. The
+amplitude ⌘-scroll direction checks passed in both orientations. Screenshots for the human
+check: `*_look_*.png` (zoomed out, a 2 s and a 0.5 s view of the noise burst, zoomed in, and
+spectrogram mode).
+
 ## Fine-tuning (to do later)
 
 - Don't drag playhead/last-playback-start when dragging selection edge

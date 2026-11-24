@@ -1,39 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// Polyline of the mono signal over the visible range, in pane coordinates (top-left origin).
-/// A pane with time-axis length L has L+1 axis positions; position i is at time
-/// start + i·(end−start)/L, i.e. sample position time·sampleRate, linearly interpolated.
-/// Positions outside the file (sample position < 0 or > frames−1) get no point.
-/// Values are multiplied by `gain` (amplitude zoom); amplitude ±1.0 then maps to the pane edges,
-/// 0 to the middle; positive is up (horizontal) or right (vertical). Points beyond the pane edges
-/// are kept (drawing clips them).
-func waveformPoints(mono: [Float], sampleRate: Double, start: Double, end: Double,
-                    size: CGSize, orientation: TimeOrientation, gain: Double = 1) -> [CGPoint] {
-    let frames = mono.count
-    let length = orientation == .horizontal ? size.width : size.height
-    let cross = orientation == .horizontal ? size.height : size.width
-    guard frames > 0, length >= 1, cross > 0, end > start else { return [] }
-    let n = Int(length) + 1
-    let secondsPerPoint = (end - start) / Double(n - 1)
-    let last = Double(frames - 1)
-    var points: [CGPoint] = []
-    points.reserveCapacity(n)
-    for i in 0..<n {
-        let pos = (start + Double(i) * secondsPerPoint) * sampleRate
-        guard pos >= 0, pos <= last else { continue }
-        let i0 = Int(pos)
-        let i1 = min(i0 + 1, frames - 1)
-        let f = Float(pos - Double(i0))
-        let v = CGFloat(Double(mono[i0] * (1 - f) + mono[i1] * f) * gain)
-        let t = CGFloat(i) * length / CGFloat(n - 1)
-        points.append(orientation == .horizontal
-                      ? CGPoint(x: t, y: cross / 2 * (1 - v))
-                      : CGPoint(x: cross / 2 * (1 + v), y: t))
-    }
-    return points
-}
-
 /// Waveform pane (navigator or main). Handles zoom, pan and selection input; all of it acts on
 /// the shared visible range and selection in AppState.
 final class WaveformNSView: NSView {
@@ -86,12 +53,71 @@ final class WaveformNSView: NSView {
     var orientation: TimeOrientation { state?.orientation ?? .horizontal }
     private var timeLength: CGFloat { orientation == .horizontal ? bounds.width : bounds.height }
 
-    func points() -> [CGPoint] {
+    private struct ColumnsKey: Equatable { var loadID: Int; var start: Double; var end: Double; var count: Int }
+    private var columnsCache: (key: ColumnsKey, columns: [WaveformColumn])?
+    /// Column computations since launch and the time the last one took (ms), for the dump.
+    private(set) var columnComputations = 0
+    private(set) var lastColumnsMs: Double?
+
+    /// The waveform columns of the visible range (cached by file, range and column count).
+    func columns() -> [WaveformColumn] {
         guard let state, let audio = state.audio else { return [] }
-        return waveformPoints(mono: audio.mono, sampleRate: audio.sampleRate, start: state.viewStart,
-                              end: state.viewEnd, size: bounds.size, orientation: orientation,
-                              gain: state.amplitudeGain)
+        let key = ColumnsKey(loadID: state.loadID, start: state.viewStart, end: state.viewEnd,
+                             count: Int(timeLength.rounded(.down)))
+        if let columnsCache, columnsCache.key == key { return columnsCache.columns }
+        let t0 = DispatchTime.now().uptimeNanoseconds
+        let cols = waveformColumns(mono: audio.mono, summary: audio.summary, sampleRate: audio.sampleRate,
+                                   start: key.start, end: key.end, count: key.count)
+        lastColumnsMs = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6
+        columnComputations += 1
+        columnsCache = (key, cols)
+        return cols
     }
+
+    /// A drawn column: the min/max and RMS bars across the time axis (pane coordinates, after
+    /// the amplitude zoom and the clipping; nil when nothing of it is in the pane) and its span
+    /// along the time axis.
+    struct ColumnBars {
+        var column: WaveformColumn
+        var axis: ClosedRange<CGFloat>
+        var bar: ClosedRange<CGFloat>?
+        var rmsBar: ClosedRange<CGFloat>?
+    }
+
+    func columnBars() -> [ColumnBars] {
+        guard let state else { return [] }
+        let cols = columns()
+        let count = Int(timeLength.rounded(.down))
+        guard count > 0 else { return [] }
+        let step = timeLength / CGFloat(count)
+        let cross = crossLength
+        let gain = state.amplitudeGain
+        let horizontal = orientation == .horizontal
+        // Zoomed in to 1 ms per column or closer: no RMS marks.
+        let showRMS = state.viewLength / Double(count) > Self.rmsHideSecondsPerColumn
+        // Cross position of a value: positive up (horizontal) or right (vertical).
+        func pos(_ v: Float) -> CGFloat {
+            let g = CGFloat(Double(v) * gain)
+            return horizontal ? cross / 2 * (1 - g) : cross / 2 * (1 + g)
+        }
+        func clip(_ lo: CGFloat, _ hi: CGFloat) -> ClosedRange<CGFloat>? {
+            let a = max(lo, 0), b = min(hi, cross)
+            return b > a ? a...b : nil
+        }
+        return cols.map { c in
+            var lo = min(pos(c.min), pos(c.max)), hi = max(pos(c.min), pos(c.max))
+            if hi - lo < 1 { let m = (lo + hi) / 2; lo = m - 0.5; hi = m + 0.5 }
+            let r0 = min(pos(-c.rms), pos(c.rms)), r1 = max(pos(-c.rms), pos(c.rms))
+            return ColumnBars(column: c, axis: CGFloat(c.index) * step...CGFloat(c.index + 1) * step,
+                              bar: clip(lo, hi), rmsBar: showRMS ? clip(r0, r1) : nil)
+        }
+    }
+
+    /// At this many seconds per column or fewer the RMS marks are not drawn.
+    static let rmsHideSecondsPerColumn = 0.001
+
+    /// Lighter tint of the accent color for the RMS bars.
+    static var rmsColor: NSColor { NSColor.controlAccentColor.blended(withFraction: 0.5, of: .white) ?? .controlAccentColor }
 
     /// Position along the time axis (points from the pane's start) of a point in view coordinates.
     private func axisPosition(_ p: CGPoint) -> CGFloat { orientation == .horizontal ? p.x : p.y }
@@ -157,17 +183,29 @@ final class WaveformNSView: NSView {
         zero.stroke()
 
         defer { drawLines() }
-        let points = points()
-        guard let first = points.first else { return }
+        let bars = columnBars()
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
-        NSBezierPath(rect: bounds).setClip() // amplitude zoom can push the polyline past the edges
-        let path = NSBezierPath()
-        path.move(to: first)
-        for p in points.dropFirst() { path.line(to: p) }
-        NSColor.controlAccentColor.setStroke()
-        path.lineWidth = 1
-        path.stroke()
+        NSBezierPath(rect: bounds).setClip()
+        func rect(_ axis: ClosedRange<CGFloat>, _ across: ClosedRange<CGFloat>) -> NSRect {
+            horizontal
+                ? NSRect(x: axis.lowerBound, y: across.lowerBound, width: axis.upperBound - axis.lowerBound, height: across.upperBound - across.lowerBound)
+                : NSRect(x: across.lowerBound, y: axis.lowerBound, width: across.upperBound - across.lowerBound, height: axis.upperBound - axis.lowerBound)
+        }
+        let minMax = NSBezierPath(), rms = NSBezierPath()
+        for b in bars {
+            if let bar = b.bar { minMax.appendRect(rect(b.axis, bar)) }
+            // RMS: only the two endpoints (±rms), 1 point thick, so the bar doesn't hide the waveform.
+            if let r = b.rmsBar {
+                for e in [r.lowerBound, r.upperBound] where e > 0 && e < crossLength {
+                    rms.appendRect(rect(b.axis, max(e - 0.5, 0)...min(e + 0.5, crossLength)))
+                }
+            }
+        }
+        NSColor.controlAccentColor.setFill()
+        minMax.fill()
+        Self.rmsColor.setFill()
+        rms.fill()
         if name == "navigator", state?.mainMode == .spectrogram { drawAnalysisWindow() }
     }
 
@@ -736,10 +774,11 @@ final class WaveformNSView: NSView {
         state.lastScrollDelta = [Double(dx), Double(dy), event.hasPreciseScrollingDeltas ? 1 : 0]
         state.manualViewChange()
         if event.modifierFlags.contains(.command) {
-            // Scrolling along the time axis zooms time; across it, amplitude. Positive zooms in.
+            // Scrolling along the time axis zooms time; across it, amplitude. Positive zooms in,
+            // except vertical scrolling in horizontal mode: negative (upwards) zooms in.
             // One axis per gesture: the one with the larger delta in the gesture's first event
             // (every event of a wheel without gesture phases).
-            let (dTime, dAmp) = orientation == .horizontal ? (dx, dy) : (dy, dx)
+            let (dTime, dAmp) = orientation == .horizontal ? (dx, -dy) : (dy, dx)
             if event.phase == .began || (event.phase.isEmpty && event.momentumPhase.isEmpty) { zoomTimeAxis = nil }
             if zoomTimeAxis == nil, dTime != 0 || dAmp != 0 { zoomTimeAxis = abs(dTime) >= abs(dAmp) }
             if zoomTimeAxis == true, dTime != 0 {

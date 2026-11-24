@@ -67,9 +67,25 @@ Orientation:
 - Both the navigator and the main pane show a mono waveform: the average of all channels.
   Milestone 2: both show the whole file. From milestone 3 on, both show the same visible time
   range (see Navigation and selection).
-- Drawing: for each pixel column (each pixel row in vertical mode), take the fractional sample
-  position of that column and linearly interpolate the mono signal there. The resulting points are
-  joined into a polyline. This aliases badly when zoomed out; that is accepted for now.
+- Drawing (from milestone 10; before: an interpolated polyline, which aliased when zoomed out):
+  min/max/RMS columns. A pane with a time-axis length of L points has L columns, one per point
+  along the time axis (screen points, not Retina pixels). Column j covers the time slice
+  [start + j·h, start + (j+1)·h], h = (end − start)/L, and the point j…j+1 on the time axis.
+  - Value set of a column: the mono samples whose positions lie inside the slice, plus the
+    linearly interpolated signal at the slice's two edges. Neighbouring columns share an edge
+    value, so they always touch; zoomed in so far that a column holds no sample, it shows the
+    interpolated line.
+  - Only the part of the slice within the file (sample positions 0 … frames−1) counts; a column
+    entirely outside the file (in the margins) is not drawn.
+  - Min/max bar: from the column's minimum to its maximum, in the accent color, at least 1 point
+    thick across the time axis (a silent stretch still shows the flat line).
+  - RMS marks: the two endpoints of the span −rms … +rms around the zero line, rms = √(mean of
+    the squares of the value set), each 1 point thick, in a lighter tint of the accent color,
+    drawn over the min/max bar (zoomed out they form two thin lines). Not drawn when a column
+    covers 1 ms or less, nor where rms is 0. (Changed in the milestone 10 review: first a
+    filled bar from −rms to +rms, which hid the waveform when zoomed in.)
+  - The amplitude zoom multiplies all three values; the bar and the marks are clipped at the
+    pane edges (a mark outside the pane isn't drawn).
 - The amplitude axis is linear: full scale (±1.0) fills the pane's height (width in vertical mode),
   with 0 in the middle. In vertical mode positive values go to the right.
 - With no file loaded the panes are empty, and the main pane shows the hint.
@@ -98,6 +114,8 @@ Zoom:
 - ⌘ + scroll across the time axis (vertical scroll in horizontal mode, e.g. a plain mouse wheel;
   horizontal scroll in vertical mode): amplitude zoom. A positive scroll delta zooms in, in both
   directions. (Changed in the milestone 3 review; originally any ⌘ + scroll zoomed time.)
+  (Changed in milestone 10: in horizontal mode a negative vertical delta (two fingers moved up,
+  with natural scrolling) zooms amplitude in; vertical mode is unchanged.)
 - (Milestone 9) A ⌘ + scroll gesture zooms only one axis: the one with the larger delta in the
   gesture's first event (see "Spectrum and piano keys").
 - Amplitude zoom: a multiplier applied to the sample values of both waveform panes, between
@@ -601,7 +619,7 @@ window content, and quit.
 From milestone 2 on, also: `--orientation=horizontal|vertical` (sets the orientation through the
 same code path as the toggle, so it is also remembered); the dump adds the orientation, the window
 number, the frames of all panes, the divider position, and the polyline points of each waveform
-pane. From milestone 3 on, also: `--view=<start>,<end>` and `--select=<start>,<end>` (seconds;
+pane (from milestone 10: its columns instead, see below). From milestone 3 on, also: `--view=<start>,<end>` and `--select=<start>,<end>` (seconds;
 set the visible range / selection through the same code paths as the gestures, including the
 limits); `--commands=<file>` keeps the app running and executes commands appended to that file
 (`dump <path>`, `snapshot <path>`, `quit`, and `view`, `select`, `orientation`, `open`, `resize`,
@@ -631,7 +649,11 @@ frequency, as JSON with a little-endian float32 matrix. From milestone 9 on, als
 pane (shown, frame, centre sample, first row and row count, the levels of its visible rows in dB
 before the amplitude zoom, and the key outline lines as drawn, in pane coordinates), the
 navigator's analysis window polyline (shown, points), and the zoom axis chosen for the current
-⌘-scroll gesture. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
+⌘-scroll gesture. From milestone 10 on, also: each waveform pane's dump has `columns` instead of
+`points`: per drawn column its index j, the min, max and rms (before the amplitude zoom), and the
+drawn extents of the min/max bar and of the RMS span (whose endpoints are the marks) across the
+time axis (pane coordinates, after the zoom
+and the clipping); and the time the last column computation took. From milestone 2 on, `--snapshot` captures the real window, including the toolbar, by running
 `screencapture -l <window number>` (needs Screen Recording permission for the terminal that
 launches the app). These are a development aid, not a user feature.
 
@@ -676,7 +698,9 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
   milestone 3 model with the dumped visible range.)
 - The selection stays within the file; it can't extend into the margins.
 - Zoom rates: ⌘ + scroll zooms by e^(0.01·d) for a scroll of d points; a positive vertical delta
-  (wheel turned up / away, or two fingers moved down with natural scrolling) zooms in. A pinch
+  (wheel turned up / away, or two fingers moved down with natural scrolling) zooms in (from
+  milestone 10, for the amplitude zoom in horizontal mode, a negative one: wheel turned down /
+  towards, or two fingers moved up). A pinch
   zooms by 1 + magnification per event. Line-based mouse wheels count as 10 points per line, for
   panning too.
 - A press that moves less than 2 points before release counts as a click (clears the selection).
@@ -790,3 +814,14 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
   and the key outlines spilled onto the neighbouring panes.
 - Verification: the input driver's `scrollp x y dx dy phase [flags]` posts a continuous scroll
   event with a gesture phase (1 began, 2 changed, 4 ended); macOS passes the phase on to NSEvent.
+- (Milestone 10) Waveform columns: L columns per pane (one per point, time slice j…j+1), not the
+  earlier L+1 polyline positions, so each bar fills one point column exactly. The RMS uses the
+  same value set as the min/max (the edge values included), so it is defined at any zoom.
+- The RMS hiding threshold (1 ms per column) is a constant, `WaveformNSView.rmsHideSecondsPerColumn`.
+- Column computation: a min/max/sum-of-squares summary of the mono mix in blocks (computed once at
+  load with vDSP, next to the mono mix) gives whole blocks inside a slice; the partial blocks
+  at the slice ends are read from the samples, so the result equals the direct computation.
+  The columns are cached per pane by (file, visible range, length), so a redraw for the playhead
+  alone doesn't recompute them.
+- The earlier milestones' verification scripts that read the `points` dump (milestones 2–3) no
+  longer match; they are not re-run (see CLAUDE.md).

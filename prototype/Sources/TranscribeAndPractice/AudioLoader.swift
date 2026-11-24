@@ -14,6 +14,8 @@ struct LoadedAudio {
     let channelStats: [ChannelStats]
     /// Mono mix: the average of all channels.
     let mono: [Float]
+    /// Block summary of the mono mix for the waveform columns (milestone 10).
+    let summary: WaveformSummary
 
     var fileName: String { url.lastPathComponent }
     var sampleRate: Double { buffer.format.sampleRate }
@@ -86,7 +88,9 @@ enum AudioLoader {
         if Int64(total) < length {
             throw AudioLoadError.truncated(expected: length, actual: total)
         }
-        return LoadedAudio(url: url, buffer: buffer, channelStats: stats(of: buffer), mono: monoMix(of: buffer))
+        let mono = monoMix(of: buffer)
+        return LoadedAudio(url: url, buffer: buffer, channelStats: stats(of: buffer), mono: mono,
+                           summary: WaveformSummary(mono: mono))
     }
 
     private static func monoMix(of buffer: AVAudioPCMBuffer) -> [Float] {
