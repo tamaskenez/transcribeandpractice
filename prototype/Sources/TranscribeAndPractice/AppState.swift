@@ -148,6 +148,7 @@ final class AppState {
     static let minWindowMs = 10.0, maxWindowMs = 500.0
 
     // Editor grid (milestone 11; see EditorGrid.swift). Remembered across launches.
+    var gridLinesShown: Bool { didSet { UserDefaults.standard.set(gridLinesShown, forKey: "gridLinesShown") } }
     var gridKind: GridKind { didSet { UserDefaults.standard.set(gridKind.rawValue, forKey: "gridKind") } }
     var gridStraight: Int { didSet { UserDefaults.standard.set(gridStraight, forKey: "gridStraight") } }
     var gridTriplet: Int { didSet { UserDefaults.standard.set(gridTriplet, forKey: "gridTriplet") } }
@@ -172,6 +173,7 @@ final class AppState {
         mainMode = UserDefaults.standard.string(forKey: Self.mainModeKey).flatMap(MainPaneMode.init(rawValue:)) ?? .waveform
         windowLengthMs = min(max(UserDefaults.standard.object(forKey: Self.windowKey) as? Double ?? 50, Self.minWindowMs), Self.maxWindowMs)
         let d = UserDefaults.standard
+        gridLinesShown = d.object(forKey: "gridLinesShown") as? Bool ?? true
         gridKind = d.string(forKey: "gridKind").flatMap(GridKind.init(rawValue:)) ?? .straight
         gridStraight = (d.object(forKey: "gridStraight") as? Int).flatMap { GridConstants.straight.contains($0) ? $0 : nil } ?? 16
         gridTriplet = (d.object(forKey: "gridTriplet") as? Int).flatMap { GridConstants.triplet.contains($0) ? $0 : nil } ?? 12

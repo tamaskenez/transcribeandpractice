@@ -12,7 +12,9 @@ enum GridConstants {
     /// are closer than this (points).
     static let minSpacing: CGFloat = 6
     /// Core widths (points) of the bar, beat and grid lines; each has a 1-point border on both sides.
-    static let barWidth: CGFloat = 3, beatWidth: CGFloat = 2, gridWidth: CGFloat = 1
+    static let barWidth: CGFloat = 3, beatWidth: CGFloat = 1, gridWidth: CGFloat = 1
+    /// Grid lines are dotted: dashes this long (points), repeating with this period.
+    static let gridDash: CGFloat = 2, gridPeriod: CGFloat = 4
 }
 
 struct EditorLine: Equatable {
@@ -61,7 +63,7 @@ extension WaveformNSView {
         guard name == "main", let state, let audio = state.audio, !state.beats.isEmpty, state.viewLength > 0 else { return [] }
         let len = orientation == .horizontal ? bounds.width : bounds.height
         let all = editorLines(beats: state.beats, sampleRate: audio.sampleRate,
-                              gridDenominator: isSpectrogram ? state.gridDenominator : nil,
+                              gridDenominator: isSpectrogram && state.gridLinesShown ? state.gridDenominator : nil,
                               range: state.viewStart...state.viewEnd)
         func axis(_ t: Double) -> CGFloat { CGFloat((t - state.viewStart) / state.viewLength) * len }
         func crowded(_ kinds: Set<EditorLine.Kind>) -> Bool {
@@ -81,11 +83,26 @@ extension WaveformNSView {
         guard !lines.isEmpty else { return }
         let horizontal = orientation == .horizontal
         let cross = horizontal ? bounds.height : bounds.width
-        func rect(_ a: CGFloat, _ w: CGFloat) -> NSRect {
-            horizontal ? NSRect(x: a, y: 0, width: w, height: cross) : NSRect(x: 0, y: a, width: cross, height: w)
+        // Along the time axis from a, w wide; across from c0, l long.
+        func rect(_ a: CGFloat, _ w: CGFloat, _ c0: CGFloat = 0, _ l: CGFloat? = nil) -> NSRect {
+            let l = l ?? cross
+            return horizontal ? NSRect(x: a, y: c0, width: w, height: l) : NSRect(x: c0, y: a, width: l, height: w)
         }
         let core = NSBezierPath(), border = NSBezierPath()
         for (line, a) in lines {
+            if line.kind == .grid {
+                // Dotted: short dashes, each with its side borders.
+                let w = GridConstants.gridWidth, a0 = (a - w / 2).rounded()
+                var c: CGFloat = 0
+                while c < cross {
+                    let l = min(GridConstants.gridDash, cross - c)
+                    core.appendRect(rect(a0, w, c, l))
+                    border.appendRect(rect(a0 - 1, 1, c, l))
+                    border.appendRect(rect(a0 + w, 1, c, l))
+                    c += GridConstants.gridPeriod
+                }
+                continue
+            }
             let w: CGFloat = switch line.kind {
             case .bar: GridConstants.barWidth
             case .beat: GridConstants.beatWidth
@@ -110,11 +127,18 @@ struct GridControl: View {
     @State private var shown = false
 
     var body: some View {
-        Button { shown.toggle() } label: {
-            Text("Grid \(state.gridLabel)").monospacedDigit()
+        @Bindable var state = state
+        HStack(spacing: 6) {
+            Toggle("Grid lines", isOn: $state.gridLinesShown)
+                .toggleStyle(.checkbox)
+                .help("Show grid lines")
+            Button { shown.toggle() } label: {
+                Text("Grid \(state.gridLabel)").monospacedDigit()
+            }
+            .help("Grid")
+            .popover(isPresented: $shown, arrowEdge: .bottom) { GridPanel().padding(12) }
         }
-        .help("Grid")
-        .popover(isPresented: $shown, arrowEdge: .bottom) { GridPanel().padding(12) }
+        .padding(.horizontal, 6)
     }
 }
 
