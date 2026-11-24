@@ -878,6 +878,43 @@ In spectrogram mode, add the following control to the toolbar:
   50% opaque white lines with an additional 1 pixel 50% black lines as borders.
 - The bar and beat lines should be drawn also in waveform mode, too.
 
+Developed interactively (experiments first, the specification written from the result). Details:
+the spec, "Editor grid". Iterations: (1) bar/beat/grid lines (3/2/1-point white cores with black
+borders) and the Grid control; (2) a Grid lines checkbox, 1-point beat lines, dotted grid lines.
+Decided on the way: the grid only between the first and the last downbeat (a default time
+signature, so that there is always a first bar, comes in a later change); grid timing piecewise
+through the beats; crowded lines thinned out; dark mode only (light-mode colors later).
+
+Status: `criteria proposed`
+
+Acceptance criteria:
+
+Only the milestone 11 checks are run (`verify_m11.py`); earlier milestones are not re-verified.
+Test audio (generated) with beat sidecar files: 4/4 with a pickup beat and uneven beat spacing
+(a placed beat off the computed tempo), 3/4, 6/8, 5/8, a time signature change within the file,
+and a file with beats but no time signature. Checks run in both orientations unless noted. The
+reference is a Python implementation of the spec's rules with exact fractions.
+
+1. Builds. (CLI)
+2. Line positions: the dumped `editorLines` of the main pane match the reference (kinds and
+   times within 1 µs, axis positions within 0.01 point) for Straight 1/1, 1/4, 1/8, 1/16,
+   Triplet 1/3, 1/12 and Tuplet 1/5, 1/7, in every test file; no grid line before the first or
+   after the last downbeat, none on a beat; the file without time signature has only beat lines
+   (no bars, no grid). (dump + Python reference)
+3. Where lines appear: grid lines only in spectrogram mode with the checkbox on; bar and beat
+   lines in both modes, also with Show Beats off; none in the navigator; none without beats.
+   (commands + dump)
+4. Crowding: zooming out step by step, the grid lines disappear exactly when two neighbouring
+   lines would be closer than 6 points, then the beat lines, then the bar lines, as in the
+   reference. (dump + reference)
+5. Grid control: the checkbox and the Grid button are in the toolbar only in spectrogram mode;
+   through Accessibility, opening the panel, choosing a kind and a value (and typing a tuplet
+   value, including an invalid one, which is ignored) changes the grid as specified, each kind
+   keeping its value; the settings survive a relaunch. (input driver / Accessibility + dump)
+6. Appearance (dark mode): bar, beat and dotted grid lines distinguishable over the spectrogram
+   and over the waveform, in both orientations; the open Grid panel. (screenshots, checked by the
+   human)
+
 
 ## Fine-tuning (to do later)
 
@@ -893,3 +930,4 @@ In spectrogram mode, add the following control to the toolbar:
 - Compute beats backwards before the first beat
 - If there are no placed first beats, make the first in-file beat the first computed first beat.
 - If there are placed first beats and it has a time signature, compute backwards from that
+- without time signature, use 4/4, draw at bar 1.
