@@ -156,6 +156,8 @@ def zoom_full(s, dur):
 def bars_ok(s, pane):
     w, count, cross, horizontal = pane_info(s, pane)
     g = 10 ** (s.state['amplitudeZoomDB'] / 20)
+    v = s.state['view']
+    show_rms = (v['end'] - v['start']) / count > 0.001
 
     def pos(v):
         return cross / 2 * (1 - v * g) if horizontal else cross / 2 * (1 + v * g)
@@ -171,7 +173,7 @@ def bars_ok(s, pane):
             m = (lo + hi) / 2
             lo, hi = m - 0.5, m + 0.5
         r0, r1 = sorted((pos(-c['rms']), pos(c['rms'])))
-        exp_bar, exp_rms = clip(lo, hi), clip(r0, r1)
+        exp_bar, exp_rms = clip(lo, hi), (clip(r0, r1) if show_rms else None)
         exp_axis = [c['j'] * 1.0, c['j'] + 1.0]
 
         def same(a, b):
@@ -217,7 +219,10 @@ if run(2) or run(3) or run(4):
                                      f'(first {first}, last {lastj})', 0 < first and lastj < count - 1 and set(got) == set(ref))
                     if run(3):
                         ok, detail = bars_ok(s, pane)
-                        check(3, f'{o} {name} {tag} {pane}: bars follow from the values', ok, detail)
+                        spp = (s.state['view']['end'] - s.state['view']['start']) / count * 1000
+                        rms_n = sum(1 for c in s.state['waveforms'][pane]['columns'] if c['rmsBar'])
+                        check(3, f'{o} {name} {tag} {pane}: bars follow from the values ({spp:.3f} ms/column, '
+                                 f'{rms_n} RMS spans)', ok and (spp > 1 or rms_n == 0), detail)
                     if run(4) and tag in ('full', 'middle', 'max'):
                         ok, detail = continuity_ok(s, pane)
                         check(4, f'{o} {name} {tag} {pane}: neighbouring columns touch', ok, detail)
@@ -285,6 +290,8 @@ if run(6):
         s.command('view 0.10,0.15')
         s.command('view 0.10,0.20')
         s.snapshot('zoomed_in')
+        s.command('view 2.5,4.5')
+        s.snapshot('burst_2s')
         s.command('view 2.9,3.4')
         s.snapshot('burst_edge')
         zoom_full(s, 6.0)
@@ -299,6 +306,24 @@ if run(6):
         s.command('mode waveform')
         s.quit()
     print(f'Screenshots for the human check: {OUT}/*_look_*.png')
+
+# 7. Amplitude zoom direction
+if run(7):
+    for o in ORIENTATIONS:
+        s = session(f'{o}_ampdir', [f'{AUDIO}/rich.wav'], o)
+        zoom_full(s, 6.0)
+        c = s.at('main', 0.5)
+        cases = [('vertical delta −40', 0, -40, +1), ('vertical delta +40', 0, 40, -1)] if o == 'horizontal' else \
+                [('horizontal delta +40', 40, 0, +1), ('horizontal delta −40', -40, 0, -1)]
+        for label, dx, dy, sign in cases:
+            s.command('amplitude 20')
+            s.dump()
+            before = s.state['amplitudeZoomDB']
+            s.input(f'scroll {c[0]:.1f} {c[1]:.1f} {dx} {dy} cmd')
+            after = s.state['amplitudeZoomDB']
+            check(7, f'{o}: ⌘-scroll {label} {"raises" if sign > 0 else "lowers"} the amplitude zoom '
+                     f'({before:.2f} → {after:.2f} dB)', (after - before) * sign > 1)
+        s.quit()
 
 print(f'\n{sum(results)} of {len(results)} checks passed')
 sys.exit(0 if all(results) else 1)

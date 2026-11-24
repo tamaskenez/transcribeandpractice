@@ -93,6 +93,8 @@ final class WaveformNSView: NSView {
         let cross = crossLength
         let gain = state.amplitudeGain
         let horizontal = orientation == .horizontal
+        // Zoomed in to 1 ms per column or closer: no RMS marks.
+        let showRMS = state.viewLength / Double(count) > Self.rmsHideSecondsPerColumn
         // Cross position of a value: positive up (horizontal) or right (vertical).
         func pos(_ v: Float) -> CGFloat {
             let g = CGFloat(Double(v) * gain)
@@ -107,9 +109,12 @@ final class WaveformNSView: NSView {
             if hi - lo < 1 { let m = (lo + hi) / 2; lo = m - 0.5; hi = m + 0.5 }
             let r0 = min(pos(-c.rms), pos(c.rms)), r1 = max(pos(-c.rms), pos(c.rms))
             return ColumnBars(column: c, axis: CGFloat(c.index) * step...CGFloat(c.index + 1) * step,
-                              bar: clip(lo, hi), rmsBar: clip(r0, r1))
+                              bar: clip(lo, hi), rmsBar: showRMS ? clip(r0, r1) : nil)
         }
     }
+
+    /// At this many seconds per column or fewer the RMS marks are not drawn.
+    static let rmsHideSecondsPerColumn = 0.001
 
     /// Lighter tint of the accent color for the RMS bars.
     static var rmsColor: NSColor { NSColor.controlAccentColor.blended(withFraction: 0.5, of: .white) ?? .controlAccentColor }
@@ -190,7 +195,12 @@ final class WaveformNSView: NSView {
         let minMax = NSBezierPath(), rms = NSBezierPath()
         for b in bars {
             if let bar = b.bar { minMax.appendRect(rect(b.axis, bar)) }
-            if let r = b.rmsBar { rms.appendRect(rect(b.axis, r)) }
+            // RMS: only the two endpoints (±rms), 1 point thick, so the bar doesn't hide the waveform.
+            if let r = b.rmsBar {
+                for e in [r.lowerBound, r.upperBound] where e > 0 && e < crossLength {
+                    rms.appendRect(rect(b.axis, max(e - 0.5, 0)...min(e + 0.5, crossLength)))
+                }
+            }
         }
         NSColor.controlAccentColor.setFill()
         minMax.fill()
@@ -764,10 +774,11 @@ final class WaveformNSView: NSView {
         state.lastScrollDelta = [Double(dx), Double(dy), event.hasPreciseScrollingDeltas ? 1 : 0]
         state.manualViewChange()
         if event.modifierFlags.contains(.command) {
-            // Scrolling along the time axis zooms time; across it, amplitude. Positive zooms in.
+            // Scrolling along the time axis zooms time; across it, amplitude. Positive zooms in,
+            // except vertical scrolling in horizontal mode: negative (upwards) zooms in.
             // One axis per gesture: the one with the larger delta in the gesture's first event
             // (every event of a wheel without gesture phases).
-            let (dTime, dAmp) = orientation == .horizontal ? (dx, dy) : (dy, dx)
+            let (dTime, dAmp) = orientation == .horizontal ? (dx, -dy) : (dy, dx)
             if event.phase == .began || (event.phase.isEmpty && event.momentumPhase.isEmpty) { zoomTimeAxis = nil }
             if zoomTimeAxis == nil, dTime != 0 || dAmp != 0 { zoomTimeAxis = abs(dTime) >= abs(dAmp) }
             if zoomTimeAxis == true, dTime != 0 {

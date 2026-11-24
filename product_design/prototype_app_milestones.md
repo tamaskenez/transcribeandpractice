@@ -807,8 +807,12 @@ column which corresponds to to a time point (horizontal time) or pixel row (vert
 draw a line between the min and max samples in the neighborhood and also display a usually short line
 from -rms to +rms. Where rms is the signal's RMS in the neighborhood of the time point.
 
-Details: the spec, "Waveform display" (the neighbourhood is the column's time slice; the RMS bar
-in a lighter accent tint over the accent-colored min/max bar).
+Details: the spec, "Waveform display" (the neighbourhood is the column's time slice; the RMS
+endpoints in a lighter accent tint over the accent-colored min/max bar).
+
+Review changes (before verification): the RMS is drawn as its two endpoint marks instead of a
+filled bar, and not at all at 1 ms per column or closer; ⌘ + vertical scroll in horizontal mode
+zooms amplitude the other way (negative delta, two fingers up, zooms in) (criterion 7).
 
 Status: `criteria approved`
 
@@ -825,18 +829,23 @@ definition. Checks run in both orientations and in both waveform panes unless no
    fully zoomed out (thousands of samples per column), at a middle zoom, and at maximum zoom on
    the 8 kHz file (under one sample per column); the column count is L (minus the columns in the
    margins); the columns at the file's ends use only the part inside the file. (dump + numpy)
-3. Drawing: the dumped bar extents follow from the values: the min/max bar from max to min
-   (positive up / right), at least 1 point thick (checked on the silent stretch); the RMS bar
-   symmetric around the zero line; with +20 dB amplitude zoom the values are multiplied by 10
-   and the bars clipped at the pane edges. (dump)
+3. Drawing: the dumped extents follow from the values: the min/max bar from max to min
+   (positive up / right), at least 1 point thick (checked on the silent stretch); the RMS span
+   symmetric around the zero line, absent at 1 ms per column or less and where rms is 0; with
+   +20 dB amplitude zoom the values are multiplied by 10 and the extents clipped at the pane
+   edges. (dump)
 4. Continuity: neighbouring columns' value ranges overlap or touch (they share the edge value),
    at all three zoom levels. (dump)
 5. Speed: on the 10-minute file, fully zoomed out, computing a pane's columns takes under 5 ms
    (the dumped time); a dump during playback with the view unchanged shows the cached columns
    reused. (dump)
-6. Appearance: the accent-colored min/max bars with the lighter RMS bars over them, in both
-   orientations, zoomed out and zoomed in; in spectrogram mode the navigator still shows the
-   analysis window over the waveform. (screenshots, checked by the human)
+6. Appearance: the accent-colored min/max bars with the lighter RMS endpoint marks over them,
+   in both orientations, zoomed out and zoomed in (no marks at 1 ms per column or closer); in
+   spectrogram mode the navigator still shows the analysis window over the waveform.
+   (screenshots, checked by the human)
+7. Amplitude zoom direction: in horizontal mode a ⌘ + scroll with a negative vertical delta
+   raises the amplitude zoom and a positive one lowers it; in vertical mode a positive horizontal
+   delta still raises it. (input driver + dump)
 
 ## Fine-tuning (to do later)
 
