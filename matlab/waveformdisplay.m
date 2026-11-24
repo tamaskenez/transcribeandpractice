@@ -1,6 +1,6 @@
 % Load audio file, make mono mix
-%[Y, fs] = audioread('/Users/tamas/Desktop/bubble chorus.mp3');
-[Y, fs] = audioread('/Users/tamas/Desktop/bubble1.mp3');
+[Y, fs] = audioread('/Users/tamas/Desktop/bubble chorus.mp3');
+%[Y, fs] = audioread('/Users/tamas/Desktop/bubble1.mp3');
 Y = sum(Y, 2) / 2;
 %Y = repmat([.5 -.5]', 5000000, 1);
 
@@ -8,11 +8,11 @@ Y = sum(Y, 2) / 2;
 c = 200000;
 
 % Render it into a (h, w) matrix
-w = 2000;
-h = 600;
+w = 1000;
+h = 300;
 M = zeros(h, w);
 
-zoom = 1/100;
+zoom = 1/16;
 L = (w - h) / zoom;
 a = round(c - L/2);
 b = round(c + L/2);
@@ -54,6 +54,17 @@ g = g / sum(g(:));
 MM = conv2(M, g) / (N1 * N2) * w * h / 50;
 %l = 1;
 %MM(MM>l) = l;
-figure(1), imagesc(MM, [0 1])
+if false
+    figure(1), imagesc(MM.^(1/3), [0 1])
+else
+    [hh, ww] = size(MM);
+    f = figure(1); clf(f);
+    set(f, 'units', 'pixels');
+    p = get(f, 'position');
+    set(f, 'position', [p(1) p(2) ww hh]);
+    ax = axes('parent', f, 'units', 'pixels', 'position', [1 1 ww hh]);
+    imagesc(ax, MM.^(1/3), [0 1]);
+    axis(ax, 'off');
+end
 % figure(1), imagesc(MM)
-figure(2), hist(MM(:));
+figure(2), hist(MM(:),1024);

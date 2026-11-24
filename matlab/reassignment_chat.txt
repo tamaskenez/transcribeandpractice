@@ -1,0 +1,384 @@
+ ▐▛███▛█   Claude Code v2.1.330
+▝▜██████▀  Opus 5.5 · Claude Pro
+ ▝▝   ▝▝   ~/git/transcribeandpractice/matlab
+
+
+❯ I'm trying to understand the reassignment spectrogram method. Please look at
+  this file. I created a short sine wave and do STFT on it, using gaussian
+  window and the same origin for each FFT. I understand the reassignment across
+  frequency bins: if we calculate the derivative of the angle of the STFT
+  along time (d_arg_M_dt) we see that the phase at the bin corresponding to the
+  actual frequency of the sine wave (f) does not change (because of the same
+  origin of each FFT), its derivative is zero. Above the actual frequency (f2 >
+  f) we still get the same sine wave, whose phase is rotating slower than it
+  should at f2), so we get a negative derivative showing that the actual
+  frequency (f) is less than f2. At a bin f3 < fwe get a positive derivative
+  showing the that actual frequency is more thanf3. So in line 46 I get a nice
+  negative slope, zero at f`. That part I understand.
+
+  I can't interpret the result that is drawn in line 54. I'm getting a negative
+  slope where the signal is stable across time and zero slope both at the
+  beginning and at the end of the signal. I think my calculation must be wrong.
+  Can you help?
+  ⎿  ⧉ Selected 1 lines from reassign.m in CLion
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Your calculation is correct. The negative slope is the expected result. What's
+  different is the meaning: the time derivative gives you a frequency offset
+  relative to the bin, but the frequency derivative gives you an absolute time.
+
+  Why
+
+  With a fixed FFT origin, take one complex component x(n) = e^{jω₀n} and a
+  window centred at c:
+
+  X(c, ω) = Σ x(n) w(n−c) e^{−jωn}
+          = e^{j(ω₀−ω)c} · W(ω−ω₀)      (W is real and positive for a symmetric
+  Gaussian)
+
+  So the phase is φ(c, ω) = (ω₀ − ω)·c.
+
+  - Along time: ∂φ/∂c = ω₀ − ω. This is the offset from the bin frequency to the
+    true frequency. It's zero at f, positive below and negative above, which is
+    your line 46.
+  - Along frequency: ∂φ/∂ω = −c. This isn't an offset. It's minus the absolute
+    time position of the energy, measured from the FFT origin (sample 0). This
+    is the group delay.
+
+  In the stable part of the signal the energy under the window sits at the
+  window centre c. So ∂φ/∂ω = −c, which falls linearly as the frame advances: a
+  negative slope. In your units (one bin is 1 Hz, so Δω = 2π/48000 per bin, and
+  the column index j gives c = 999 + j):
+
+  d_arg_M_df(kf, j) ≈ −2π·(999 + j)/48000
+
+  That's a slope of about −1.3e-4 rad per frame, going from about −0.13 to −0.52
+  rad.
+
+  The flat parts at the start and end
+
+  These are reassignment doing its job. The tone starts at n₀ ≈ 1667. While the
+  window centre c is still before n₀, the only energy the window sees is at or
+  just after n₀. So the energy's time centroid stays near n₀ while c keeps
+  moving, and the curve goes flat. The same happens at the end, near 3333. Every
+  frame overlapping the onset gets pulled back to the onset, which is how
+  reassignment sharpens transients. Further out, where only noise remains, the
+  values are just noise.
+
+  How to plot the reassigned time
+
+  You chose the fixed origin, which is fine. The reassigned time and the time
+  correction are:
+
+  Nfft  = fs;                                   % 48000, so 1 bin = 2π/Nfft rad
+  t_hat = -d_arg_M_df * Nfft / (2*pi);          % reassigned time in samples
+  (absolute)
+  cc    = cs(1:end);                            % frame centres
+  dt    = t_hat - cc;                           % correction: ~0 in steady state
+
+  figure(5);
+  plot(cs, t_hat(kf,:), cs, cs), grid;          % t_hat follows c, then flattens
+  at onset/offset
+
+  t_hat should run along the diagonal t = c in the stable part and sit flat near
+  1667 and 3333 at the edges. dt is close to 0 in the middle and shows the
+  corrections at the edges. That makes it the true counterpart of what you plot
+  on line 46.
+
+  If you move the phase origin to each frame's centre, the two cases swap. The
+  phase becomes ω₀·c, so ∂φ/∂c = ω₀ gives the absolute frequency, and ∂φ/∂ω = 0
+  gives the time offset relative to c. Many papers use that convention, which is
+  why the two derivatives look asymmetric with a fixed origin.
+
+  A small off-by-one
+
+  Row k of M is frequency k−1 Hz, so kf = 500 is 499 Hz and the 500 Hz bin is
+  M(501, :). It barely matters here, since one bin is only 1 Hz and the Gaussian
+  main lobe is much wider. For the same reason, d_arg_M_df(k) is the difference
+  between bins k+1 and k.
+
+✻ Brewed for 37s · done Monday 11:04 PM
+
+❯ Now I understand, thank you. Now I'm thinking about how this thing would look
+  like if instead of STFT I get a filterbank. To make things simpler, let's
+  filter an analytic signal back and forth to get zero phase. I think in this
+  case we need to use the other convention, phase origin moves with frame
+  centre. The derivative of the angle across time gives us the absolute
+  (instantanous) frequency. Then I'd expect the derivative of angle across
+  frequency will be zero when the signal is stable, and the sign of the
+  derivative reflects whether the signal is increasing or decreasing, is this
+  correct?
+
+⏺ Yes, mostly. The zero-phase analytic filterbank is the moving-origin STFT. The
+  one thing to refine is "increasing or decreasing": the sign tells you whether
+  the energy at that bin lies ahead of or behind the current time.
+
+  Why the filterbank is the moving-origin STFT
+
+  Take a zero-phase complex bandpass h_k(m) = g(m)·e^{jω_k m}, where g is real
+  and symmetric:
+
+  y_k(n) = Σ_m x(m) g(n−m) e^{jω_k(n−m)}
+         = e^{jω_k n} · X_fixed(n, ω_k)
+
+  The factor e^{jω_k n} moves the phase origin to the frame centre n. With the
+  earlier result φ_fixed = (ω₀ − ω)·n for a stable tone:
+
+  - Along time: ∂φ/∂n = ω_k + (ω₀ − ω_k) = ω₀. This is the absolute
+    instantaneous frequency, as you expected.
+  - Along frequency: ∂φ/∂ω = n − t̂, where t̂ is the time centroid of the energy.
+    This is the time offset relative to the frame centre, so it's 0 for a stable
+    signal. ✔
+
+  What the sign means
+
+  The reassigned time is t̂ = n − ∂φ/∂ω.
+
+  - Before an onset: the energy is ahead of n, so ∂φ/∂ω < 0.
+  - After an offset: the energy is behind n, so ∂φ/∂ω > 0.
+
+  So it isn't about the raw signal envelope going up or down. It tells you where
+  the energy is relative to the window centre.
+
+  For a Gaussian window, your intuition does hold exactly. The STFT phase and
+  log-magnitude are then linked like the real and imaginary parts of an analytic
+  function. With σ the window's standard deviation in samples and ω in
+  rad/sample:
+
+  t̂ − n   = −∂φ/∂ω = σ² · ∂ ln|X| / ∂n
+  ω̂ − ω_k =          (1/σ²) · ∂ ln|X| / ∂ω
+
+  So the sign of ∂φ/∂ω is minus the sign of how fast that bin's magnitude
+  changes over time:
+
+  - If the magnitude rises, ∂φ/∂ω < 0.
+  - If it falls, ∂φ/∂ω > 0.
+
+  This covers onsets, offsets, and also a chirp sweeping through the bin: the
+  magnitude rises as the chirp approaches, so the energy is still to come. For
+  non-Gaussian windows the relation is only approximate. As a check, you can
+  compute both sides in your script and compare them.
+
+  Practical caveats
+
+  1. Forward and backward filtering with a complex filter. The backward pass
+     applies h(−m), which has frequency response H(−ω). That passband sits at
+     −ω_k, so the forward and backward passes would nearly cancel. The backward
+     pass must use conj(h), which gives conj(H(ω)) and a total response of |H|².
+     I don't know whether MATLAB's filtfilt conjugates complex coefficients; it
+     may not accept them at all, so check that. If you do the passes yourself:
+  y = filter(b, a, xa);                     % forward
+  y = flipud(filter(conj(b), conj(a), flipud(y)));   % backward with conj
+     A simpler alternative is to heterodyne. Multiply by e^{−jω_k n}, apply a
+     real zero-phase lowpass with filtfilt, then multiply by e^{jω_k n}. This is
+     exactly the moving-origin STFT, and the effective window is the lowpass's
+     autocorrelation.
+  2. Effective window. With forward-backward filtering, the effective window is
+     g ⋆ g: symmetric, with a real non-negative spectrum |G|². That's good. But
+     it's only Gaussian if g is close to Gaussian, which matters for the
+     identity above.
+  3. Derivative across channels. ∂φ/∂ω from differences between neighbouring
+     channels only means "group delay of one window" if all channels share the
+     same g and are closely spaced. You also have to divide by the actual Δω
+     between channels. With a constant-Q bank (different σ per channel), the
+     difference mixes different windows. In that case, compute it per channel
+     with the auxiliary filters t·h(t) and h'(t) (Auger & Flandrin's method).
+     This gives t̂ and ω̂ with no cross-channel differences:
+  t̂ = n  − Re{ Y_th / Y_h }        ω̂ = ω_k + Im{ Y_dh / Y_h }   (signs depend on
+  convention)
+     One nice side effect of the moving-origin convention: across channels the
+     phase is flat for stable parts, so unwrapping across frequency is trivial.
+
+✻ Sautéed for 46s · done Monday 11:19 PM
+
+❯ I know the Auger & Flandrin's method but I can't use it with an IIR filter,
+  can I?
+
+⏺ Yes, you can. Auger & Flandrin only need the outputs of the filters t·h(t) and
+  h'(t). For a rational (IIR) h, both of those are rational too, so they can be
+  built as IIR filters. Forward-backward filtering only adds one product-rule
+  step.
+
+  The derivative filter h' is the easy one
+
+  x * h' = (x * h)' = y'. So ω̂ = Im(y'/y) is just the phase derivative of the
+  output, which you already compute from consecutive samples. You don't need an
+  extra filter for it.
+
+  The time-weighted filter n·h[n] is IIR
+
+  In the z-domain, n·h[n] ↔ −z·dH/dz. Write w = z⁻¹ and H = B(w)/A(w). Then:
+
+  n·h[n]  ↔  w·(B'A − BA') / A²
+
+  It has the same poles as h, each now doubled, and it's stable whenever H is.
+  In MATLAB (with b and a as coefficient vectors in powers of z⁻¹):
+
+  function [bt, at] = time_weighted(b, a)
+  % filter whose impulse response is n.*h[n], for h = impz(b,a)
+  n = max(numel(b), numel(a));
+  b = [b(:).' zeros(1, n-numel(b))];  a = [a(:).' zeros(1, n-numel(a))];
+  db = (1:n-1) .* b(2:end);  da = (1:n-1) .* a(2:end);
+  bt = [0, conv(db, a) - conv(b, da)];
+  at = conv(a, a);
+  end
+
+  Check with one pole, b = 1, a = [1 −p]: the result is p·z⁻¹/(1 − p z⁻¹)²,
+  which is the transform of n·pⁿ. ✓
+
+  For high-order or high-Q filters, squaring A as one polynomial is numerically
+  poor. Work per section instead, using the product rule:
+
+  n·(h₁*h₂) = (n·h₁)*h₂ + h₁*(n·h₂)
+
+  Gammatone-like case (a cascade of N identical complex one-pole stages 1/(1 − p
+  z⁻¹)): this one is especially cheap. There h_N[n] = C(n+N−1, N−1)·pⁿ, and
+  therefore:
+
+  n·h_N[n] = N·(h_{N+1}[n] − h_N[n])
+
+  So Y_th = N·(Y_{N+1} − Y_N), and the only extra cost is one more one-pole
+  stage.
+
+  With forward-backward (zero-phase) filtering
+
+  The effective response is h_eff = h * h̃, where h̃[n] = conj(h[−n]) is the
+  backward pass. Applying the product rule, and using n·h̃ = −(n·h)~:
+
+  n·h_eff = (n·h) * h̃  −  h * (n·h)~
+
+  That takes four filter runs:
+
+  yf  = filter(b,  a,  xa);              % forward h
+  ytf = filter(bt, at, xa);              % forward n·h
+  bwd = @(bb,aa,v) flipud(filter(conj(bb), conj(aa), flipud(v)));
+
+  y   = bwd(b,  a,  yf);                 % h * h~       -> the zero-phase output
+  yt  = bwd(b,  a,  ytf) - bwd(bt, at, yf);   % n·h_eff
+
+  t_hat = (0:numel(y)-1).' - real(yt ./ y);   % reassigned time, absolute
+  samples
+  w_hat = diff(unwrap(angle(y)));             % reassigned (instantaneous)
+  frequency
+
+  Sign check with an impulse at t₀: y = h_eff(n − t₀) and yt = (n − t₀)·h_eff(n
+  − t₀), so t̂ = t₀. ✓
+
+  Caveats
+
+  - Unlike the Gaussian case, the time centroid of h_eff isn't tied to how the
+    magnitude changes, so t̂ isn't the same as σ²·∂ ln|Y|/∂n. That doesn't
+    matter, because the method doesn't depend on that identity.
+  - Reassignment works best when h_eff is unimodal and mostly positive, as it is
+    for gammatone or Butterworth-like bandpasses. If it has strong ringing or
+    sidelobes, the centroid gets less meaningful.
+  - Forward-backward filtering is offline only. A causal real-time version would
+    keep just the forward pass, so the time origin of h and the phase origin go
+    back to being your choice.
+
+  I haven't run any of this code, including the MATLAB snippets. I only checked
+  the one-pole case and the impulse sign by hand.
+
+✻ Brewed for 41s · done Monday 11:28 PM
+
+❯ That's great. Now, can we somehow combine the time offset we get from the
+  reassignment along time and the derivative of the instantanous amplitude?
+  What I'm thinking if we model the signal locally as an exponentially
+  increasing or decaying sinusoid, we can compute the beta exp(beta * t) from
+  both the time reassignment offset and the derivative and magnitude of the
+  instantaneous amplitude. If the two estimatation are the same we know that
+  locally the exponential decay is a good model, indeed. If they differ we can
+  draw conclusions from the difference. Would this work?
+
+⏺ It works, but not quite in the form you describe. The result depends on the
+  window. With a Gaussian window the two estimates are always identical, for any
+  signal, so comparing them tells you nothing. With an IIR window they differ
+  even for a perfect exponential, so you have to compare against a predicted
+  value, and the leftover difference is hard to interpret.
+
+  The exponential model through a filter
+
+  Take x(n) = e^{s₀n} with s₀ = β + jω₀. Then for any filter:
+
+  y(n) = Σ x(n−m) h(m) = e^{s₀n} · H(s₀),     H(s) = Σ h(m) e^{−sm}
+
+  The output is the input scaled by H evaluated at a complex frequency. That
+  gives two estimates.
+
+  1. From the amplitude, independent of the window:
+  y'/y = s₀   →   β = Re(y'/y) = d ln|y|/dn,   ω̂ = Im(y'/y)
+     For this model it's exact in discrete time too: diff(log(abs(y))) = β.
+  2. From the time-weighted filter:
+  yt/y = Σ m h(m) e^{−s₀m} / H(s₀) = −(d/ds) ln H(s) |_{s₀}
+  t̂ − n = −Re(yt/y) = Re( d ln H/ds |_{s₀} )
+     This depends on the window shape and on the frequency offset Δω = ω₀ − ω_k.
+
+  Gaussian window: always equal, so no information
+
+  For g = e^{−m²/2σ²}, ln G(s) = σ²s²/2, so t̂ − n = Re(σ² s₀) = σ²β. That
+  matches the amplitude estimate, and it doesn't depend on Δω.
+
+  But this isn't a confirmation of the model. A Gaussian satisfies g' =
+  −(t/σ²)·g, so for every input:
+
+  yt/y = σ² (jω_k − y'/y)
+
+  That's the identity from earlier (t̂ − n = σ²·∂ln|Y|/∂n). The time-weighted
+  filter is a linear combination of the derivative filter and h. Onsets, chirps,
+  noise and interference from other components all leave the two β estimates
+  equal.
+
+  IIR window: they differ even for a perfect exponential
+
+  Expand ln H in cumulants of h_eff. For a symmetric h_eff, the odd terms
+  vanish:
+
+  t̂ − n = κ₂·β + (κ₄/6)·(β³ − 3βΔω²) + …
+
+  - κ₂ is the variance of the window.
+  - κ₄ is its excess kurtosis term, which is zero for a Gaussian.
+
+  So equating β_amp = (t̂−n)/κ₂ is wrong even when the model holds exactly. The
+  correct test is:
+
+  1. Estimate s₀ = y'/y.
+  2. Predict yt/y = −d ln H/ds at s₀. Since H is rational, you can evaluate it
+     in closed form at z₀ = e^{s₀}.
+  3. Compare the prediction with the measured yt/y.
+
+  That's one complex residual, so two real consistency checks. They're zero when
+  the model holds and nonzero otherwise. The catches:
+
+  - Weak sensitivity. The residual only comes from how non-Gaussian the window
+    is (κ₄ and higher). Gammatone and Butterworth-like bandpasses are fairly
+    Gaussian near their centre, so the residual is small compared with noise.
+  - Ambiguity. Amplitude curvature, chirp rate, a neighbouring partial and noise
+    all feed into the same two numbers. A nonzero residual says the model
+    failed, but not how.
+
+  Better ways to do what you want
+
+  1. Compare windows instead of filters. Under the exponential model, s₀ = y'/y
+     is exact for every window. Compute it from two filterbanks with different
+     lengths, such as short and long gammatones. If they agree, the model holds
+     over the longer span. If they disagree, something non-exponential is inside
+     the long window (an onset, a beating partner, FM). This is easy to
+     interpret and doesn't depend on any Gaussian identity.
+  2. Mixed partial derivative ∂²φ/∂n∂ω. Nelson and Fulop & Fitz use it as a
+     local test of whether energy behaves like a sinusoid or an impulse (near 0
+     for a sinusoid, near 1 in magnitude for an impulse), for deciding which
+     reassigned points to keep.
+  3. Fit a richer local model directly. The distribution derivative method
+     (Hamilton & Depalle) and the generalized derivative method (Marchand &
+     Depalle) estimate polynomial log-amplitude and phase parameters exactly,
+     with β and chirp rate solved jointly. Second-order synchrosqueezing
+     (Oberlin, Meignen & Perrier) does the same for the chirp rate. These
+     methods use more auxiliary filters (t²h, h'') to get independent equations,
+     rather than consistency checks that turn out to be identities.
+
+  I haven't run any of this; it's derivation only. If you want, I can add a
+  numerical check to reassign.m: a damped sinusoid with a Gaussian window and an
+  IIR window, plotting β_amp against (t̂−n)/κ₂ and the predicted residual.
+
+✻ Worked for 53s · done Monday 11:36 PM
