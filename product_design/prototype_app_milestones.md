@@ -814,7 +814,7 @@ Review changes (before verification): the RMS is drawn as its two endpoint marks
 filled bar, and not at all at 1 ms per column or closer; ⌘ + vertical scroll in horizontal mode
 zooms amplitude the other way (negative delta, two fingers up, zooms in) (criterion 7).
 
-Status: `criteria approved`
+Status: `verified`
 
 Acceptance criteria:
 
@@ -846,6 +846,16 @@ definition. Checks run in both orientations and in both waveform panes unless no
 7. Amplitude zoom direction: in horizontal mode a ⌘ + scroll with a negative vertical delta
    raises the amplitude zoom and a positive one lowers it; in vertical mode a positive horizontal
    delta still raises it. (input driver + dump)
+
+Verification results (`python3 verify/verify_m10.py`, run from `prototype/`; screenshots in
+`verify/out/m10/`): 167 of 167 checks passed. Column values match the reference to within 1e-5
+from 1.3 samples per column (8 kHz file at maximum zoom) up to 26,460 (10-minute file); the
+margin and file-end columns are as specified. On the 10-minute file, fully zoomed out, a pane's
+columns took 0.5–1.2 ms (debug build), and during playback they were reused, not recomputed.
+The RMS marks are absent at 1 ms per column or less, and at +20 dB the bars are clipped. The
+amplitude ⌘-scroll direction checks passed in both orientations. Screenshots for the human
+check: `*_look_*.png` (zoomed out, a 2 s and a 0.5 s view of the noise burst, zoomed in, and
+spectrogram mode).
 
 ## Fine-tuning (to do later)
 
