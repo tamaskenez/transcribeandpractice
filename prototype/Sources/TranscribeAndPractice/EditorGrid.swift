@@ -136,6 +136,7 @@ struct GridControl: View {
                 Text("Grid \(state.gridLabel)").monospacedDigit()
             }
             .help("Grid")
+            .accessibilityLabel("Grid")
             .popover(isPresented: $shown, arrowEdge: .bottom) { GridPanel().padding(12) }
         }
         .padding(.horizontal, 6)
@@ -164,7 +165,9 @@ private struct GridPanel: View {
             case .tuplet:
                 HStack(spacing: 4) {
                     Text("1 /")
-                    TextField("", text: $tupletText)
+                    TextField("Tuplet", text: $tupletText)
+                        .labelsHidden()
+                        .accessibilityLabel("Tuplet value")
                         .frame(width: 48)
                         .multilineTextAlignment(.trailing)
                         .onSubmit(applyTuplet)
@@ -195,6 +198,7 @@ private struct GridPanel: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.vertical, 2)
+                .accessibilityLabel("1/\(d)")
             }
         }
     }
