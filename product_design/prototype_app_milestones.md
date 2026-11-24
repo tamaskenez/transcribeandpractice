@@ -885,7 +885,7 @@ Decided on the way: the grid only between the first and the last downbeat (a def
 signature, so that there is always a first bar, comes in a later change); grid timing piecewise
 through the beats; crowded lines thinned out; dark mode only (light-mode colors later).
 
-Status: `criteria approved`
+Status: `verified`
 
 Acceptance criteria:
 
@@ -914,6 +914,16 @@ reference is a Python implementation of the spec's rules with exact fractions.
 6. Appearance (dark mode): bar, beat and dotted grid lines distinguishable over the spectrogram
    and over the waveform, in both orientations; the open Grid panel. (screenshots, checked by the
    human)
+
+Verification results (`python3 verify/verify_m11.py`, run from `prototype/`; screenshots in
+`verify/out/m11/`): all checks passed, in three runs (the screen locked during the first full
+run): criterion 5 15/15, criteria 3, 4 and 6 19/19, criterion 2 109/109 (each run including the
+build). Line kinds, times and axis positions match the exact-fraction reference for all grid
+values and test files, in both orientations; the crowding order and threshold match. Fixes
+during verification: the tuplet field's accessibility name ("Tuplet value") clashed with the
+Tuplet radio button; two test bugs (the field applies each keystroke, so typing "65" stops at
+the valid 6; a 1/4 grid falls on the beats, so it rightly draws no grid lines). Screenshots
+for the human check: `*_look_*.png` and the open panel, `panel_*.png`.
 
 
 ## Fine-tuning (to do later)
