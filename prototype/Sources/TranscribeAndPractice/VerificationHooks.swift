@@ -318,6 +318,7 @@ enum VerificationHooks {
                     "columnComputations": w.columnComputations,
                     "lastColumnsMs": w.lastColumnsMs ?? NSNull(),
                     "analysisWindow": w.analysisWindowPolylines().map { $0.map { $0.map { [$0.x, $0.y] } } } ?? NSNull(),
+                    "editorLines": w.visibleEditorLines().map { ["kind": $0.line.kind.rawValue, "time": $0.line.time, "axis": $0.axis] },
                     "zoomAxis": w.zoomTimeAxis.map { $0 ? "time" : "amplitude" } ?? NSNull(),
                 ] as [String: Any]
             }

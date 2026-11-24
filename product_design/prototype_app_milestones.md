@@ -857,6 +857,28 @@ amplitude ⌘-scroll direction checks passed in both orientations. Screenshots f
 check: `*_look_*.png` (zoomed out, a 2 s and a 0.5 s view of the noise burst, zoomed in, and
 spectrogram mode).
 
+## 11. Editor grid
+
+In spectrogram mode, add the following control to the toolbar:
+
+- A control named "Grid", a dropdown which opens a small dropdown panel with a list and a 3-choice radio button
+   group: "straight", "triplet", "tuplet". Depending on the radio buttons, the list contains
+   1/1, 1/2, ... 1/64 or 1/3, 1/6, 1/12, 1/24, 1/48 or if "tuplet" is active the list changes into
+   a "1 / [   ]" control where "[   ]" is a textbox accepting any whole number 1..64.
+- Add 3 types of lines to the spectrogram pane, oriented in the frequency direction, spanning the
+  entire pane: bar, beat and grid lines. Bar should be the thickest, beat the middle and grid lines
+  the thinnest.
+- The bar and beat lines should be drawn where we have a beat+first_beat and beat markers. Grid lines
+  should be drawn according to the current "Grid" selection. At every bar (first_beat) marker we
+  start a grid division. Draw a line at every step as specified by the note duration given by the
+  "grid" control, until we reach or surpass the next "first bar" beat marker. We don't need to
+  draw grid lines where there's already a beat marker.
+- I'm not sure about how the bar/beat/grid lines should be drawn. Of course we aim to maximum
+  visibility no matter what the underlying spectrogram is. Maybe we should try 1-2-3 pixels thick
+  50% opaque white lines with an additional 1 pixel 50% black lines as borders.
+- The bar and beat lines should be drawn also in waveform mode, too.
+
+
 ## Fine-tuning (to do later)
 
 - Don't drag playhead/last-playback-start when dragging selection edge
@@ -866,3 +888,8 @@ spectrogram mode).
 - Start saving session file to /tmp, on close/exit ask for keep/delete session next to original file.
 - drag-beat should be a different mouse icon like <||> or something
 - right-click on beat brings up beat menu with settings/delete
+- Change max zoom to 500 ms
+- Compute beats until the first beat after the end of file (including that)
+- Compute beats backwards before the first beat
+- If there are no placed first beats, make the first in-file beat the first computed first beat.
+- If there are placed first beats and it has a time signature, compute backwards from that

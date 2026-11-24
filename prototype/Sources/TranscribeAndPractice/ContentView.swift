@@ -39,6 +39,9 @@ struct ContentView: View {
                     .accessibilityLabel("Selection")
                     .accessibilityValue(state.selectionText)
             }
+            if state.mainMode == .spectrogram {
+                ToolbarItem { GridControl() }
+            }
             ToolbarItem {
                 Toggle(isOn: $state.followPlayhead) {
                     Label("Follow Playhead", systemImage: "scope")
