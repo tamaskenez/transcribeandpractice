@@ -810,7 +810,7 @@ from -rms to +rms. Where rms is the signal's RMS in the neighborhood of the time
 Details: the spec, "Waveform display" (the neighbourhood is the column's time slice; the RMS bar
 in a lighter accent tint over the accent-colored min/max bar).
 
-Status: `criteria proposed`
+Status: `criteria approved`
 
 Acceptance criteria:
 

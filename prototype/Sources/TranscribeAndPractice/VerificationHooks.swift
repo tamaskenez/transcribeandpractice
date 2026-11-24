@@ -301,7 +301,7 @@ enum VerificationHooks {
         var result: [String: Any] = [:]
         func visit(_ view: NSView) {
             if let w = view as? WaveformNSView, !w.isRuler {
-                let points = w.points()
+                let bars = w.columnBars()
                 result[w.name] = [
                     "size": size(w.bounds.size),
                     "orientation": w.orientation.rawValue,
@@ -309,7 +309,14 @@ enum VerificationHooks {
                     "cursor": w.cursorName,
                     "playheadAxis": w.playheadAxis.map { Double($0) } ?? NSNull(),
                     "lastStartAxis": w.lastStartAxis.map { Double($0) } ?? NSNull(),
-                    "points": points.map { [$0.x, $0.y] },
+                    "columns": bars.map { b -> [String: Any] in
+                        ["j": b.column.index, "min": b.column.min, "max": b.column.max, "rms": b.column.rms,
+                         "axis": [b.axis.lowerBound, b.axis.upperBound],
+                         "bar": b.bar.map { [$0.lowerBound, $0.upperBound] } ?? NSNull(),
+                         "rmsBar": b.rmsBar.map { [$0.lowerBound, $0.upperBound] } ?? NSNull()]
+                    },
+                    "columnComputations": w.columnComputations,
+                    "lastColumnsMs": w.lastColumnsMs ?? NSNull(),
                     "analysisWindow": w.analysisWindowPolylines().map { $0.map { $0.map { [$0.x, $0.y] } } } ?? NSNull(),
                     "zoomAxis": w.zoomTimeAxis.map { $0 ? "time" : "amplitude" } ?? NSNull(),
                 ] as [String: Any]
