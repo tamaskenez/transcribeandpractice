@@ -885,7 +885,7 @@ Decided on the way: the grid only between the first and the last downbeat (a def
 signature, so that there is always a first bar, comes in a later change); grid timing piecewise
 through the beats; crowded lines thinned out; dark mode only (light-mode colors later).
 
-Status: `verified`
+Status: `done`
 
 Acceptance criteria:
 
