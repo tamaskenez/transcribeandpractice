@@ -223,7 +223,7 @@ if run(4):
         s.command('grid triplet 6')
         probe(s, o, 3.0, 0.45, 6, 'triplet 1/6', (2.5 + 2 / 6, 2.5 + 4 / 6))
         s.command('grid straight 2')
-        s.command('view 10,20'); s.dump()
+        s.command('view 17,20'); s.dump()
         probe(s, o, 18.9, 0.45, 2, 'last bar: cut at the last beat', (18.5, 19.0))
         s.input(f'move {P(main_point(s, 19.5, 0.5))}')
         check(4, f'{o}: after the last beat: no cell', s.state['waveforms']['main']['hoverCell'] is None,
@@ -242,6 +242,7 @@ if run(4):
         probe(s, o, 2.0, 0.5, 2, '3/4: first half note', (1.5, 2.5))
         probe(s, o, 2.7, 0.5, 2, '3/4: second half note cut at the bar line', (2.5, 3.0))
         s.command('grid triplet 3')
+        s.command('view 0,3'); s.dump()
         probe(s, o, 1.2, 0.5, 3, 'pickup: counted back from bar 1', (1.5 - 2 / 3, 1.5))
         probe(s, o, 0.6, 0.5, 3, 'pickup: cut at the first beat', (0.5, 1.5 - 2 / 3))
         s.command('gridpanel open')
