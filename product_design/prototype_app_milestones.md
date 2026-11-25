@@ -944,7 +944,7 @@ Iterative; the requirements were worked out step by step (details: the spec, "Be
    backwards before it (0, −1, …) in its signature; a bar ends early at the next forced bar start
    (effective time signature).
 
-Status: `verified`
+Status: `done`
 
 Acceptance criteria:
 
