@@ -15,6 +15,7 @@
 //   type <text>                           type the text (unicode key events)
 //   down x y / dragto x y / up x y        a left-button drag in separate steps (dragto: 10 drag events
 //                                         from the last position)
+//   rclick x y                            right-click (a context menu opens and stays open)
 //   sleep ms
 import ApplicationServices
 import Foundation
@@ -56,7 +57,7 @@ func axButton(pid: pid_t, title: String) -> AXUIElement? {
         return AXUIElementCopyAttributeValue(el, name as CFString, &v) == .success ? v : nil
     }
     func search(_ el: AXUIElement, depth: Int) -> AXUIElement? {
-        if let role = attr(el, kAXRoleAttribute) as? String, [kAXButtonRole, kAXCheckBoxRole, kAXRadioButtonRole, kAXTextFieldRole].contains(role) {
+        if let role = attr(el, kAXRoleAttribute) as? String, [kAXButtonRole, kAXCheckBoxRole, kAXRadioButtonRole, kAXTextFieldRole, kAXMenuItemRole].contains(role) {
             for key in [kAXTitleAttribute, kAXDescriptionAttribute, kAXHelpAttribute] {
                 if let s = attr(el, key) as? String, s == title { return el }
             }
@@ -223,6 +224,11 @@ while let line = readLine() {
         last = p
     case "up":
         post(.leftMouseUp, CGPoint(x: d(1), y: d(2))); pause(30)
+    case "rclick":
+        let p = CGPoint(x: d(1), y: d(2))
+        post(.mouseMoved, p); pause(30)
+        post(.rightMouseDown, p, button: .right); pause(30)
+        post(.rightMouseUp, p, button: .right); pause(30)
     case "sleep":
         pause(Int(a[1])!)
     default:

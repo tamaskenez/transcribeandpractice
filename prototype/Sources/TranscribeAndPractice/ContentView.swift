@@ -66,8 +66,11 @@ struct ContentView: View {
                 .help("Time orientation")
             }
         }
-        .sheet(isPresented: $state.timeSignatureDialogShown) {
-            TimeSignatureDialog()
+        .sheet(isPresented: Binding(get: { state.beatDialog != nil }, set: { if !$0 { state.beatDialog = nil } })) {
+            switch state.beatDialog {
+            case .subdivide: SubdivideDialog()
+            default: TimeSignatureDialog()
+            }
         }
         .alert(state.errorTitle,
                isPresented: Binding(get: { state.errorMessage != nil },
@@ -146,7 +149,7 @@ private struct MiddleSection: View {
     private func navigator(horizontal: Bool) -> some View {
         let layout = horizontal ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
         let t = TimeScrollerView.thickness
-        let ruler = horizontal ? rulerHorizontalThickness : rulerVerticalThickness(duration: state.duration, bars: state.barCount)
+        let ruler = horizontal ? rulerHorizontalThickness : rulerVerticalThickness(duration: state.duration, bars: state.widestBarNumber)
         return layout {
             WaveformView(name: "ruler", state: state, background: .underPageBackgroundColor, isRuler: true)
                 .frame(width: horizontal ? nil : ruler, height: horizontal ? ruler : nil)
@@ -280,7 +283,7 @@ extension View {
     }
 }
 
-/// Asks for the time signature of a new first beat (milestone 7).
+/// "Time signature..." of a beat: continue the inherited signature or change it here.
 private struct TimeSignatureDialog: View {
     @Environment(AppState.self) private var state
 
@@ -288,29 +291,67 @@ private struct TimeSignatureDialog: View {
         @Bindable var state = state
         VStack(alignment: .leading, spacing: 14) {
             Text("Time Signature").font(.headline)
-            Text("The new beat is the first one. Set the time signature from this beat on.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                TextField("Numerator", text: $state.timeSignatureNumerator)
-                    .frame(width: 60)
+                Picker("Mode", selection: $state.tsChange) {
+                    Text("Continue").tag(false)
+                    Text("Change").tag(true)
+                }
+                .labelsHidden()
+                .frame(width: 110)
+                .accessibilityLabel("Mode")
+                TextField("Numerator", text: $state.tsNumerator)
+                    .frame(width: 50)
                     .multilineTextAlignment(.trailing)
                     .accessibilityLabel("Numerator")
                 Text("/")
-                Picker("Denominator", selection: $state.timeSignatureDenominator) {
+                Picker("Denominator", selection: $state.tsDenominator) {
                     ForEach(timeSignatureDenominators, id: \.self) { Text("\($0)").tag($0) }
                 }
                 .labelsHidden()
-                .frame(width: 80)
+                .frame(width: 70)
                 .accessibilityLabel("Denominator")
             }
             HStack {
                 Spacer()
-                Button("Don't set") { state.answerTimeSignatureDialog(ok: false) }
+                Button("Cancel") { state.answerTimeSignatureDialog(ok: false) }
                     .keyboardShortcut(.cancelAction)
                 Button("OK") { state.answerTimeSignatureDialog(ok: true) }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!state.timeSignatureDialogValid)
+                    .disabled(!state.tsDialogValid)
+            }
+        }
+        .padding(20)
+        .frame(width: 320)
+        .interactiveDismissDisabled()
+    }
+}
+
+/// "Subdivide...": each gap between neighbouring selected beats becomes n gaps.
+private struct SubdivideDialog: View {
+    @Environment(AppState.self) private var state
+
+    var body: some View {
+        @Bindable var state = state
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Subdivide").font(.headline)
+            HStack(spacing: 8) {
+                Text("Split each gap into")
+                TextField("Parts", text: $state.subdivideText)
+                    .frame(width: 50)
+                    .multilineTextAlignment(.trailing)
+                    .accessibilityLabel("Parts")
+                Text("parts")
+            }
+            Text(state.maxSubdivision >= 2 ? "2 … \(state.maxSubdivision)"
+                                           : "The gaps are too short to subdivide.")
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel") { state.answerSubdivideDialog(ok: false) }
+                    .keyboardShortcut(.cancelAction)
+                Button("OK") { state.answerSubdivideDialog(ok: true) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(state.subdivideValue == nil)
             }
         }
         .padding(20)

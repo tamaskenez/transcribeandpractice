@@ -41,14 +41,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let state = AppState.shared
             guard event.window?.attachedSheet == nil, event.window?.isSheet == false, state.errorMessage == nil,
-                  !state.timeSignatureDialogShown,
+                  state.beatDialog == nil,
                   event.modifierFlags.intersection([.command, .option, .control]).isEmpty
             else { return event }
             // B / Shift+B: place a beat (Shift: a downbeat).
             if event.keyCode == 11 { state.beatKey(downbeat: event.modifierFlags.contains(.shift)); return nil }
             guard !event.modifierFlags.contains(.shift) else { return event }
             switch event.keyCode {
-            case 51 where !state.isPlaying && state.hoveredBeatSample != nil: state.deleteHoveredBeat()  // Backspace
+            case 51 where !state.isPlaying && (state.hoveredBeatSample != nil || !state.selectedBeats.isEmpty):
+                state.deleteHoveredBeat()                                        // Backspace
+            case 53 where !state.selectedBeats.isEmpty: state.clearBeatSelection() // Escape: beats first
             case 53 where state.selection != nil: state.clearSelectionWithKey()  // Escape
             case 49: state.playOrStop()                                          // Space
             case 123: state.rewindAndPlay()                                      // Left Arrow

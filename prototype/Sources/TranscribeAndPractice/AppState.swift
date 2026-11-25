@@ -21,23 +21,51 @@ final class AppState {
 
     /// Beats of the loaded file, sorted by sample (from the sidecar file, see Beats.swift).
     private(set) var beats: [Beat] = []
+    /// Bar positions of `beats` (same indices), recomputed with them.
+    private(set) var beatPositions: [BeatPosition] = []
     func setBeats(_ list: [Beat], save: Bool) {
         beats = list
+        beatPositions = barLayout(list)
+        let ids = Set(list.map(\.id))
+        if !selectedBeats.isSubset(of: ids) { selectedBeats.formIntersection(ids) }
+        if let a = beatAnchor, !ids.contains(a) { beatAnchor = nil }
         if save { saveBeats() }
     }
+    /// Selected beats (by id) and the last one selected individually (the Shift+click anchor).
+    var selectedBeats: Set<Int> = []
+    var beatAnchor: Int?
     /// Beeps so far (for the state dump).
     var beepCount = 0
-    /// Time signature dialog (see BeatEditing.swift).
-    var timeSignatureDialogShown = false
-    var timeSignatureDialogPending = false
-    /// The numerator field: digits only.
-    var timeSignatureNumerator = "4" {
+    /// The beat dialogs (see BeatEditing.swift).
+    var beatDialog: BeatDialog?
+    /// The time signature dialog's fields.
+    var tsChange = false {
         didSet {
-            let digits = timeSignatureNumerator.filter { $0.isASCII && $0.isNumber }
-            if digits != timeSignatureNumerator { timeSignatureNumerator = digits }
+            guard oldValue && !tsChange else { return }
+            tsFilling = true
+            (tsNumerator, tsDenominator) = (String(tsInherited.num), tsInherited.den)
+            tsFilling = false
         }
     }
-    var timeSignatureDenominator = 4
+    /// Set while the fields are filled in by the app (no switch to "change").
+    var tsFilling = false
+    /// The numerator field: digits only.
+    var tsNumerator = "4" {
+        didSet {
+            let digits = tsNumerator.filter { $0.isASCII && $0.isNumber }
+            if digits != tsNumerator { tsNumerator = digits; return }
+            tsFieldsChanged()
+        }
+    }
+    var tsDenominator = 4 { didSet { tsFieldsChanged() } }
+    var tsInherited = TimeSignature.standard
+    /// The subdivide dialog's field: digits only.
+    var subdivideText = "2" {
+        didSet {
+            let digits = subdivideText.filter { $0.isASCII && $0.isNumber }
+            if digits != subdivideText { subdivideText = digits }
+        }
+    }
     /// The beat mark under the pointer in the strip (stopped, beats mode), by sample.
     var hoveredBeatSample: Int?
     /// Stored "Show Beats" choice (remembered); the strip shows beats only if there are any.
@@ -45,8 +73,11 @@ final class AppState {
         didSet { UserDefaults.standard.set(showBeats, forKey: Self.showBeatsKey) }
     }
     var beatsAvailable: Bool { !beats.isEmpty }
-    /// Number of downbeats (bars) in the file.
-    var barCount: Int { beats.count { $0.isDownbeat } }
+    /// The bar number with the widest label (for the vertical strip's width).
+    var widestBarNumber: Int {
+        let lo = beatPositions.first?.bar ?? 0, hi = beatPositions.last?.bar ?? 0
+        return String(lo).count > String(hi).count ? lo : hi
+    }
     var stripShowsBeats: Bool { showBeats && beatsAvailable }
     private static let showBeatsKey = "showBeats"
 
@@ -104,9 +135,7 @@ final class AppState {
     private static let followKey = "followPlayhead"
 
     func setPlaying(_ on: Bool) {
-        let was = isPlaying
         isPlaying = on
-        if was && !on { playbackStopped() }
     }
 
     /// Shortest visible range (maximum zoom), in seconds.
@@ -357,8 +386,9 @@ final class AppState {
             playhead = 0
             clearPoint = 0
             lastStart = 0
-            timeSignatureDialogPending = false
-            timeSignatureDialogShown = false
+            beatDialog = nil
+            selectedBeats = []
+            beatAnchor = nil
             hoveredBeatSample = nil
             loadBeats(for: loaded)
             loadID += 1
@@ -371,9 +401,9 @@ final class AppState {
     /// Beats from the sidecar file; an invalid file shows an alert and leaves no beats.
     private func loadBeats(for audio: LoadedAudio) {
         do {
-            beats = try BeatFile.load(for: audio.url, frameCount: audio.frameCount) ?? []
+            setBeats(try BeatFile.load(for: audio.url, frameCount: audio.frameCount) ?? [], save: false)
         } catch {
-            beats = []
+            setBeats([], save: false)
             errorTitle = "Could not read beats"
             errorMessage = "“\(BeatFile.sidecarURL(for: audio.url).lastPathComponent)”: \(error.localizedDescription) "
                 + "The audio file is loaded without beats."
