@@ -215,6 +215,11 @@ if run(4):
         probe(s, o, 5.06, 0.5, 16, '4/4', (5.0, 5.125))
         probe(s, o, 7.49, 0.7, 16, '4/4', (7.375, 7.5))
         s.snapshot('cell16')
+        ph0 = s.state['waveforms']['main']['dashPhase']
+        import time as _t; _t.sleep(0.4); s.dump()
+        ph1 = s.state['waveforms']['main']['dashPhase']
+        check(4, f'{o}: the dashes move while a cell is shown ({ph0} → {ph1})',
+              s.state['waveforms']['main']['dashesMoving'] and ph0 != ph1)
         s.command('grid straight 2')
         probe(s, o, 5.2, 0.3, 2, 'a half note: two beats', (4.5, 5.5))
         s.snapshot('cell2')
@@ -234,6 +239,8 @@ if run(4):
               str(s.state['waveforms']['main']['hoverCell']))
         s.input(f'move {P(s.at("navigator", 0.5))}')
         check(4, f'{o}: pointer off the spectrogram: no cell', s.state['waveforms']['main']['hoverCell'] is None)
+        _t.sleep(0.3); s.dump()
+        check(4, f'{o}: no cell, no grid lines: the dash timer stops', not s.state['waveforms']['main']['dashesMoving'])
         s.quit()
         # 3/4 on beat 2 (1.5 s): 2 pickup beats, then bars of 1.5 s.
         side({2: '3/4'})

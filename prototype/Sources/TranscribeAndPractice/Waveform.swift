@@ -59,6 +59,34 @@ final class WaveformNSView: NSView {
 
     override var isFlipped: Bool { true }
 
+    // MARK: Moving dashes (milestone 13)
+
+    /// Offset (points) of the alternating dashes; advanced by a timer while any are drawn.
+    private(set) var dashPhase: CGFloat = 0
+    /// The last draw stroked alternating dashes.
+    var usedDashes = false
+    private var dashTimer: Timer?
+    var dashesMoving: Bool { dashTimer != nil }
+
+    /// Runs the timer only while the last draw used dashes (and the view is in a window).
+    func updateDashTimer() {
+        if usedDashes, window != nil {
+            guard dashTimer == nil else { return }
+            let t = Timer(timeInterval: GridConstants.dashInterval, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.dashPhase = (self.dashPhase + GridConstants.dashStep).truncatingRemainder(dividingBy: 2 * GridConstants.dash)
+                    self.needsDisplay = true
+                }
+            }
+            RunLoop.main.add(t, forMode: .common)
+            dashTimer = t
+        } else {
+            dashTimer?.invalidate()
+            dashTimer = nil
+        }
+    }
+
     var orientation: TimeOrientation { state?.orientation ?? .horizontal }
     var timeLength: CGFloat { orientation == .horizontal ? bounds.width : bounds.height }
 
@@ -165,6 +193,8 @@ final class WaveformNSView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        usedDashes = false
+        defer { updateDashTimer() }
         background.setFill()
         bounds.fill()
         let horizontal = orientation == .horizontal

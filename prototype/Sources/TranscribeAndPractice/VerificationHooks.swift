@@ -363,6 +363,7 @@ enum VerificationHooks {
                     "lastColumnsMs": w.lastColumnsMs ?? NSNull(),
                     "analysisWindow": w.analysisWindowPolylines().map { $0.map { $0.map { [$0.x, $0.y] } } } ?? NSNull(),
                     "editorLines": w.visibleEditorLines().map { ["kind": $0.line.kind.rawValue, "time": $0.line.time, "axis": $0.axis] },
+                    "dashPhase": w.dashPhase, "dashesMoving": w.dashesMoving,
                     "hoverCell": w.hoverPoint.flatMap(w.gridCell(at:)).map { c -> Any in
                         let r = w.rect(of: c)
                         return ["start": c.start, "end": c.end, "note": c.note,

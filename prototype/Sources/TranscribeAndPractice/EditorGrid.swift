@@ -13,8 +13,10 @@ enum GridConstants {
     static let minSpacing: CGFloat = 6
     /// Core widths (points) of the bar and beat lines; each has a 1-point border on both sides.
     static let barWidth: CGFloat = 3, beatWidth: CGFloat = 1
-    /// Dash length (points) of the alternating grid line style.
-    static let dash: CGFloat = 16
+    /// Dash length (points) of the alternating grid line style; the dashes move along the line
+    /// by `dashStep` points every `dashInterval` seconds.
+    static let dash: CGFloat = 4
+    static let dashStep: CGFloat = 0.5, dashInterval = 1.0 / 16
 }
 
 struct EditorLine: Equatable {
@@ -164,11 +166,12 @@ extension WaveformNSView {
     func pixelCentre(_ a: CGFloat) -> CGFloat { (a - 0.5).rounded() + 0.5 }
 
     /// Grid line style (milestone 13): 1 point wide, alternating dashes of 50 % black and 50 %
-    /// white, visible on any background.
+    /// white, visible on any background, moving along the line ("marching ants").
     func strokeAlternating(_ path: NSBezierPath) {
         guard !path.isEmpty else { return }
         path.lineWidth = 1
-        for (color, phase) in [(NSColor.black, CGFloat(0)), (NSColor.white, GridConstants.dash)] {
+        usedDashes = true
+        for (color, phase) in [(NSColor.black, dashPhase), (NSColor.white, dashPhase + GridConstants.dash)] {
             path.setLineDash([GridConstants.dash, GridConstants.dash], count: 2, phase: phase)
             color.withAlphaComponent(0.5).setStroke()
             path.stroke()
