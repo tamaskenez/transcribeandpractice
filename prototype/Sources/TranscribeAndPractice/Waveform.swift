@@ -26,9 +26,9 @@ final class WaveformNSView: NSView {
         /// Ruler: a plain press. Stopped at the press: the playhead follows the pointer; playing:
         /// playback jumped to the press point and the rest of the drag does nothing.
         case seek(playing: Bool)
-        /// Ruler: a beat mark (`sample` at the press); `placedIndex` is set once it moves (a
-        /// computed beat becomes placed then). `offset` = beat time − press time.
-        case beat(sample: Int, placedIndex: Int?, offset: Double)
+        /// Ruler: a beat mark (`sample` at the press); `index` is set once it moves.
+        /// `offset` = beat time − press time.
+        case beat(sample: Int, index: Int?, offset: Double)
     }
 
     /// Lines grabbed by a press: the nearest one within the tolerance, plus the other lines at
@@ -345,7 +345,7 @@ final class WaveformNSView: NSView {
 
     /// A beat as drawn in the strip (beats mode).
     struct BeatMark {
-        enum Kind: String { case big, bigDotted, small, dot }
+        enum Kind: String { case big, bigDotted, small }
         var time: Double
         var axis: CGFloat
         var kind: Kind
@@ -409,7 +409,7 @@ final class WaveformNSView: NSView {
                 marks.append(BeatMark(time: t(i), axis: a, kind: beat.firstBeat == .computed ? .bigDotted : .big,
                                       bar: n, labelFrame: bounds.contains(frame) ? frame : nil, sample: beat.sample))
             } else if smallAll || (smallDown && beat.isDownbeat) {
-                marks.append(BeatMark(time: t(i), axis: a, kind: beat.source == .computed ? .dot : .small, sample: beat.sample))
+                marks.append(BeatMark(time: t(i), axis: a, kind: .small, sample: beat.sample))
             }
         }
         return marks
@@ -438,11 +438,6 @@ final class WaveformNSView: NSView {
                 NSColor.tertiaryLabelColor.setFill()
                 (horizontal ? NSRect(x: a - 0.5, y: h - rulerMinorLength, width: 1, height: rulerMinorLength)
                             : NSRect(x: w - rulerMinorLength, y: a - 0.5, width: rulerMinorLength, height: 1)).fill()
-            case .dot:
-                NSColor.tertiaryLabelColor.setFill()
-                let c = horizontal ? CGPoint(x: a, y: h - rulerMinorLength / 2) : CGPoint(x: w - rulerMinorLength / 2, y: a)
-                NSBezierPath(ovalIn: NSRect(x: c.x - rulerDotDiameter / 2, y: c.y - rulerDotDiameter / 2,
-                                            width: rulerDotDiameter, height: rulerDotDiameter)).fill()
             }
             if let n = mark.bar, let frame = mark.labelFrame {
                 NSAttributedString(string: String(n), attributes: rulerLabelAttributes).draw(at: frame.origin)
@@ -649,7 +644,7 @@ final class WaveformNSView: NSView {
             drag = panDrag(at: p)
         } else if isRuler, case let .beat(sample) = hover(at: p) {
             let bt = Double(sample) / (state.audio?.sampleRate ?? 44100)
-            drag = .beat(sample: sample, placedIndex: nil, offset: bt - time(atAxis: axisPosition(p)))
+            drag = .beat(sample: sample, index: nil, offset: bt - time(atAxis: axisPosition(p)))
         } else if isRuler, hover(at: p) == .none {
             let playing = state.isPlaying
             drag = .seek(playing: playing)
@@ -707,7 +702,7 @@ final class WaveformNSView: NSView {
             if case .pan = drag { state.manualViewChange() }
             if case let .beat(sample, nil, offset) = drag {
                 let k = state.beginBeatDrag(sample: sample)
-                self.drag = .beat(sample: sample, placedIndex: k, offset: offset)
+                self.drag = .beat(sample: sample, index: k, offset: offset)
             }
         }
         guard let drag = self.drag else { return }
@@ -731,9 +726,9 @@ final class WaveformNSView: NSView {
             state.moveSelection(from: original, by: time(atAxis: axisPosition(p)) - pressTime)
         case let .seek(playing):
             if !playing { state.dragPlayhead(to: time(atAxis: clampedAxis(p))) }
-        case let .beat(_, placedIndex, offset):
-            guard dragged, let k = placedIndex else { return }
-            state.dragBeat(placedIndex: k, to: time(atAxis: axisPosition(p)) + offset)
+        case let .beat(_, index, offset):
+            guard dragged, let k = index else { return }
+            state.dragBeat(index: k, to: time(atAxis: axisPosition(p)) + offset)
         }
     }
 
@@ -941,7 +936,6 @@ let rulerMinMinorSpacing: CGFloat = 4
 let rulerMinorLength: CGFloat = 4
 /// Dash and gap length of a dotted big tick (`firstBeat: computed`).
 let rulerDash: CGFloat = 2
-let rulerDotDiameter: CGFloat = 3
 /// Height of the strip in horizontal mode.
 let rulerHorizontalThickness: CGFloat = 18
 @MainActor private let rulerFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular)

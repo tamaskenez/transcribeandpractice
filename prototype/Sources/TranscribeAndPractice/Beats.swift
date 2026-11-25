@@ -2,12 +2,10 @@ import Foundation
 
 /// A beat marker (see the spec, "Beat markers").
 struct Beat: Equatable {
-    enum Source: String { case placed, computed }
     enum FirstBeat: String { case no, placed, computed }
 
     /// Sample frame index in the file.
     var sample: Int
-    var source: Source
     /// e.g. "3/4"; nil inherits the previous beat's.
     var timeSignature: String?
     var firstBeat: FirstBeat
@@ -53,10 +51,6 @@ enum BeatFile {
             guard sample >= 0, sample < frameCount else {
                 throw BeatFileError(message: "\(n): sample \(sample) is outside the file (0 … \(frameCount - 1)).")
             }
-            guard let rawSource = e["source"] else { throw BeatFileError(message: "\(n): “source” is missing.") }
-            guard let s = rawSource as? String, let source = Beat.Source(rawValue: s) else {
-                throw BeatFileError(message: "\(n): “source” must be “placed” or “computed”.")
-            }
             guard let rawFirst = e["firstBeat"] else { throw BeatFileError(message: "\(n): “firstBeat” is missing.") }
             guard let f = rawFirst as? String, let firstBeat = Beat.FirstBeat(rawValue: f) else {
                 throw BeatFileError(message: "\(n): “firstBeat” must be “no”, “placed” or “computed”.")
@@ -68,7 +62,7 @@ enum BeatFile {
                 }
                 timeSignature = ts
             }
-            beats.append(Beat(sample: sample, source: source, timeSignature: timeSignature, firstBeat: firstBeat))
+            beats.append(Beat(sample: sample, timeSignature: timeSignature, firstBeat: firstBeat))
         }
         beats.sort { $0.sample < $1.sample }
         for (a, b) in zip(beats, beats.dropFirst()) where a.sample == b.sample {
@@ -123,67 +117,23 @@ struct Rational: Equatable, Comparable, CustomStringConvertible {
 enum BeatConstants {
     /// The note value BPM refers to.
     static let beatNote = Rational(1, 4)
-    static let minReasonableBPM = 30.0
     static let maxReasonableBPM = 240.0
-    /// Placed beats keep at least this far apart (seconds).
-    static var minPlacedDistance: Double { 60 / maxReasonableBPM }
+    /// Beats keep at least this far apart (seconds).
+    static var minBeatDistance: Double { 60 / maxReasonableBPM }
 }
 
 /// Nearest integer, halves away from zero (the Python reference uses the same: floor(x + 0.5)
 /// for the non-negative positions here).
 @inline(__always) func roundSample(_ x: Double) -> Int { Int((x + 0.5).rounded(.down)) }
 
-/// The spec's recomputation: drops the computed beats and the computed downbeats, inserts
-/// computed beats between and after the placed beats, then marks the computed downbeats.
-func recomputeBeats(_ beats: [Beat], sampleRate sr: Double, frameCount: Int) -> [Beat] {
-    let placed = beats.filter { $0.source == .placed }.map { b -> Beat in
-        var b = b
-        if b.firstBeat == .computed { b.firstBeat = .no }
-        return b
-    }
-    var out: [Beat] = []
-    if placed.count >= 2 {
-        var current: Double?
-        for (b1, b2) in zip(placed, placed.dropFirst()) {
-            out.append(b1)
-            let dt = Double(b2.sample - b1.sample) / sr
-            if let cur = current {
-                // The real-valued optimum is cur·dt/60 intervals; the best integer is next to it.
-                let ideal = cur * dt / 60
-                var best = 0, bestErr = Double.infinity
-                for n in Swift.max(Int(ideal.rounded(.down)) - 1, 0)...(Int(ideal.rounded(.up)) + 1) {
-                    let result = Double(n + 1) * 60 / dt
-                    let err = abs(log(cur / result))
-                    if err < bestErr { best = n; bestErr = err }
-                }
-                for j in stride(from: 1, through: best, by: 1) {
-                    let s = roundSample(Double(b1.sample) + Double(j) * Double(b2.sample - b1.sample) / Double(best + 1))
-                    out.append(Beat(sample: s, source: .computed, timeSignature: nil, firstBeat: .no))
-                }
-                current = Double(best + 1) * 60 / dt
-            } else {
-                let result = 60 / dt
-                if result >= BeatConstants.minReasonableBPM { current = result }
-            }
-        }
-        let last = placed[placed.count - 1]
-        out.append(last)
-        if let cur = current {
-            var k = 1
-            while true {
-                let s = roundSample(Double(last.sample) + Double(k) * 60 / cur * sr)
-                if s >= frameCount { break }
-                out.append(Beat(sample: s, source: .computed, timeSignature: nil, firstBeat: .no))
-                k += 1
-            }
-        }
-    } else {
-        out = placed
-    }
-    // Bars.
+/// Recomputes the computed downbeats: from the first beat with a time signature on, every
+/// (signature / beatNote)-th beat (rounded up) after a placed downbeat is a computed downbeat.
+func recomputeBars(_ beats: [Beat]) -> [Beat] {
+    var out = beats
     var signature: Rational?
     var beatInBar = 1
     for i in out.indices {
+        if out[i].firstBeat == .computed { out[i].firstBeat = .no }
         if let ts = out[i].timeSignature { signature = Rational(ts) }
         guard let sig = signature else { continue }
         let perBar = Swift.max((sig / BeatConstants.beatNote).ceil, 1)
@@ -201,7 +151,7 @@ extension BeatFile {
     /// The sidecar's JSON for `beats` (`timeSignature` left out when absent).
     static func encode(_ beats: [Beat]) throws -> Data {
         let array: [[String: Any]] = beats.map { b in
-            var d: [String: Any] = ["sample": b.sample, "source": b.source.rawValue, "firstBeat": b.firstBeat.rawValue]
+            var d: [String: Any] = ["sample": b.sample, "firstBeat": b.firstBeat.rawValue]
             if let ts = b.timeSignature { d["timeSignature"] = ts }
             return d
         }

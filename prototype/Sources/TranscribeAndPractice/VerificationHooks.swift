@@ -185,7 +185,7 @@ enum VerificationHooks {
             "alertText": state.errorMessage ?? NSNull(),
             "alertTitle": state.errorMessage == nil ? NSNull() : state.errorTitle as Any,
             "beats": state.beats.map { b -> [String: Any] in
-                ["sample": b.sample, "source": b.source.rawValue, "timeSignature": b.timeSignature ?? NSNull(),
+                ["sample": b.sample, "timeSignature": b.timeSignature ?? NSNull(),
                  "firstBeat": b.firstBeat.rawValue]
             },
             "beepCount": state.beepCount,
@@ -194,8 +194,7 @@ enum VerificationHooks {
                                     "numerator": state.timeSignatureNumerator, "denominator": state.timeSignatureDenominator,
                                     "okEnabled": state.timeSignatureDialogValid, "denominatorOptions": timeSignatureDenominators,
                                     "sheetVisible": mainWindow?.attachedSheet?.isVisible ?? false] as [String: Any],
-            "beatConstants": ["beatNote": BeatConstants.beatNote.description, "minReasonableBPM": BeatConstants.minReasonableBPM,
-                              "maxReasonableBPM": BeatConstants.maxReasonableBPM],
+            "beatConstants": ["beatNote": BeatConstants.beatNote.description, "maxReasonableBPM": BeatConstants.maxReasonableBPM],
             "showBeats": ["stored": state.showBeats, "enabled": state.beatsAvailable, "on": state.stripShowsBeats],
             "allWindows": NSApp.windows.map { "\($0.className) visible=\($0.isVisible) title=\($0.title)" },
             "hintVisible": state.audio == nil,

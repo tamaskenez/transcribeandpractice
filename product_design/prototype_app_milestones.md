@@ -925,6 +925,17 @@ Tuplet radio button; two test bugs (the field applies each keystroke, so typing 
 the valid 6; a 1/4 grid falls on the beats, so it rightly draws no grid lines). Screenshots
 for the human check: `*_look_*.png` and the open panel, `panel_*.png`.
 
+## 12. New bar/beat logic
+
+Iterative; the requirements are worked out step by step.
+
+Step 1 (done): no automatic beat computation (no interpolated or extrapolated beats); beats have
+no `source` field, every beat is a placed beat (drag, delete and the minimum distance apply to all
+beats). `firstBeat` keeps `no` / `placed` / `computed`: computed downbeats still follow the time
+signature. Old sidecar files load with their `source` ignored, so their computed beats become
+ordinary beats.
+
+Status: `in progress`
 
 ## Fine-tuning (to do later)
 
