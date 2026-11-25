@@ -944,7 +944,7 @@ Iterative; the requirements were worked out step by step (details: the spec, "Be
    backwards before it (0, −1, …) in its signature; a bar ends early at the next forced bar start
    (effective time signature).
 
-Status: `criteria proposed`
+Status: `verified`
 
 Acceptance criteria:
 
@@ -993,6 +993,18 @@ orientations.
 8. Appearance (dark mode): the selected beats in the strip, both orientations; the single- and
    multi-beat menus; the time signature and subdivide dialogs. (screenshots, checked by the
    human)
+
+Verification results (`python3 verify/verify_m12.py`, run from `prototype/`; screenshots in
+`verify/out/m12/`): 74/74 checks passed in one full run (criteria 1–7; criterion 8 is the human
+check). Bar layouts match the reference in all seven cases; mouse selection, moving and its
+limits, Escape and Backspace pass in both orientations; the context menus open on real
+right-clicks and their items work (chosen with the keyboard). Fixes during the experiments'
+testing: "Continue" in the time signature dialog switched itself back to "Change" (resetting the
+numerator first gave 4/8 ≠ 4/4 for a moment); test-side: menu actions arrive after the menu's
+fade-out, Accessibility presses don't run context menu items, two wrong expectations (beat 6's
+Auto ordinal; a 6/8 on the first forced bar start also counts the pickup in 6/8). Screenshots for
+the human check: `*_mouse_selected.png`, `*_menu_menu_single.png`, `*_menu_menu_multi.png`,
+`tsdialog_ts_continue.png`, `tsdialog_ts_change.png`, `subdivide_subdivide.png`.
 
 ## Fine-tuning (to do later)
 

@@ -3,7 +3,8 @@ beat selection, moving, the context menu and its dialogs.
 Run from prototype/: python3 verify/verify_m12.py
 
 Needs Accessibility and Screen Recording permission for the terminal. Don't touch the mouse or
-keyboard while it runs. Screenshots: verify/out/m12/*.png. ONLY=1,3 runs selected parts.
+keyboard while it runs. Screenshots: verify/out/m12/*.png. ONLY=2,4 runs selected criteria (numbers as in the milestone's acceptance criteria;
+8 is the human screenshot check).
 """
 import atexit, json, os, subprocess, sys, time
 import numpy as np
@@ -138,13 +139,13 @@ def session(name, o, beats=None):
 
 
 r = subprocess.run(['./build.sh'], capture_output=True, text=True)
-check(0, 'builds', r.returncode == 0 and 'error' not in r.stdout + r.stderr, r.stdout[-400:] + r.stderr[-400:])
+check(1, 'builds', r.returncode == 0 and 'error' not in r.stdout + r.stderr, r.stdout[-400:] + r.stderr[-400:])
 build_driver()
 for k in KEYS:
     subprocess.run(['defaults', 'delete', DOMAIN, k], capture_output=True)
 
-# 1. File format and bar layout
-if run(1):
+# 2. File format and bar layout
+if run(2):
     old = []
     for k, b in enumerate(even_beats(count=12)):
         b = dict(b, source='placed' if k < 3 else 'computed',
@@ -153,15 +154,15 @@ if run(1):
             b['timeSignature'] = '4/4'
         old.append(b)
     s = session('format', 'horizontal', old)
-    check(1, 'an old sidecar (source, placed/computed/no) loads: placed → start, others → auto',
+    check(2, 'an old sidecar (source, placed/computed/no) loads: placed → start, others → auto',
           [b['firstBeat'] for b in s.state['beats']] == ['start' if k == 2 else 'auto' for k in range(12)]
           and s.state['alertText'] is None, str(s.state['alertText']))
     ok, d = layout_ok(s)
-    check(1, 'two pickup beats are bar 0 beats 3, 4; bar 1 at the start bar', ok and s.state['beats'][0]['barNumber'] == 0
+    check(2, 'two pickup beats are bar 0 beats 3, 4; bar 1 at the start bar', ok and s.state['beats'][0]['barNumber'] == 0
           and s.state['beats'][0]['beatInBar'] == 3, d)
     s.command('beatsel 5'); s.command('beatmenu Delete'); s.dump()
     side = read_side()
-    check(1, 'saved without "source", firstBeat auto/start', all('source' not in b for b in side)
+    check(2, 'saved without "source", firstBeat auto/start', all('source' not in b for b in side)
           and {b['firstBeat'] for b in side} <= {'auto', 'start'} and len(side) == 11, str(side[:3]))
     s.quit()
 
@@ -177,7 +178,7 @@ if run(1):
         beats = [dict({'sample': int((0.5 + 0.5 * k) * SR), 'firstBeat': 'auto'}, **e) for k, e in enumerate(spec)]
         s = session('layout', 'horizontal', beats)
         ok, d = layout_ok(s)
-        check(1, desc, ok, d)
+        check(2, desc, ok, d)
         s.quit()
 
 
@@ -209,34 +210,34 @@ def P(xy):
     return f'{xy[0]:.1f} {xy[1]:.1f}'
 
 
-# 2. Mouse: cursor, selection clicks, moving
-if run(2):
+# 3. Mouse: cursor, selection clicks, moving
+if run(3):
     for o in ORIENTATIONS:
         resize = 'resizeLeftRight' if o == 'horizontal' else 'resizeUpDown'
         s = session(f'{o}_mouse', o, even_beats())
         b = samples(s)
         s.input(f'move {P(mark_point(s, b[3]))}')
-        check(2, f'{o}: over a beat, no selection: {resize} cursor', s.state['ruler']['cursor'] == resize,
+        check(3, f'{o}: over a beat, no selection: {resize} cursor', s.state['ruler']['cursor'] == resize,
               s.state['ruler']['cursor'])
         s.input(f'move {P(lane_point(s, 1.75))}')
-        check(2, f'{o}: empty lane, no selection: arrow', s.state['ruler']['cursor'] == 'arrow', s.state['ruler']['cursor'])
+        check(3, f'{o}: empty lane, no selection: arrow', s.state['ruler']['cursor'] == 'arrow', s.state['ruler']['cursor'])
         s.input(f'click {P(mark_point(s, b[3]))}')
-        check(2, f'{o}: click on a beat selects only it', sel(s) == [3] and s.state['beatAnchor'] == 3, str(sel(s)))
+        check(3, f'{o}: click on a beat selects only it', sel(s) == [3] and s.state['beatAnchor'] == 3, str(sel(s)))
         s.input(f'click {P(mark_point(s, b[5]))} cmd')
-        check(2, f'{o}: ⌘-click adds a beat', sel(s) == [3, 5] and s.state['beatAnchor'] == 5, str(sel(s)))
+        check(3, f'{o}: ⌘-click adds a beat', sel(s) == [3, 5] and s.state['beatAnchor'] == 5, str(sel(s)))
         s.input(f'click {P(mark_point(s, b[3]))} cmd')
-        check(2, f'{o}: ⌘-click on a selected beat removes it', sel(s) == [5], str(sel(s)))
+        check(3, f'{o}: ⌘-click on a selected beat removes it', sel(s) == [5], str(sel(s)))
         s.input(f'click {P(mark_point(s, b[9]))} shift')
-        check(2, f'{o}: ⇧-click adds the range from the anchor', sel(s) == [5, 6, 7, 8, 9], str(sel(s)))
+        check(3, f'{o}: ⇧-click adds the range from the anchor', sel(s) == [5, 6, 7, 8, 9], str(sel(s)))
         s.input(f'click {P(mark_point(s, b[1]))} cmd', f'click {P(mark_point(s, b[2]))} shift')
-        check(2, f'{o}: ⇧-click adds to the selection (anchor: the last ⌘-clicked beat)',
+        check(3, f'{o}: ⇧-click adds to the selection (anchor: the last ⌘-clicked beat)',
               sel(s) == [1, 2, 5, 6, 7, 8, 9], str(sel(s)))
         s.input(f'move {P(lane_point(s, 1.75))}')
-        check(2, f'{o}: with a selection the lane shows an open hand', s.state['ruler']['cursor'] == 'openHand',
+        check(3, f'{o}: with a selection the lane shows an open hand', s.state['ruler']['cursor'] == 'openHand',
               s.state['ruler']['cursor'])
         s.snapshot('selected')
         axes = s.state['selectedBeatAxes']
-        check(2, f'{o}: the selected beats are drawn ({len(axes)})', len(axes) == 7)
+        check(3, f'{o}: the selected beats are drawn ({len(axes)})', len(axes) == 7)
         # Drag from empty lane: all selected beats move by the same amount; others stay.
         before = samples(s)
         a, z = lane_point(s, 4.25), lane_point(s, 4.40)
@@ -245,41 +246,41 @@ if run(2):
         delta = [after[i] - before[i] for i in range(len(before))]
         moved = {i for i, d in enumerate(delta) if d}
         dsel = {delta[i] for i in sel(s)}
-        check(2, f'{o}: dragging moves all selected beats by one amount (+{delta[5] / SR:.3f} s), others stay',
+        check(3, f'{o}: dragging moves all selected beats by one amount (+{delta[5] / SR:.3f} s), others stay',
               moved == {1, 2, 5, 6, 7, 8, 9} and len(dsel) == 1 and abs(delta[5] / SR - 0.15) < 0.02,
               f'moved {sorted(moved)} deltas {sorted(dsel)}')
         side = read_side()
-        check(2, f'{o}: saved after the move', [x['sample'] for x in side] == after)
+        check(3, f'{o}: saved after the move', [x['sample'] for x in side] == after)
         # Constrained: beat 9 can't come closer than 0.25 s to beat 10 (unselected); the order stays.
         s.input(f'drag {P(lane_point(s, 4.25))} {P(lane_point(s, 6.5))}')
         after2 = samples(s)
-        check(2, f'{o}: a big drag stops at the minimum distance to the unselected neighbours',
+        check(3, f'{o}: a big drag stops at the minimum distance to the unselected neighbours',
               after2[10] - after2[9] == MIN_DIST and after2[3] - after2[2] >= MIN_DIST and after2 == sorted(after2),
               f'gap {(after2[10] - after2[9]) / SR:.4f} s')
         s.input(f'drag {P(lane_point(s, 4.25))} {P(lane_point(s, 0.0))}')
         after3 = samples(s)
-        check(2, f'{o}: dragging back stops at the beat before beat 1 (interleaved unselected beats keep the order)',
+        check(3, f'{o}: dragging back stops at the beat before beat 1 (interleaved unselected beats keep the order)',
               (after3[1] - after3[0] == MIN_DIST or after3[3] - after3[2] == MIN_DIST or after3[5] - after3[4] == MIN_DIST)
               and after3 == sorted(after3) and len(set(after3)) == len(after3),
               f'{[round(x / SR, 3) for x in after3[:11]]}')
         # Click on empty lane clears.
         s.input(f'click {P(lane_point(s, 9.25))}')
-        check(2, f'{o}: a click on empty lane clears the beat selection', sel(s) == [], str(sel(s)))
+        check(3, f'{o}: a click on empty lane clears the beat selection', sel(s) == [], str(sel(s)))
         # Drag a single beat without a selection.
         b = samples(s)
         p = mark_point(s, b[12])
         q = (p[0] + (10 if o == 'horizontal' else 0), p[1] + (10 if o == 'vertical' else 0))
         s.input(f'drag {P(p)} {P(q)}')
         a2 = samples(s)
-        check(2, f'{o}: dragging a beat without a selection moves only it',
+        check(3, f'{o}: dragging a beat without a selection moves only it',
               [i for i in range(len(b)) if a2[i] != b[i]] == [12] and sel(s) == [], f'{(a2[12] - b[12]) / SR:.3f}')
         # Esc clears, Backspace deletes the selection.
         s.input(f'click {P(mark_point(s, b[14]))}', f'click {P(mark_point(s, b[15]))} cmd', 'key escape')
-        check(2, f'{o}: Esc clears the beat selection', sel(s) == [], str(sel(s)))
+        check(3, f'{o}: Esc clears the beat selection', sel(s) == [], str(sel(s)))
         n0 = len(s.state['beats'])
         s.input(f'click {P(mark_point(s, b[14]))}', f'click {P(mark_point(s, b[15]))} cmd',
                 f'move {P(lane_point(s, 9.25))}', 'key backspace')
-        check(2, f'{o}: Backspace deletes the selected beats', len(s.state['beats']) == n0 - 2 and sel(s) == []
+        check(3, f'{o}: Backspace deletes the selected beats', len(s.state['beats']) == n0 - 2 and sel(s) == []
               and b[14] not in samples(s) and b[15] not in samples(s))
         s.quit()
 
@@ -295,91 +296,91 @@ def choose(s, title):
     return 'chosen'
 
 
-# 3. Context menu (mouse) and its actions
-if run(3):
+# 4. Context menu (mouse) and its actions
+if run(4):
     for o in ORIENTATIONS:
         s = session(f'{o}_menu', o, even_beats())
         b = samples(s)
         s.input(f'rclick {P(mark_point(s, b[6]))}')
         s.snapshot('menu_single')
         out = [choose(s, 'Start bar (1st)')]
-        check(3, f'{o}: right-click on an unselected beat selects it; its menu sets "Start bar"',
+        check(4, f'{o}: right-click on an unselected beat selects it; its menu sets "Start bar"',
               out == ['chosen'] and sel(s) == [6] and s.state['beats'][6]['firstBeat'] == 'start'
               and read_side()[6]['firstBeat'] == 'start', f'{out} {sel(s)}')
         ok, d = layout_ok(s)
-        check(3, f'{o}: beats 0–5 become pickup bars (0.3 0.4 / … ), beat 6 bar 1', ok and s.state['beats'][6]['barNumber'] == 1, d)
+        check(4, f'{o}: beats 0–5 become pickup bars (0.3 0.4 / … ), beat 6 bar 1', ok and s.state['beats'][6]['barNumber'] == 1, d)
         titles = [(m['title'], m['checked']) for m in s.state['beatMenu'] if not m['separator']]
-        check(3, f'{o}: single-beat menu', titles == [('Beat within bar', False), ('Auto (3rd)', False),
+        check(4, f'{o}: single-beat menu', titles == [('Beat within bar', False), ('Auto (3rd)', False),
                                                       ('Start bar (1st)', True), ('Time signature…', False), ('Delete', False)],
               str(titles))
         s.command('beatsel 8'); s.dump()
         t8 = [m['title'] for m in s.state['beatMenu']]
-        check(3, f'{o}: beat 8 counts as "Auto (3rd)"', 'Auto (3rd)' in t8, str(t8))
+        check(4, f'{o}: beat 8 counts as "Auto (3rd)"', 'Auto (3rd)' in t8, str(t8))
         # Multi menu with the mouse: right-click empty lane with a selection.
         s.input(f'click {P(mark_point(s, b[10]))}', f'click {P(mark_point(s, b[14]))} shift',
                 f'rclick {P(lane_point(s, 9.25))}')
         s.snapshot('menu_multi')
         titles = [(m['title'], m['enabled']) for m in s.state['beatMenu'] if not m['separator']]
-        check(3, f'{o}: multi-beat menu', titles == [('Subdivide…', True), ('Equalize beats within bars', True), ('Delete', True)],
+        check(4, f'{o}: multi-beat menu', titles == [('Subdivide…', True), ('Equalize beats within bars', True), ('Delete', True)],
               str(titles))
         out = [choose(s, 'Delete')]
-        check(3, f'{o}: right-click on the lane opens the menu for the selection; Delete removes 5 beats',
+        check(4, f'{o}: right-click on the lane opens the menu for the selection; Delete removes 5 beats',
               out == ['chosen'] and len(s.state['beats']) == len(b) - 5, f'{out} {len(s.state["beats"])}')
         s.quit()
 
-# 4. Time signature dialog
-if run(4):
+# 5. Time signature dialog
+if run(5):
     s = session('tsdialog', 'horizontal', even_beats())
     s.command('beatsel 4'); s.command('beatmenu Time signature…'); s.dump()
     d = s.state['timeSignatureDialog']
-    check(4, 'opens prefilled with the inherited 4/4, "continue"', s.state['beatDialog'] == 'timeSignature'
+    check(5, 'opens prefilled with the inherited 4/4, "continue"', s.state['beatDialog'] == 'timeSignature'
           and d['sheetVisible'] and not d['change'] and (d['numerator'], d['denominator']) == ('4', 4), str(d))
     s.snapshot('ts_continue')
     s.command('tsdialog numerator 3'); s.dump()
-    check(4, 'changing the numerator selects "change"', s.state['timeSignatureDialog']['change'])
+    check(5, 'changing the numerator selects "change"', s.state['timeSignatureDialog']['change'])
     s.command('tsdialog mode continue'); s.dump()
     d = s.state['timeSignatureDialog']
-    check(4, '"continue" resets to the inherited value', not d['change'] and (d['numerator'], d['denominator']) == ('4', 4), str(d))
+    check(5, '"continue" resets to the inherited value', not d['change'] and (d['numerator'], d['denominator']) == ('4', 4), str(d))
     s.command('tsdialog denominator 8'); s.command('tsdialog numerator 6'); s.dump()
-    check(4, 'changing the denominator selects "change"', s.state['timeSignatureDialog']['change'])
+    check(5, 'changing the denominator selects "change"', s.state['timeSignatureDialog']['change'])
     s.snapshot('ts_change')
     s.command('tsdialog ok'); s.dump()
     bt = s.state['beats']
-    check(4, 'OK sets 6/8 on beat 4: a bar start, 3 beats per bar; the first forced bar start, so the pickup counts in 6/8 too',
+    check(5, 'OK sets 6/8 on beat 4: a bar start, 3 beats per bar; the first forced bar start, so the pickup counts in 6/8 too',
           bt[4]['timeSignature'] == '6/8' and bt[4]['beatInBar'] == 1 and bt[7]['beatInBar'] == 1 and bt[1]['effective'] == '6/8'
           and read_side()[4]['timeSignature'] == '6/8' and layout_ok(s)[0], layout_ok(s)[1])
     titles = [m['title'] for m in s.state['beatMenu']]
-    check(4, 'the menu shows "Auto (1st)" for a beat with a time signature', 'Auto (1st)' in titles, str(titles))
+    check(5, 'the menu shows "Auto (1st)" for a beat with a time signature', 'Auto (1st)' in titles, str(titles))
     s.command('beatsel 4'); s.command('beatmenu Time signature…'); s.dump()
     d = s.state['timeSignatureDialog']
-    check(4, 'reopened: "change", 6/8, inherited 4/4', d['change'] and (d['numerator'], d['denominator'], d['inherited']) == ('6', 8, '4/4'), str(d))
+    check(5, 'reopened: "change", 6/8, inherited 4/4', d['change'] and (d['numerator'], d['denominator'], d['inherited']) == ('6', 8, '4/4'), str(d))
     s.command('tsdialog mode continue'); s.command('tsdialog ok'); s.dump()
-    check(4, '"continue" + OK removes the signature', s.state['beats'][4]['timeSignature'] is None and layout_ok(s)[0])
+    check(5, '"continue" + OK removes the signature', s.state['beats'][4]['timeSignature'] is None and layout_ok(s)[0])
     s.command('beatsel 9'); s.command('beatmenu Time signature…'); s.command('tsdialog numerator 5')
     s.command('tsdialog cancel'); s.dump()
-    check(4, 'Cancel changes nothing', s.state['beats'][9]['timeSignature'] is None and s.state['beatDialog'] is None)
+    check(5, 'Cancel changes nothing', s.state['beats'][9]['timeSignature'] is None and s.state['beatDialog'] is None)
     # Inherited from an earlier change.
     s.command('beatsel 0'); s.command('beatmenu Time signature…'); s.command('tsdialog numerator 3'); s.command('tsdialog ok')
     s.command('beatsel 10'); s.command('beatmenu Time signature…'); s.dump()
     d = s.state['timeSignatureDialog']
-    check(4, 'a later beat inherits 3/4', not d['change'] and (d['numerator'], d['denominator']) == ('3', 4), str(d))
+    check(5, 'a later beat inherits 3/4', not d['change'] and (d['numerator'], d['denominator']) == ('3', 4), str(d))
     s.command('tsdialog cancel')
     s.quit()
 
-# 5. Subdivide, Equalize
-if run(5):
+# 6. Subdivide, Equalize
+if run(6):
     s = session('subdivide', 'horizontal', even_beats())
     b = samples(s)
     s.command('beatsel 2,3,4,7,8'); s.command('beatmenu Subdivide…'); s.dump()
     d = s.state['subdivideDialog']
-    check(5, 'Subdivide opens; max n keeps 0.25 s (0.5 s gaps: 2)', s.state['beatDialog'] == 'subdivide' and d['max'] == 2, str(d))
+    check(6, 'Subdivide opens; max n keeps 0.25 s (0.5 s gaps: 2)', s.state['beatDialog'] == 'subdivide' and d['max'] == 2, str(d))
     s.snapshot('subdivide')
     s.command('subdivide 3'); s.dump()
-    check(5, 'n above the maximum: OK disabled', not s.state['subdivideDialog']['okEnabled'])
+    check(6, 'n above the maximum: OK disabled', not s.state['subdivideDialog']['okEnabled'])
     s.command('subdivide 2'); s.command('subdivide ok'); s.dump()
     got = samples(s)
     mids = [round((b[i] + b[i + 1]) / 2 + 1e-9) for i in (2, 3, 7)]
-    check(5, 'n = 2: a beat in the middle of each gap between neighbouring selected beats (3 new)',
+    check(6, 'n = 2: a beat in the middle of each gap between neighbouring selected beats (3 new)',
           len(got) == len(b) + 3 and all(m in got for m in mids) and layout_ok(s)[0], f'{len(got)}')
     s.quit()
 
@@ -393,29 +394,29 @@ if run(5):
     b = samples(s)
     s.command('beatsel 0,4,5,8,13'); s.dump()
     titles = [(m['title'], m['enabled']) for m in s.state['beatMenu']]
-    check(5, 'Equalize is enabled (bar 0–4 and 4–8 have both starts selected)', ('Equalize beats within bars', True) in titles)
+    check(6, 'Equalize is enabled (bar 0–4 and 4–8 have both starts selected)', ('Equalize beats within bars', True) in titles)
     s.command('beatmenu Equalize beats within bars'); s.dump()
     got = samples(s)
     ok = all(abs(got[k] - (b[0] + (b[4] - b[0]) * k / 4)) <= 0.5 for k in range(1, 4)) \
         and all(abs(got[k] - (b[4] + (b[8] - b[4]) * (k - 4) / 4)) <= 0.5 for k in range(5, 8)) \
         and got[8:] == b[8:] and got[0] == b[0] and got[4] == b[4]
-    check(5, 'the beats of bars 1 and 2 are spaced equally; bar starts and bar 3+ unchanged', ok)
+    check(6, 'the beats of bars 1 and 2 are spaced equally; bar starts and bar 3+ unchanged', ok)
     s.command('beatsel 1,2'); s.dump()
     titles = [(m['title'], m['enabled']) for m in s.state['beatMenu']]
-    check(5, 'no bar start pair selected: Equalize disabled; Subdivide enabled',
+    check(6, 'no bar start pair selected: Equalize disabled; Subdivide enabled',
           ('Equalize beats within bars', False) in titles and ('Subdivide…', True) in titles, str(titles))
     s.command('beatsel 1,3'); s.dump()
     titles = [(m['title'], m['enabled']) for m in s.state['beatMenu']]
-    check(5, 'no neighbouring selected beats: Subdivide disabled', ('Subdivide…', False) in titles, str(titles))
+    check(6, 'no neighbouring selected beats: Subdivide disabled', ('Subdivide…', False) in titles, str(titles))
     s.quit()
 
-# 6. B places beats without a dialog
-if run(6):
+# 7. B places beats without a dialog
+if run(7):
     s = session('bkey', 'horizontal', [])
     s.input(f'move {P(lane_point(s, 2.0))}', 'key b')
     s.input(f'move {P(lane_point(s, 3.0))}', 'key b shift')
     bt = s.state['beats']
-    check(6, 'B / ⇧B place beats (auto / start) without a time signature dialog',
+    check(7, 'B / ⇧B place beats (auto / start) without a time signature dialog',
           [b['firstBeat'] for b in bt] == ['auto', 'start'] and s.state['beatDialog'] is None
           and not s.state['timeSignatureDialog']['sheetVisible'], str(bt))
     s.quit()
