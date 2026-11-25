@@ -161,6 +161,7 @@ final class WaveformNSView: NSView {
         let horizontal = orientation == .horizontal
         if isSpectrogram {
             drawSpectrogram()
+            drawEditorLines()
             drawSelection()
             drawLines()
             return
@@ -206,6 +207,7 @@ final class WaveformNSView: NSView {
         minMax.fill()
         Self.rmsColor.setFill()
         rms.fill()
+        drawEditorLines()
         if name == "navigator", state?.mainMode == .spectrogram { drawAnalysisWindow() }
     }
 
@@ -826,6 +828,7 @@ struct WaveformView: NSViewRepresentable {
             _ = (state.mainMode, state.windowLengthMs, state.freqLow, state.spectrogramVersion,
                  state.mainCrossLength, state.mainAxisLength, state.loadID)
             view.reportSize()
+            _ = (state.beats, state.gridDenominator, state.gridLinesShown)
         }
         if name == "navigator" { _ = (state.mainMode, state.windowLengthMs) }
         if isRuler { _ = (state.beats.count, state.showBeats, state.pointer?.fraction, state.pointer?.pane) }

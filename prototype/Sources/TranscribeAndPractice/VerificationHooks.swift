@@ -110,6 +110,19 @@ enum VerificationHooks {
                     case "follow": state.followPlayhead = arg == "on"
                     case "beats": state.showBeats = arg == "on"
                     case "beatkey": state.beatKey(downbeat: arg == "shift")
+                    case "gridlines": state.gridLinesShown = arg == "on"
+                    case "grid":
+                        let a = arg.split(separator: " ").map(String.init)
+                        if let k = a.first.flatMap(GridKind.init(rawValue:)) {
+                            state.gridKind = k
+                            if a.count > 1, let n = Int(a[1]) {
+                                switch k {
+                                case .straight: if GridConstants.straight.contains(n) { state.gridStraight = n }
+                                case .triplet: if GridConstants.triplet.contains(n) { state.gridTriplet = n }
+                                case .tuplet: if GridConstants.tupletRange.contains(n) { state.gridTuplet = n }
+                                }
+                            }
+                        }
                     case "mode": if let m = MainPaneMode(rawValue: arg) { state.mainMode = m }
                     case "window": if let v = Double(arg) { state.windowLengthMs = v }
                     case "specdelay": SpectrogramConstants.testDelayMs = Int(arg) ?? 0
@@ -209,6 +222,8 @@ enum VerificationHooks {
             "screenFrames": screenFrames(state: state),
             "spectrogram": spectrogramDump(state: state),
             "spectrum": spectrumDump(),
+            "grid": ["linesShown": state.gridLinesShown, "kind": state.gridKind.rawValue, "straight": state.gridStraight,
+                     "triplet": state.gridTriplet, "tuplet": state.gridTuplet, "n": state.gridDenominator],
         ]
         if let audio = state.audio {
             let format = audio.buffer.format
@@ -318,6 +333,7 @@ enum VerificationHooks {
                     "columnComputations": w.columnComputations,
                     "lastColumnsMs": w.lastColumnsMs ?? NSNull(),
                     "analysisWindow": w.analysisWindowPolylines().map { $0.map { $0.map { [$0.x, $0.y] } } } ?? NSNull(),
+                    "editorLines": w.visibleEditorLines().map { ["kind": $0.line.kind.rawValue, "time": $0.line.time, "axis": $0.axis] },
                     "zoomAxis": w.zoomTimeAxis.map { $0 ? "time" : "amplitude" } ?? NSNull(),
                 ] as [String: Any]
             }

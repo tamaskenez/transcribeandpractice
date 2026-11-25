@@ -146,6 +146,22 @@ final class AppState {
     @ObservationIgnored let spectrogram = SpectrogramEngine()
     @ObservationIgnored let spectrum = SpectrumEngine()
     static let minWindowMs = 10.0, maxWindowMs = 500.0
+
+    // Editor grid (milestone 11; see EditorGrid.swift). Remembered across launches.
+    var gridLinesShown: Bool { didSet { UserDefaults.standard.set(gridLinesShown, forKey: "gridLinesShown") } }
+    var gridKind: GridKind { didSet { UserDefaults.standard.set(gridKind.rawValue, forKey: "gridKind") } }
+    var gridStraight: Int { didSet { UserDefaults.standard.set(gridStraight, forKey: "gridStraight") } }
+    var gridTriplet: Int { didSet { UserDefaults.standard.set(gridTriplet, forKey: "gridTriplet") } }
+    var gridTuplet: Int { didSet { UserDefaults.standard.set(gridTuplet, forKey: "gridTuplet") } }
+    /// The grid note value's denominator (1/n).
+    var gridDenominator: Int {
+        switch gridKind {
+        case .straight: gridStraight
+        case .triplet: gridTriplet
+        case .tuplet: gridTuplet
+        }
+    }
+    var gridLabel: String { "1/\(gridDenominator)" }
     private static let mainModeKey = "mainPaneMode", windowKey = "spectrogramWindowMs"
 
     init() {
@@ -156,6 +172,12 @@ final class AppState {
         showBeats = UserDefaults.standard.object(forKey: Self.showBeatsKey) as? Bool ?? true
         mainMode = UserDefaults.standard.string(forKey: Self.mainModeKey).flatMap(MainPaneMode.init(rawValue:)) ?? .waveform
         windowLengthMs = min(max(UserDefaults.standard.object(forKey: Self.windowKey) as? Double ?? 50, Self.minWindowMs), Self.maxWindowMs)
+        let d = UserDefaults.standard
+        gridLinesShown = d.object(forKey: "gridLinesShown") as? Bool ?? true
+        gridKind = d.string(forKey: "gridKind").flatMap(GridKind.init(rawValue:)) ?? .straight
+        gridStraight = (d.object(forKey: "gridStraight") as? Int).flatMap { GridConstants.straight.contains($0) ? $0 : nil } ?? 16
+        gridTriplet = (d.object(forKey: "gridTriplet") as? Int).flatMap { GridConstants.triplet.contains($0) ? $0 : nil } ?? 12
+        gridTuplet = (d.object(forKey: "gridTuplet") as? Int).flatMap { GridConstants.tupletRange.contains($0) ? $0 : nil } ?? 5
         player.core.setLoop(loopEnabled)
     }
 

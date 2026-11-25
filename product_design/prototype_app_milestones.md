@@ -857,6 +857,75 @@ amplitude ⌘-scroll direction checks passed in both orientations. Screenshots f
 check: `*_look_*.png` (zoomed out, a 2 s and a 0.5 s view of the noise burst, zoomed in, and
 spectrogram mode).
 
+## 11. Editor grid
+
+In spectrogram mode, add the following control to the toolbar:
+
+- A control named "Grid", a dropdown which opens a small dropdown panel with a list and a 3-choice radio button
+   group: "straight", "triplet", "tuplet". Depending on the radio buttons, the list contains
+   1/1, 1/2, ... 1/64 or 1/3, 1/6, 1/12, 1/24, 1/48 or if "tuplet" is active the list changes into
+   a "1 / [   ]" control where "[   ]" is a textbox accepting any whole number 1..64.
+- Add 3 types of lines to the spectrogram pane, oriented in the frequency direction, spanning the
+  entire pane: bar, beat and grid lines. Bar should be the thickest, beat the middle and grid lines
+  the thinnest.
+- The bar and beat lines should be drawn where we have a beat+first_beat and beat markers. Grid lines
+  should be drawn according to the current "Grid" selection. At every bar (first_beat) marker we
+  start a grid division. Draw a line at every step as specified by the note duration given by the
+  "grid" control, until we reach or surpass the next "first bar" beat marker. We don't need to
+  draw grid lines where there's already a beat marker.
+- I'm not sure about how the bar/beat/grid lines should be drawn. Of course we aim to maximum
+  visibility no matter what the underlying spectrogram is. Maybe we should try 1-2-3 pixels thick
+  50% opaque white lines with an additional 1 pixel 50% black lines as borders.
+- The bar and beat lines should be drawn also in waveform mode, too.
+
+Developed interactively (experiments first, the specification written from the result). Details:
+the spec, "Editor grid". Iterations: (1) bar/beat/grid lines (3/2/1-point white cores with black
+borders) and the Grid control; (2) a Grid lines checkbox, 1-point beat lines, dotted grid lines.
+Decided on the way: the grid only between the first and the last downbeat (a default time
+signature, so that there is always a first bar, comes in a later change); grid timing piecewise
+through the beats; crowded lines thinned out; dark mode only (light-mode colors later).
+
+Status: `done`
+
+Acceptance criteria:
+
+Only the milestone 11 checks are run (`verify_m11.py`); earlier milestones are not re-verified.
+Test audio (generated) with beat sidecar files: 4/4 with a pickup beat and uneven beat spacing
+(a placed beat off the computed tempo), 3/4, 6/8, 5/8, a time signature change within the file,
+and a file with beats but no time signature. Checks run in both orientations unless noted. The
+reference is a Python implementation of the spec's rules with exact fractions.
+
+1. Builds. (CLI)
+2. Line positions: the dumped `editorLines` of the main pane match the reference (kinds and
+   times within 1 µs, axis positions within 0.01 point) for Straight 1/1, 1/4, 1/8, 1/16,
+   Triplet 1/3, 1/12 and Tuplet 1/5, 1/7, in every test file; no grid line before the first or
+   after the last downbeat, none on a beat; the file without time signature has only beat lines
+   (no bars, no grid). (dump + Python reference)
+3. Where lines appear: grid lines only in spectrogram mode with the checkbox on; bar and beat
+   lines in both modes, also with Show Beats off; none in the navigator; none without beats.
+   (commands + dump)
+4. Crowding: zooming out step by step, the grid lines disappear exactly when two neighbouring
+   lines would be closer than 6 points, then the beat lines, then the bar lines, as in the
+   reference. (dump + reference)
+5. Grid control: the checkbox and the Grid button are in the toolbar only in spectrogram mode;
+   through Accessibility, opening the panel, choosing a kind and a value (and typing a tuplet
+   value, including an invalid one, which is ignored) changes the grid as specified, each kind
+   keeping its value; the settings survive a relaunch. (input driver / Accessibility + dump)
+6. Appearance (dark mode): bar, beat and dotted grid lines distinguishable over the spectrogram
+   and over the waveform, in both orientations; the open Grid panel. (screenshots, checked by the
+   human)
+
+Verification results (`python3 verify/verify_m11.py`, run from `prototype/`; screenshots in
+`verify/out/m11/`): all checks passed, in three runs (the screen locked during the first full
+run): criterion 5 15/15, criteria 3, 4 and 6 19/19, criterion 2 109/109 (each run including the
+build). Line kinds, times and axis positions match the exact-fraction reference for all grid
+values and test files, in both orientations; the crowding order and threshold match. Fixes
+during verification: the tuplet field's accessibility name ("Tuplet value") clashed with the
+Tuplet radio button; two test bugs (the field applies each keystroke, so typing "65" stops at
+the valid 6; a 1/4 grid falls on the beats, so it rightly draws no grid lines). Screenshots
+for the human check: `*_look_*.png` and the open panel, `panel_*.png`.
+
+
 ## Fine-tuning (to do later)
 
 - Don't drag playhead/last-playback-start when dragging selection edge
@@ -866,3 +935,9 @@ spectrogram mode).
 - Start saving session file to /tmp, on close/exit ask for keep/delete session next to original file.
 - drag-beat should be a different mouse icon like <||> or something
 - right-click on beat brings up beat menu with settings/delete
+- Change max zoom to 500 ms
+- Compute beats until the first beat after the end of file (including that)
+- Compute beats backwards before the first beat
+- If there are no placed first beats, make the first in-file beat the first computed first beat.
+- If there are placed first beats and it has a time signature, compute backwards from that
+- without time signature, use 4/4, draw at bar 1.

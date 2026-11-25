@@ -11,6 +11,8 @@
 //   press <pid> <title>                   press a toolbar button via Accessibility
 //   enabled <pid> <title>                 print the button's AXEnabled
 //   front <pid>                           make the app frontmost via Accessibility
+//   focus <pid> <title>                   focus a text field via Accessibility
+//   type <text>                           type the text (unicode key events)
 //   down x y / dragto x y / up x y        a left-button drag in separate steps (dragto: 10 drag events
 //                                         from the last position)
 //   sleep ms
@@ -54,7 +56,7 @@ func axButton(pid: pid_t, title: String) -> AXUIElement? {
         return AXUIElementCopyAttributeValue(el, name as CFString, &v) == .success ? v : nil
     }
     func search(_ el: AXUIElement, depth: Int) -> AXUIElement? {
-        if let role = attr(el, kAXRoleAttribute) as? String, [kAXButtonRole, kAXCheckBoxRole, kAXRadioButtonRole].contains(role) {
+        if let role = attr(el, kAXRoleAttribute) as? String, [kAXButtonRole, kAXCheckBoxRole, kAXRadioButtonRole, kAXTextFieldRole].contains(role) {
             for key in [kAXTitleAttribute, kAXDescriptionAttribute, kAXHelpAttribute] {
                 if let s = attr(el, key) as? String, s == title { return el }
             }
@@ -168,7 +170,7 @@ while let line = readLine() {
         for _ in 0..<steps { gesture(per, phase: 2) }
         gesture(0, phase: 4)
     case "key":
-        let codes: [String: CGKeyCode] = ["escape": 53, "space": 49, "left": 123, "right": 124, "down": 125, "b": 11, "backspace": 51]
+        let codes: [String: CGKeyCode] = ["escape": 53, "space": 49, "left": 123, "right": 124, "down": 125, "b": 11, "backspace": 51, "a": 0, "return": 36]
         if let code = codes[a[1]] {
             let f = flags(a.count > 2 ? a[2] : nil)
             setModifiers(f)
@@ -188,6 +190,20 @@ while let line = readLine() {
             var v: AnyObject?
             AXUIElementCopyAttributeValue(b, kAXEnabledAttribute as CFString, &v)
             print((v as? Bool) == true ? "true" : "false")
+        }
+    case "focus":
+        let title = a[2...].joined(separator: " ")
+        guard let el = axButton(pid: pid_t(a[1])!, title: title) else { print("notfound"); break }
+        print(AXUIElementSetAttributeValue(el, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success ? "focused" : "failed")
+    case "type":
+        let text = a.count > 1 ? a[1...].joined(separator: " ") : ""
+        for ch in text.utf16 {
+            for down in [true, false] {
+                let e = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down)
+                var c = ch
+                e?.keyboardSetUnicodeString(stringLength: 1, unicodeString: &c)
+                e?.post(tap: .cghidEventTap); pause(20)
+            }
         }
     case "front":
         let app = AXUIElementCreateApplication(pid_t(a[1])!)

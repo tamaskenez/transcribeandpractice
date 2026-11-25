@@ -578,6 +578,53 @@ Command-scroll zoom picks one axis per gesture: the first event of a trackpad sc
 (including its momentum) zooms time or amplitude; the other axis' deltas are ignored. A wheel
 without gesture phases decides on every event.
 
+### Editor grid (from milestone 11)
+
+Bar, beat and grid lines across the main pane, at right angles to the time axis (along the
+frequency axis in spectrogram mode), spanning the whole pane.
+
+Which lines:
+
+- Bar lines at the downbeats (`firstBeat` placed or computed), beat lines at the other beats
+  (placed or computed, drawn alike). Both in waveform and spectrogram mode, independent of the
+  Show Beats toggle. Not in the navigator.
+- Grid lines only in spectrogram mode, and only while the Grid lines checkbox is on. From each
+  downbeat to the next one (so only between the first and the last downbeat of the file: no grid
+  in a pickup, after the last downbeat, or in a file without downbeats), a line every grid step,
+  1/n of a whole note (the Grid value), from the bar start until it reaches or passes the next
+  downbeat. Grid lines that fall exactly on a beat are left out (the beat or bar line is there).
+- Grid timing, piecewise through the beats: each beat interval counts as one `beat_note` (1/4).
+  A grid line at musical position p beats after the bar's downbeat (p = k · (1/n) / `beat_note`,
+  k = 1, 2, …, exact fractions) lies in the interval from beat ⌊p⌋ to beat ⌊p⌋ + 1 of the bar,
+  at the fraction p − ⌊p⌋ of it (linear in time). So the grid follows tempo changes and a bar
+  whose last beat is short (5/8 has 3 beats) still gets a grid over all its beats.
+- Crowding: if two neighbouring visible lines (all kinds) are closer than 6 points, the grid
+  lines are hidden; then if two neighbouring bar/beat lines are closer than 6 points, the beat
+  lines are hidden; then if two bar lines are closer than 6 points, the bar lines are hidden.
+
+Drawing (dark mode; a light-mode color scheme is to be designed later, until then the same
+colors are used):
+
+- Each line has a white 50 % opaque core and a 1-point black 50 % opaque border on both sides.
+- Core width: bar 3 points, beat 1 point, grid 1 point. Grid lines are dotted: 2-point dashes
+  every 4 points (core and side borders), transparent in between.
+- The core is aligned to whole points (its start rounded to the nearest point).
+- Spectrogram mode: over the spectrogram, under the selection band, the playhead, the
+  last-start and the pointer lines. Waveform mode: over the waveform, under those lines.
+
+The Grid control (toolbar, shown only in spectrogram mode):
+
+- A "Grid lines" checkbox: shows or hides the grid lines.
+- A "Grid 1/n" button (showing the current value) that opens a small panel:
+  - Radio buttons: Straight, Triplet, Tuplet.
+  - Straight: a list 1/1, 1/2, 1/4, 1/8, 1/16, 1/32, 1/64; Triplet: 1/3, 1/6, 1/12, 1/24,
+    1/48; the current value has a checkmark, clicking a value selects it.
+  - Tuplet: "1 / [ ]", a text field taking a whole number 1 … 64; other input is ignored (the
+    value stays the last valid one).
+- Each kind keeps its own value; switching the kind switches to that kind's value. Defaults:
+  checkbox on, Straight, 1/16 (Triplet 1/12, Tuplet 1/5). All of it is remembered across
+  launches.
+
 ### Loading audio files
 
 - File → Open… (⌘O) shows the standard open dialog, limited to audio files. This is the only way to
@@ -649,7 +696,10 @@ frequency, as JSON with a little-endian float32 matrix. From milestone 9 on, als
 pane (shown, frame, centre sample, first row and row count, the levels of its visible rows in dB
 before the amplitude zoom, and the key outline lines as drawn, in pane coordinates), the
 navigator's analysis window polyline (shown, points), and the zoom axis chosen for the current
-⌘-scroll gesture. From milestone 10 on, also: each waveform pane's dump has `columns` instead of
+⌘-scroll gesture. From milestone 11 on, also: each waveform pane's dump has `editorLines`, the
+drawn bar, beat and grid lines (kind, time, axis position), and the dump adds the grid settings
+(checkbox, kind, each kind's value, the current n); commands `gridlines on|off` and
+`grid straight|triplet|tuplet [n]` set them through the control's code paths. From milestone 10 on, also: each waveform pane's dump has `columns` instead of
 `points`: per drawn column its index j, the min, max and rms (before the amplitude zoom), and the
 drawn extents of the min/max bar and of the RMS span (whose endpoints are the marks) across the
 time axis (pane coordinates, after the zoom
@@ -825,3 +875,9 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
   alone doesn't recompute them.
 - The earlier milestones' verification scripts that read the `points` dump (milestones 2–3) no
   longer match; they are not re-run (see CLAUDE.md).
+- (Milestone 11) The Grid lines checkbox sits in the toolbar next to the Grid button (not in the
+  panel), so the grid can be switched without opening it.
+- Grid lines are computed per draw for the visible range only (bars overlapping it); exact
+  fractions decide whether a grid line falls on a beat.
+- The crowding threshold (6 points) and the line widths and dash pattern are constants in
+  `GridConstants`.
