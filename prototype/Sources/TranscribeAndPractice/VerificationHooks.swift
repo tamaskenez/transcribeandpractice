@@ -380,7 +380,7 @@ enum VerificationHooks {
              "labelFrame": $0.labelFrame.map(rect) ?? NSNull()]
         }
         let marks: [[String: Any]] = r.beatMarks().map {
-            ["time": $0.time, "axis": $0.axis, "kind": $0.kind.rawValue, "bar": $0.bar.map { $0 as Any } ?? NSNull(),
+            ["time": $0.time, "sample": $0.sample, "axis": $0.axis, "kind": $0.kind.rawValue, "bar": $0.bar.map { $0 as Any } ?? NSNull(),
              "labelFrame": $0.labelFrame.map(rect) ?? NSNull()]
         }
         return ["size": size(r.bounds.size), "cursor": r.cursorName,
@@ -419,7 +419,8 @@ enum VerificationHooks {
 
     private static func cursorName(_ c: NSCursor) -> String {
         let known: [(NSCursor, String)] = [(.arrow, "arrow"), (.openHand, "openHand"), (.closedHand, "closedHand"),
-                                           (.columnResize, "columnResize"), (.rowResize, "rowResize")]
+                                           (.columnResize, "columnResize"), (.rowResize, "rowResize"),
+                                           (.resizeLeftRight, "resizeLeftRight"), (.resizeUpDown, "resizeUpDown")]
         return known.first { $0.0 == c }?.1 ?? "other"
     }
 

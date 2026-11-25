@@ -40,8 +40,15 @@ final class AppState {
     var beatDialog: BeatDialog?
     /// The time signature dialog's fields.
     var tsChange = false {
-        didSet { if oldValue && !tsChange { (tsNumerator, tsDenominator) = (String(tsInherited.num), tsInherited.den) } }
+        didSet {
+            guard oldValue && !tsChange else { return }
+            tsFilling = true
+            (tsNumerator, tsDenominator) = (String(tsInherited.num), tsInherited.den)
+            tsFilling = false
+        }
     }
+    /// Set while the fields are filled in by the app (no switch to "change").
+    var tsFilling = false
     /// The numerator field: digits only.
     var tsNumerator = "4" {
         didSet {

@@ -137,15 +137,17 @@ extension AppState {
         tsInherited = inheritedSignature(at: i)
         let own = TimeSignature(beats[i].timeSignature)
         let shown = own ?? tsInherited
+        tsFilling = true
         tsNumerator = String(shown.num)
         tsDenominator = shown.den
         tsChange = own != nil
+        tsFilling = false
         beatDialog = .timeSignature(id: id)
     }
 
     /// A numerator or denominator different from the inherited signature selects "change".
     func tsFieldsChanged() {
-        if !tsChange, Int(tsNumerator) != tsInherited.num || tsDenominator != tsInherited.den { tsChange = true }
+        if !tsFilling, !tsChange, Int(tsNumerator) != tsInherited.num || tsDenominator != tsInherited.den { tsChange = true }
     }
 
     var tsDialogValid: Bool { !tsChange || (Int(tsNumerator) ?? 0) >= 1 }
