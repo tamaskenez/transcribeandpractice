@@ -156,46 +156,100 @@ if run(3):
 
 
 # 4. Hover cell.
-def expected_cell(s, tm, local_cross):
-    """Bracketing 1/16 grid times (bars from 0.5 s to the last bar start, beats to the last beat) and the note."""
-    lines = sorted(set([0.5 + 0.5 * k for k in range(38)]
-                       + [0.5 + 0.125 * k for k in range(int((0.5 + 0.5 * 36 - 0.5) / 0.125) + 1)]))
-    lo = max(x for x in lines if x <= tm + 1e-9)
-    hi = min(x for x in lines if x > tm + 1e-9)
+def ref_span(beats, d, tm):
+    """The spec's grid cell: one 1/d step from the bar start, cut at the next bar start; the
+    pickup counted backwards from the first bar start, cut at the first beat."""
+    t = [b['sample'] / SR for b in beats]
+    starts = [i for i, b in enumerate(beats) if b['beatInBar'] == 1]
+    if not (t[0] <= tm < t[-1]):
+        return None
+    segs = ([(0, starts[0], True)] if starts[0] > 0 else []) + \
+        [(s0, (starts + [len(t) - 1])[k + 1], False) for k, s0 in enumerate(starts) if s0 < len(t) - 1]
+    f, e, back = next(g for g in segs if t[g[0]] <= tm < t[g[1]])
+    i = max(j for j in range(f, e) if t[j] <= tm)
+    p = i + (tm - t[i]) / (t[i + 1] - t[i]) - f
+    step = 4 / d
+    n = e - f
+    if back:
+        k = math.floor((n - p) / step - 1e-9)
+        a, b = max(n - (k + 1) * step, 0), n - k * step
+    else:
+        k = math.floor(p / step + 1e-9)
+        a, b = k * step, min((k + 1) * step, n)
+
+    def bt(x):
+        j = min(int(x), len(t) - 2)
+        return t[j] + (x - j) * (t[j + 1] - t[j])
+    return bt(f + a), bt(f + b)
+
+
+def probe(s, o, tm, cross, d, desc, expect=None):
+    fr = s.state['screenFrames']['main']
+    p = main_point(s, tm, cross)
+    s.input(f'move {P(p)}')
+    c = s.state['waveforms']['main']['hoverCell']
+    local = fr['height'] - (p[1] - fr['y']) if o == 'horizontal' else p[0] - fr['x']
+    v0, v1 = s.view()
+    tp = v0 + (v1 - v0) * ((p[0] - fr['x']) / fr['width'] if o == 'horizontal' else (p[1] - fr['y']) / fr['height'])
+    span = ref_span(s.state['beats'], d, tp)
     fv = s.state['spectrogram']['freqView']
-    st = fv['low'] + local_cross / fv['pointsPerSemitone']
-    return lo, hi, LOWEST + math.floor(st)
+    note = LOWEST + math.floor(fv['low'] + local / fv['pointsPerSemitone'])
+    ok = c is not None and span is not None and abs(c['start'] - span[0]) < 1e-6 and abs(c['end'] - span[1]) < 1e-6 \
+        and c['note'] == note and (expect is None or (abs(span[0] - expect[0]) < 1e-6 and abs(span[1] - expect[1]) < 1e-6))
+    if ok:
+        x, y, w, h = c['rect']
+        ax = (p[0] - fr['x'], p[1] - fr['y'])
+        ok = x - 1 <= ax[0] <= x + w + 1 and y - 1 <= ax[1] <= y + h + 1 and abs((h if o == 'horizontal' else w) - 14) <= 1
+    check(4, f'{o}: 1/{d} at {tp:.3f} s ({desc}): cell {span and f"{span[0]:.3f}–{span[1]:.3f}"} s, MIDI {note}', ok, str(c))
+
+
+def side(sigs):
+    json.dump([dict({'sample': int(round((0.5 + 0.5 * k) * SR)), 'firstBeat': 'auto'},
+                    **({'timeSignature': sigs[k]} if k in sigs else {})) for k in range(38)], open(SIDE, 'w'))
 
 
 if run(4):
     for o in ORIENTATIONS:
+        side({})
         s = session(f'{o}_hover', o)
-        fr = s.state['screenFrames']['main']
-        for tm, cross in [(5.06, 0.5), (5.2, 0.3), (7.49, 0.7), (1.6, 0.45)]:
-            p = main_point(s, tm, cross)
-            s.input(f'move {P(p)}')
-            c = s.state['waveforms']['main']['hoverCell']
-            if o == 'horizontal':
-                local = fr['height'] - (p[1] - fr['y'])
-            else:
-                local = p[0] - fr['x']
-            v0, v1 = s.view()
-            tp = v0 + (v1 - v0) * ((p[0] - fr['x']) / fr['width'] if o == 'horizontal' else (p[1] - fr['y']) / fr['height'])
-            lo, hi, note = expected_cell(s, tp, local)
-            ok = c is not None and abs(c['start'] - lo) < 1e-6 and abs(c['end'] - hi) < 1e-6 and c['note'] == note
-            if ok:
-                x, y, w, h = c['rect']
-                ax = (p[0] - fr['x'], p[1] - fr['y'])
-                inside = x - 1 <= ax[0] <= x + w + 1 and y - 1 <= ax[1] <= y + h + 1
-                ok = inside and abs((h if o == 'horizontal' else w) - 14) <= 1
-            check(4, f'{o}: at {tp:.3f} s: cell {lo:.3f}–{hi:.3f} s, MIDI {note}', ok, str(c))
-            if tm == 5.06:
-                s.snapshot('cell')
+        probe(s, o, 5.06, 0.5, 16, '4/4', (5.0, 5.125))
+        probe(s, o, 7.49, 0.7, 16, '4/4', (7.375, 7.5))
+        s.snapshot('cell16')
+        s.command('grid straight 2')
+        probe(s, o, 5.2, 0.3, 2, 'a half note: two beats', (4.5, 5.5))
+        s.snapshot('cell2')
+        s.command('grid straight 1')
+        probe(s, o, 3.0, 0.45, 1, 'a whole note: the bar', (2.5, 4.5))
+        s.command('grid triplet 6')
+        probe(s, o, 3.0, 0.45, 6, 'triplet 1/6', (2.5 + 2 / 6, 2.5 + 4 / 6))
+        s.command('grid straight 2')
+        s.command('view 10,20'); s.dump()
+        probe(s, o, 18.9, 0.45, 2, 'last bar: cut at the last beat', (18.5, 19.0))
+        s.input(f'move {P(main_point(s, 19.5, 0.5))}')
+        check(4, f'{o}: after the last beat: no cell', s.state['waveforms']['main']['hoverCell'] is None,
+              str(s.state['waveforms']['main']['hoverCell']))
+        s.command('view 0,10'); s.dump()
         s.input(f'move {P(main_point(s, 0.2, 0.5))}')
         check(4, f'{o}: before the first beat: no cell', s.state['waveforms']['main']['hoverCell'] is None,
               str(s.state['waveforms']['main']['hoverCell']))
         s.input(f'move {P(s.at("navigator", 0.5))}')
         check(4, f'{o}: pointer off the spectrogram: no cell', s.state['waveforms']['main']['hoverCell'] is None)
+        s.quit()
+        # 3/4 on beat 2 (1.5 s): 2 pickup beats, then bars of 1.5 s.
+        side({2: '3/4'})
+        s = session(f'{o}_hover34', o)
+        s.command('grid straight 2')
+        probe(s, o, 2.0, 0.5, 2, '3/4: first half note', (1.5, 2.5))
+        probe(s, o, 2.7, 0.5, 2, '3/4: second half note cut at the bar line', (2.5, 3.0))
+        s.command('grid triplet 3')
+        probe(s, o, 1.2, 0.5, 3, 'pickup: counted back from bar 1', (1.5 - 2 / 3, 1.5))
+        probe(s, o, 0.6, 0.5, 3, 'pickup: cut at the first beat', (0.5, 1.5 - 2 / 3))
+        s.command('gridpanel open')
+        s.command('grid straight 8'); s.dump()
+        g8 = [l['time'] for l in s.state['waveforms']['main']['editorLines'] if l['kind'] == 'grid' and l['time'] < 1.5]
+        check(4, f'{o}: 1/8 grid lines also in the pickup', g8 == [0.75, 1.25], str(g8))
+        s.snapshot('pickup_lines')
+        s.command('gridpanel close')
         s.quit()
     s = session('waveform_hover', 'horizontal', mode='waveform')
     s.input(f'move {P(main_point(s, 5.06, 0.5))}')

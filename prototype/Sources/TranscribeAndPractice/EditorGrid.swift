@@ -13,6 +13,8 @@ enum GridConstants {
     static let minSpacing: CGFloat = 6
     /// Core widths (points) of the bar and beat lines; each has a 1-point border on both sides.
     static let barWidth: CGFloat = 3, beatWidth: CGFloat = 1
+    /// Dash length (points) of the alternating grid line style.
+    static let dash: CGFloat = 16
 }
 
 struct EditorLine: Equatable {
@@ -21,10 +23,33 @@ struct EditorLine: Equatable {
     var time: Double
 }
 
-/// Bar lines at the downbeats, beat lines at the other beats, and grid lines every 1/`gridDenominator`
-/// note from each downbeat until the next one (between the first and the last downbeat only). A
-/// beat interval counts as one `beatNote`; inside it, time is interpolated linearly. Grid lines
-/// that fall on a beat are left out. Only lines in `range` are returned.
+/// A stretch of beats the grid divides: from a bar start to the next one (or the last beat), or,
+/// `backward`, the pickup before the first bar start, divided from its end. Beat indices.
+struct GridSegment { var from: Int, to: Int, backward: Bool }
+
+func gridSegments(barStarts: [Bool]) -> [GridSegment] {
+    let bars = barStarts.indices.filter { barStarts[$0] }
+    guard let first = bars.first, let last = barStarts.indices.last else { return [] }
+    var out: [GridSegment] = []
+    if first > 0 { out.append(GridSegment(from: 0, to: first, backward: true)) }
+    for (k, s) in bars.enumerated() {
+        let e = k + 1 < bars.count ? bars[k + 1] : last
+        if e > s { out.append(GridSegment(from: s, to: e, backward: false)) }
+    }
+    return out
+}
+
+/// Time at a fractional beat index (linear inside a beat interval).
+private func beatTime(_ p: Double, _ t: [Double]) -> Double {
+    let i = min(max(Int(p.rounded(.down)), 0), t.count - 2)
+    return t[i] + (p - Double(i)) * (t[i + 1] - t[i])
+}
+
+/// Bar lines at the bar starts, beat lines at the other beats, and grid lines every
+/// 1/`gridDenominator` note: in each bar from its start until the next bar start (the last bar:
+/// until the last beat), and in the pickup before the first bar start counted backwards from
+/// it. A beat interval counts as one `beatNote`; inside it, time is interpolated linearly. Grid
+/// lines that fall on a beat are left out. Only lines in `range` are returned.
 func editorLines(beats: [Beat], barStarts: [Bool], sampleRate fs: Double, gridDenominator: Int?,
                  range: ClosedRange<Double>) -> [EditorLine] {
     guard fs > 0 else { return [] }
@@ -36,23 +61,49 @@ func editorLines(beats: [Beat], barStarts: [Bool], sampleRate fs: Double, gridDe
     if let d = gridDenominator, d > 0 {
         // Step in beats: (1/d) / beatNote.
         let step = Rational(1, d) / BeatConstants.beatNote
-        let bars = beats.indices.filter { barStarts[$0] }
-        for (s, e) in zip(bars, bars.dropFirst()) where t[e] >= range.lowerBound && t[s] <= range.upperBound {
+        for g in gridSegments(barStarts: barStarts) where t[g.to] >= range.lowerBound && t[g.from] <= range.upperBound {
+            let len = Rational(g.to - g.from, 1)
             var k = 1
             while true {
-                let pos = Rational(k * step.num, step.den) // beats from the bar start
-                guard pos < Rational(e - s, 1) else { break }
+                let dist = Rational(k * step.num, step.den) // beats from the counting end
+                guard dist < len else { break }
                 k += 1
+                let pos = g.backward ? len - dist : dist // beats from the segment start
                 if pos.den == 1 { continue } // on a beat
-                let whole = pos.num / pos.den
-                let frac = Double(pos.num - whole * pos.den) / Double(pos.den)
-                let a = t[s + whole], b = t[s + whole + 1]
-                let time = a + frac * (b - a)
+                let time = beatTime(Double(g.from) + Double(pos.num) / Double(pos.den), t)
                 if range.contains(time) { lines.append(EditorLine(kind: .grid, time: time)) }
             }
         }
     }
     return lines.sorted { $0.time < $1.time }
+}
+
+/// The time span of the grid cell containing `time`: one grid step (1/`gridDenominator` note)
+/// counted from the bar start, cut at the next bar start (in the pickup: counted backwards from
+/// the first bar start and cut at the first beat; in the last bar: cut at the last beat). Nil
+/// outside the beats.
+func gridCellSpan(beats: [Beat], barStarts: [Bool], sampleRate fs: Double, gridDenominator d: Int,
+                  time: Double) -> (start: Double, end: Double)? {
+    guard fs > 0, d > 0, beats.count >= 2 else { return nil }
+    let t = beats.map { Double($0.sample) / fs }
+    guard time >= t[0], time < t[t.count - 1],
+          let g = gridSegments(barStarts: barStarts).first(where: { time >= t[$0.from] && time < t[$0.to] }) else { return nil }
+    let r = Rational(1, d) / BeatConstants.beatNote
+    let step = Double(r.num) / Double(r.den)
+    // Fractional beat index of `time`.
+    let i = (g.from..<g.to).last { t[$0] <= time } ?? g.from
+    let p = Double(i) + (time - t[i]) / (t[i + 1] - t[i]) - Double(g.from)
+    let len = Double(g.to - g.from)
+    let eps = 1e-9
+    let a: Double, b: Double
+    if g.backward {
+        let k = ((len - p) / step - eps).rounded(.down)
+        (a, b) = (max(len - (k + 1) * step, 0), len - k * step)
+    } else {
+        let k = (p / step + eps).rounded(.down)
+        (a, b) = (k * step, min((k + 1) * step, len))
+    }
+    return (beatTime(Double(g.from) + a, t), beatTime(Double(g.from) + b, t))
 }
 
 extension WaveformNSView {
@@ -112,13 +163,13 @@ extension WaveformNSView {
     /// The centre of the 1-point column nearest to `a`, for crisp 1-point lines.
     func pixelCentre(_ a: CGFloat) -> CGFloat { (a - 0.5).rounded() + 0.5 }
 
-    /// Grid line style (milestone 13): 1 point wide, alternating 1-point dashes of 50 % black and
-    /// 50 % white, visible on any background.
+    /// Grid line style (milestone 13): 1 point wide, alternating dashes of 50 % black and 50 %
+    /// white, visible on any background.
     func strokeAlternating(_ path: NSBezierPath) {
         guard !path.isEmpty else { return }
         path.lineWidth = 1
-        for (color, phase) in [(NSColor.black, CGFloat(0)), (NSColor.white, CGFloat(1))] {
-            path.setLineDash([1, 1], count: 2, phase: phase)
+        for (color, phase) in [(NSColor.black, CGFloat(0)), (NSColor.white, GridConstants.dash)] {
+            path.setLineDash([GridConstants.dash, GridConstants.dash], count: 2, phase: phase)
             color.withAlphaComponent(0.5).setStroke()
             path.stroke()
         }
@@ -126,25 +177,16 @@ extension WaveformNSView {
 
     // MARK: Hover cell (milestone 13)
 
-    /// The grid cell under a point of the spectrogram: between the nearest division lines (bar,
-    /// beat or grid lines of the current grid, whether drawn or not) before and after the
-    /// pointer's time, and the boundaries (note ± ½) of the note under the pointer. Nil outside
-    /// the divided range or the note range.
+    /// The grid cell under a point of the spectrogram: one grid step in time (`gridCellSpan`) and
+    /// the note under the pointer (note ± ½). Nil outside the beats or the note range.
     func gridCell(at p: CGPoint) -> GridCell? {
         guard isSpectrogram, let state, let audio = state.audio, !state.beats.isEmpty, timeLength > 0 else { return nil }
         let t = state.viewStart + Double(axisPosition(p) / timeLength) * state.viewLength
         let s = state.freqBottom + Double(crossFromLow(p)) / SpectrogramConstants.pointsPerSemitone
         guard s >= 0, s < SpectrogramConstants.rangeSemitones else { return nil }
-        let starts = state.beatPositions.map(\.isBarStart)
-        func bracket(_ range: ClosedRange<Double>) -> (Double, Double)? {
-            let times = editorLines(beats: state.beats, barStarts: starts, sampleRate: audio.sampleRate,
-                                    gridDenominator: state.gridDenominator, range: range).map(\.time)
-            guard let lo = times.last(where: { $0 <= t }), let hi = times.first(where: { $0 > t }) else { return nil }
-            return (lo, hi)
-        }
-        // Near the view first; the whole file if a side has no line there.
-        let near = (state.viewStart - state.viewLength)...(state.viewEnd + state.viewLength)
-        guard let (t0, t1) = bracket(near) ?? bracket(0...state.duration) else { return nil }
+        guard let (t0, t1) = gridCellSpan(beats: state.beats, barStarts: state.beatPositions.map(\.isBarStart),
+                                          sampleRate: audio.sampleRate, gridDenominator: state.gridDenominator, time: t)
+        else { return nil }
         let k = Int(s.rounded(.down))
         return GridCell(start: t0, end: t1, note: SpectrogramConstants.lowestNote + k)
     }
