@@ -33,6 +33,8 @@ final class AppState {
     }
     /// Selected beats (by id) and the last one selected individually (the Shift+click anchor).
     var selectedBeats: Set<Int> = []
+    /// Placed notes (milestone 13, experimental; see Notes.swift).
+    var notes: [Note] = []
     var beatAnchor: Int?
     /// Beeps so far (for the state dump).
     var beepCount = 0
@@ -390,6 +392,7 @@ final class AppState {
             selectedBeats = []
             beatAnchor = nil
             hoveredBeatSample = nil
+            notes = []
             loadBeats(for: loaded)
             loadID += 1
         } catch {

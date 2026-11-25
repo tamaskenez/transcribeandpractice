@@ -26,6 +26,8 @@ final class WaveformNSView: NSView {
         /// Ruler: a plain press. Stopped at the press: the playhead follows the pointer; playing:
         /// playback jumped to the press point and the rest of the drag does nothing.
         case seek(playing: Bool)
+        /// Spectrogram: a plain press in a grid cell; a release without a drag places a note there.
+        case note(GridCell)
         /// Ruler, beats mode: a press on a beat (`pressed`) or, with selected beats, anywhere.
         /// Once it moves, `original` holds the moving beats (the selection, else the pressed
         /// beat) by id with their samples at the press.
@@ -203,6 +205,7 @@ final class WaveformNSView: NSView {
             drawEditorLines()
             drawSelection()
             drawLines()
+            drawNotes()
             drawHoverCell()
             return
         }
@@ -728,8 +731,9 @@ final class WaveformNSView: NSView {
             drag = panDrag(at: p)
         } else if isSpectrogram {
             // Milestone 13: plain presses on the spectrogram leave the playhead, the last start
-            // and the selection alone (only pan and zoom work here).
-            drag = nil
+            // and the selection alone; a click places a note in the hovered grid cell.
+            drag = event.modifierFlags.intersection([.shift, .command, .control]).isEmpty && !underSpectrum(p)
+                ? gridCell(at: p).map { .note($0) } : nil
         } else if isRuler, beatsInteractive, !event.modifierFlags.intersection([.command, .shift]).isEmpty {
             // Command+click toggles a beat, Shift+click adds the range from the anchor.
             if let m = beatMark(at: p) {
@@ -857,6 +861,7 @@ final class WaveformNSView: NSView {
         case let .move(original, pressTime):
             guard dragged else { return }
             state.moveSelection(from: original, by: time(atAxis: axisPosition(p)) - pressTime)
+        case .note: break
         case let .seek(playing):
             if !playing { state.dragPlayhead(to: time(atAxis: clampedAxis(p))) }
         case let .beats(_, original, pressTime):
@@ -878,6 +883,7 @@ final class WaveformNSView: NSView {
         case .lines where isRuler: if !dragged { seek(to: time(atAxis: clampedAxis(p))) }
         case .lines, .move: if !dragged { state.clickedToClear(at: clicked) }
         case .pan, .seek: break
+        case let .note(cell): if !dragged { state.placeNote(in: cell) }
         case let .beats(pressed, _, _):
             // A click without a drag: on a beat selects only it; elsewhere clears the selection
             // and acts as a plain strip press.
@@ -964,7 +970,7 @@ struct WaveformView: NSViewRepresentable {
             _ = (state.mainMode, state.windowLengthMs, state.freqLow, state.spectrogramVersion,
                  state.mainCrossLength, state.mainAxisLength, state.loadID)
             view.reportSize()
-            _ = (state.beats, state.gridDenominator, state.gridPanelOpen)
+            _ = (state.beats, state.gridDenominator, state.gridPanelOpen, state.notes)
         }
         if name == "navigator" { _ = (state.mainMode, state.windowLengthMs) }
         if isRuler { _ = (state.beats, state.selectedBeats, state.showBeats, state.pointer?.fraction, state.pointer?.pane) }

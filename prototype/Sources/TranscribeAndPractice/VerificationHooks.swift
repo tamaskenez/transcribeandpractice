@@ -110,6 +110,7 @@ enum VerificationHooks {
                     case "follow": state.followPlayhead = arg == "on"
                     case "beats": state.showBeats = arg == "on"
                     case "beatkey": state.beatKey(downbeat: arg == "shift")
+                    case "notes": if arg == "clear" { state.notes = [] }
                     case "gridpanel": state.gridPanelOpen = arg == "open"
                     case "grid":
                         let a = arg.split(separator: " ").map(String.init)
@@ -346,6 +347,13 @@ enum VerificationHooks {
         func visit(_ view: NSView) {
             if let w = view as? WaveformNSView, !w.isRuler {
                 let bars = w.columnBars()
+                let placed: [Note] = w.isSpectrogram ? (w.state?.notes ?? []) : []
+                var notes: [[String: Any]] = []
+                for n in placed {
+                    let r = w.rect(of: n) ?? .zero
+                    let rect: [Double] = [r.minX, r.minY, r.width, r.height].map { Double($0) }
+                    notes.append(["midi": n.midi, "start": n.start, "end": n.end, "rect": rect])
+                }
                 result[w.name] = [
                     "size": size(w.bounds.size),
                     "orientation": w.orientation.rawValue,
@@ -363,6 +371,7 @@ enum VerificationHooks {
                     "lastColumnsMs": w.lastColumnsMs ?? NSNull(),
                     "analysisWindow": w.analysisWindowPolylines().map { $0.map { $0.map { [$0.x, $0.y] } } } ?? NSNull(),
                     "editorLines": w.visibleEditorLines().map { ["kind": $0.line.kind.rawValue, "time": $0.line.time, "axis": $0.axis] },
+                    "notes": notes,
                     "dashPhase": w.dashPhase, "dashesMoving": w.dashesMoving,
                     "hoverCell": w.hoverPoint.flatMap(w.gridCell(at:)).map { c -> Any in
                         let r = w.rect(of: c)

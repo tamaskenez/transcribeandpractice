@@ -264,4 +264,44 @@ if run(4):
     check(4, 'waveform mode: no cell', s.state['waveforms']['main']['hoverCell'] is None)
     s.quit()
 
+# 5. Placing notes: a click in a hover cell stores a note at the cell's geometry.
+if run(5):
+    for o in ORIENTATIONS:
+        side({})
+        s = session(f'{o}_notes', o)
+        s.command('grid straight 8')
+        placed = []
+        for tm, cross in [(5.1, 0.5), (5.3, 0.5), (5.1, 0.5 - 14 / 700 if o == 'horizontal' else 0.5 + 14 / 1000),
+                          (6.6, 0.4)]:
+            p = main_point(s, tm, cross)
+            s.input(f'move {P(p)}')
+            cell = s.state['waveforms']['main']['hoverCell']
+            s.input(f'click {P(p)}')
+            notes = s.state['waveforms']['main']['notes']
+            exp = {'midi': cell['note'], 'start': round(cell['start'] * SR), 'end': round(cell['end'] * SR)}
+            got = notes[-1] if notes else None
+            ok = got is not None and len(notes) == len(placed) + 1 and \
+                all(got[k] == exp[k] for k in exp) and lines_state(s) == lines_state(s)
+            check(5, f'{o}: click at {tm} s: note MIDI {exp["midi"]} {exp["start"] / SR:.3f}–{exp["end"] / SR:.3f} s',
+                  ok, f'{got} vs {exp}')
+            placed.append(exp)
+        s.input(f'click {P(main_point(s, 5.1, 0.5))}')
+        check(5, f'{o}: a second click on the same note adds nothing', len(s.state['waveforms']['main']['notes']) == 4)
+        s.input(f'drag {P(main_point(s, 7.1, 0.5))} {P(main_point(s, 7.6, 0.5))}')
+        check(5, f'{o}: a drag places no note', len(s.state['waveforms']['main']['notes']) == 4)
+        s.input(f'click {P(main_point(s, 7.1, 0.5))} option')
+        check(5, f'{o}: option-click places no note', len(s.state['waveforms']['main']['notes']) == 4)
+        rects = [n['rect'] for n in s.state['waveforms']['main']['notes']]
+
+        def overlap(a, b):
+            return a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+        touch_t = rects[0][0] + rects[0][2] == rects[1][0] if o == 'horizontal' else rects[0][1] + rects[0][3] == rects[1][1]
+        touch_p = (rects[2][1] + rects[2][3] == rects[0][1]) if o == 'horizontal' else (rects[0][0] + rects[0][2] == rects[2][0])
+        check(5, f'{o}: neighbouring notes in time and pitch touch without overlapping',
+              touch_t and touch_p and not any(overlap(rects[i], rects[j]) for i in range(4) for j in range(i + 1, 4)),
+              str(rects[:3]))
+        s.input(f'move {P(main_point(s, 8.5, 0.6))}')
+        s.snapshot('placed')
+        s.quit()
+
 print(f'{sum(results)}/{len(results)} passed')
