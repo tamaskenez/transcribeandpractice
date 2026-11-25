@@ -307,22 +307,22 @@ Mouse in the strip (does not change the selection):
 
 Data:
 
-- Each loaded file has a list of beats, sorted by position, at most one per sample. A beat has:
+- Each loaded file has a list of beats, sorted by position, at most one per sample. Every beat is
+  put there by the user; the app never adds beats (milestone 7's computed beats were removed in
+  milestone 12). A beat has:
   - `sample`: its position, a sample frame index of the file (0 ≤ sample < frame count).
-  - `source`: `placed` (put there by the user; the app never changes it) or `computed`
-    (extrapolated by the app from the placed beats; recomputed whenever the placed beats change,
-    from milestone 7).
-  - `timeSignature` (optional): e.g. `4/4`, `3/4`, `6/8`. A beat with one introduces that time
-    signature; a beat without one inherits the previous. Stored only in milestone 6 (used from
-    milestone 7).
-  - `firstBeat`: `no`, `placed` or `computed`. Anything but `no` makes the beat a downbeat (the
-    first beat of a bar): set by the user (`placed`) or by the app (`computed`, from milestone 7).
-- Milestone 6 has no editing. The beats come from a sidecar file next to the audio file: the full
+  - `timeSignature` (optional): e.g. `4/4`, `3/4`, `6/8`. A beat with one changes the time
+    signature there (and starts a bar); a beat without one continues the previous (see "Bars").
+  - `firstBeat` ("beat within bar", from milestone 12): `auto` (the beat's place in its bar is
+    counted) or `start` (the beat starts a bar).
+- The beats come from a sidecar file next to the audio file: the full
   audio file name plus `.beats.json` (`song.mp3` → `song.mp3.beats.json`), read when the audio
   file is opened. Format: a JSON array of objects
-  `{"sample": 44100, "source": "placed", "timeSignature": "3/4", "firstBeat": "no"}`
+  `{"sample": 44100, "timeSignature": "3/4", "firstBeat": "auto"}`
   (`timeSignature` may be left out; other keys are ignored). The entries may come in any order;
-  the app sorts them.
+  the app sorts them. Files from before milestone 12 still load: their `source` is ignored (so
+  their computed beats become ordinary beats), `firstBeat: placed` reads as `start`, `no` and
+  `computed` as `auto`.
 - No sidecar file: the file has no beats. An invalid sidecar file (not JSON, not an array of
   objects, a missing or unknown field value, a malformed time signature, a sample outside the
   file, two beats at the same sample): an alert names the sidecar file and the problem; the audio
@@ -337,21 +337,21 @@ Display (the navigator's marker strip):
   loaded file has no beats (or no file is loaded), the button and the menu item are disabled and
   the strip shows time, but the stored choice is kept.
 - Each beat is drawn at its sample's time, in the same mapping as the time ticks:
-  - Downbeat with a bar number: a big tick (the full strip thickness, like a major time tick)
+  - Bar start with a bar number: a big tick (the full strip thickness, like a major time tick)
     with the bar number as its label (placed like the time labels: right of the tick in
-    horizontal mode, below it in vertical mode). A big tick of a beat with `firstBeat: computed`
-    is dotted.
-  - Other beats: a small tick (as long as a minor time tick) for a placed beat, a dot instead for
-    a computed beat.
-- Bar numbers count the downbeats from the start of the file: the first downbeat is bar 1. Beats
-  before the first downbeat (a pickup) have small ticks or dots and no number.
+    horizontal mode, below it in vertical mode). The big tick is solid at a forced bar start
+    (`firstBeat: start` or a time signature) and dotted at a counted one.
+  - Other beats: a small tick (as long as a minor time tick).
+- Bar numbers come from the bar layout (see "Bars"): bar 1 is the first forced bar start, earlier
+  bars are 0, −1, … The beats of a partial bar at the start of the file have small ticks and no
+  number.
 - Crowding (zoomed out):
-  - Bar numbers are shown on every k-th bar (bars 1, 1 + k, 1 + 2k …), with k the smallest of 1,
+  - Bar numbers are shown on every k-th bar (bars 1, 1 ± k, 1 ± 2k …), with k the smallest of 1,
     2, 4, 8 … at which neighbouring numbered bars in the visible range keep at least 30 points
-    between their labels (as for the time labels). The other downbeats are drawn as other beats
-    (small tick or dot).
-  - Small ticks and dots are drawn for all beats if neighbouring beats in the visible range are at
-    least 4 points apart; otherwise only for the un-numbered downbeats if those are at least
+    between their labels (as for the time labels). The other bar starts are drawn as other beats
+    (small tick).
+  - Small ticks are drawn for all beats if neighbouring beats in the visible range are at
+    least 4 points apart; otherwise only for the un-numbered bar starts if those are at least
     4 points apart; otherwise none.
 - In vertical mode the strip is wide enough for the widest time label and the widest bar number
   of the file.
@@ -366,88 +366,135 @@ Pointer line:
 - It follows the pointer's time also when the view moves under a still pointer (pan, zoom,
   follow), and during drags.
 
-### Placing and editing beats (from milestone 7)
+### Placing and editing beats (from milestone 7, reworked in milestone 12)
 
 Constants (not on the UI yet): `beat_note` = 1/4 (a rational number: the note value BPM refers
-to), `min_reasonable_bpm` = 30, `max_reasonable_bpm` = 240. The minimum distance between placed
-beats is 60 / `max_reasonable_bpm` = 0.25 s.
+to), `max_reasonable_bpm` = 240. The minimum distance between beats is 60 / `max_reasonable_bpm`
+= 0.25 s.
 
 Placing (keyboard; plain B and Shift+B, no Command / Option / Control):
 
-- B places a placed beat (`firstBeat: no`) at the sample under the mouse pointer, while the
+- B places a beat (`firstBeat: auto`) at the sample under the mouse pointer, while the
   pointer is over the navigator waveform, the time-marker strip or the main pane (the pointer
   line's time, rounded to the nearest sample). During playback it uses the playhead instead of
   the pointer (wherever the pointer is).
-- Shift+B does the same with `firstBeat: placed` (a placed downbeat).
+- Shift+B does the same with `firstBeat: start`.
 - Refused, with a system beep and no change: no file loaded; the pointer not over those panes
-  (when stopped); the time outside the file; another placed beat closer than 0.25 s.
-- A new beat at the position of a computed beat replaces it.
+  (when stopped); the time outside the file; another beat closer than 0.25 s.
+- No dialog (milestone 7's time signature dialog for a new first beat is gone: the default is 4/4).
 - Works in both strip modes (the beats are placed even while the strip shows time).
+- Time signatures with a denominator up to 128 are valid.
 
-Time signature dialog:
+Beats in the strip are edited in beats mode while stopped. During playback beat marks can't be
+selected, moved or deleted and there is no beat context menu (the strip behaves as in
+milestone 5).
 
-- When a new beat becomes the first beat of the file (the first beat at all, or placed before
-  all others), a modal dialog asks for its time signature: a numerator text field (digits only,
-  prefilled with 4, at least 1) and a denominator popup (1, 2, 4, 8, 16, 32, 64, 128; 4
-  preselected), with the buttons "Don't set" and "OK". OK sets the new beat's time signature;
-  "Don't set" leaves it without one. The beat is placed either way.
-- During playback the beat is placed at once and the dialog appears when playback stops (once,
-  for the beat that is then first, if it is still first and still has no signature).
-- Time signatures with a denominator up to 128 are valid (the milestone 6 sidecar validation is
-  extended from 64).
+Selection (a list of selected beats, cleared when another file is opened):
 
-Editing in the strip (beats mode, stopped only):
+- A plain click (no drag) on a beat mark (within 4 points along the time axis) selects only that
+  beat. A plain click on the strip away from the beat marks clears the beat selection and acts
+  as a plain strip press (the playhead moves there).
+- ⌘-click on a beat mark toggles it; a beat selected this way (or by a plain click) becomes the
+  anchor.
+- ⇧-click on a beat mark adds all beats from the anchor to that beat (inclusive) to the
+  selection; without an anchor it selects only that beat (and makes it the anchor).
+- Escape clears the beat selection (if there is one; otherwise it clears the time selection as
+  before).
+- Beats in a range are selected even where crowding hides their marks.
+- Selected beats are drawn in the strip only: a 3-point line in the accent colour with a 1-point
+  white border on both sides, across the strip, also where crowding hides their marks (dark mode;
+  light-mode colours later).
 
-- Hovering a drawn beat mark in the strip (within 4 points along the time axis) shows the open
-  hand cursor (closed while dragging). This takes precedence over the last-start line's grab and
-  the plain strip press there.
-- Dragging moves the beat: it stays at least 0.25 s from the neighbouring placed beats (it can't
-  pass them), within the file and the visible range. The computed beats are recomputed live
-  while dragging. A computed beat that is dragged becomes a placed beat. `firstBeat` and
-  `timeSignature` are not changed by dragging (the order of placed beats can't change, so the
-  signature stays where it was).
-- A click without a drag on a beat mark acts as a plain strip press (the playhead moves there).
-- Backspace deletes the hovered placed beat (no click needed). Computed beats can't be deleted
-  (beep). A deleted beat's time signature moves to the next placed beat after it (the first
-  placed beat when the deleted beat was the first), unless that beat has its own.
-- During playback beat marks can't be grabbed or deleted (the strip behaves as in milestone 5).
+Cursor and moving:
 
-Recomputation, after every change of the placed beats (place, drag, delete): delete all computed
-beats, set every `firstBeat: computed` to `no`, then:
+- No beats selected: over a beat mark the cursor is the left-right resize arrow (up-down in
+  vertical mode), also while dragging; dragging the beat moves only that beat. This takes
+  precedence over the last-start line's grab there.
+- Beats selected: anywhere in the strip the cursor is an open hand (closed while dragging); a
+  drag starting anywhere in the strip moves all selected beats by the same amount (the pointer's
+  time change). The last-start line can't be grabbed in the strip then.
+- A move is limited so that no moving beat comes closer than 0.25 s to a beat that doesn't move
+  (the order of the beats never changes, also with unselected beats between selected ones), and
+  no beat leaves the file. It is not limited to the visible range (selected beats may be off
+  screen). `firstBeat` and `timeSignature` move with their beats.
+- The bars are recomputed live while dragging; the result is saved on release.
 
-```
-If there are fewer than 2 placed beats, stop here.
-current_bpm = none
-for each pair of adjacent placed beats (b1, b2):
-    if current_bpm is not none:
-        insert N computed beats between b1 and b2, evenly spaced; N ≥ 0 minimizes
-        abs(log(current_bpm / result_bpm)) with result_bpm = (N + 1) · 60 / (time(b2) − time(b1))
-        (ties: the smaller N)
-        current_bpm = result_bpm
-    else:
-        result_bpm = 60 / (time(b2) − time(b1))
-        if result_bpm ≥ min_reasonable_bpm: current_bpm = result_bpm
-if current_bpm is not none:
-    insert computed beats after the last placed beat, every 60 / current_bpm s, up to the end of
-    the file
-current_time_signature = none
-beat_in_bar = 1
-for each beat (computed and placed) in order:
-    if beat.timeSignature: current_time_signature = beat.timeSignature
-    if current_time_signature is none: continue
-    if beat.firstBeat == placed: beat_in_bar = 1
-    elif beat_in_bar == 1: beat.firstBeat = computed
-    beat_in_bar = beat_in_bar mod beats_per_bar + 1
-```
+Deleting:
 
-`beats_per_bar` = ⌈time signature ÷ `beat_note`⌉, computed with exact fractions (4/4 → 4, 3/4 →
-3, 6/8 → 3, 5/8 → 3, 7/8 → 4). Computed beat positions are rounded to the nearest sample. Beats
-loaded from a sidecar file are shown as stored (no recomputation until the first change).
+- Backspace deletes the selected beats; without a selection, the beat whose mark is under the
+  pointer (no click needed).
+- A deleted beat's time signature is dropped (the following bars inherit the previous one).
 
-Saving: after every change (on release for a drag) the beats, placed and computed, are written
-to the sidecar file (milestone 6 format, `timeSignature` left out when absent), replacing it
-atomically. If writing fails, an alert ("Could not save beats") names the file and the reason;
-the beats stay in memory.
+Context menu (right-click):
+
+- Right-click on a beat mark that is not selected selects only that beat; with beats selected, a
+  right-click anywhere in the strip opens the menu for the selection. Without a selection (and
+  not on a beat mark) there is no menu.
+- One beat selected:
+  - Section "Beat within bar", two mutually exclusive items (the current one checked):
+    "Auto (<n>)", where <n> is the ordinal (1st, 2nd, 3rd, 4th … 11th, 12th, 13th, 21st …) the
+    beat would have in its bar if it were `auto`, and "Start bar (1st)". They set `firstBeat`.
+    A beat with a time signature starts a bar either way, so its Auto item reads "Auto (1st)".
+  - "Time signature…" (opens the dialog below).
+  - "Delete".
+- Several beats selected:
+  - "Subdivide…" (opens the dialog below; disabled unless two neighbouring beats are both
+    selected).
+  - "Equalize beats within bars" (disabled unless it would change something, see below).
+  - "Delete".
+
+Time signature dialog (modal sheet): a popup "Continue" / "Change", a numerator text field
+(digits only) and a denominator popup (1, 2, 4 … 128), Cancel and OK.
+
+- Prefilled with the beat's own time signature and "Change" if it has one; otherwise with the
+  inherited one (the signature in effect at the beat if it set none) and "Continue".
+- Switching to "Continue" resets the fields to the inherited signature. Changing the numerator
+  or the denominator while on "Continue" switches to "Change" (if the value differs from the
+  inherited one).
+- OK with "Change" (numerator ≥ 1, otherwise OK is disabled) sets the beat's time signature (the
+  beat then starts a bar); OK with "Continue" removes it. Cancel changes nothing.
+
+Subdivide dialog (modal sheet): "Split each gap into [n] parts", the allowed range, Cancel and OK.
+
+- A gap is two neighbouring beats (no beat between them) that are both selected. Each gap
+  becomes n equal gaps: n − 1 new beats (`firstBeat: auto`, not selected) evenly spaced in it,
+  rounded to the nearest sample. Bars are not considered (a bar may then be cut short, see
+  "Bars").
+- n is 2 or more and at most the largest value keeping the new beats 0.25 s apart in every gap
+  (shown in the dialog; OK disabled outside the range).
+
+Equalize beats within bars: selected beats that don't start a bar are ignored. For every bar
+whose start and the next bar start are both selected, the beats between the two are moved to
+equal spacing (rounded to the nearest sample); the bar starts stay.
+
+Saving: after every change (on release for a drag) the beats are written to the sidecar file
+(format above: `sample`, `firstBeat` `auto` / `start`, `timeSignature` left out when absent),
+replacing it atomically. If writing fails, an alert ("Could not save beats") names the file and
+the reason; the beats stay in memory.
+
+### Bars (from milestone 12)
+
+The bar layout is computed from the beats whenever they change (it is not stored).
+
+- A forced bar start is a beat with `firstBeat: start` or with a time signature.
+- The default time signature is 4/4. `beats_per_bar` of a signature = ⌈signature ÷ `beat_note`⌉,
+  with exact fractions (4/4 → 4, 3/4 → 3, 6/8 → 3, 5/8 → 3, 7/8 → 4).
+- Bar 1 starts at the first forced bar start, or at the first beat if there is none. Its time
+  signature is the one set there, else 4/4.
+- Beats before bar 1 are counted backwards in bar 1's signature: the beat just before it is the
+  last beat of bar 0, and so on (bars 0, −1, …); the earliest bar may be partial (its first
+  beats missing), and then it has no bar start.
+- From bar 1 on, each bar starts at a beat with the signature set there or, if none, the previous
+  bar's. It lasts `beats_per_bar` beats, but ends early at the next forced bar start. The next bar
+  starts after it (at the forced start, or counted: an automatic bar start).
+- Effective time signature (per bar, computed on demand; to be displayed later): the bar's
+  signature, or, for a bar cut short to k beats, k · `beat_note` written in the signature's
+  denominator if that is exact (6/8 cut to 2 beats → 4/8; 4/4 cut to 1 beat → 1/4), else in the
+  `beat_note`'s (2/2 cut to 1 beat → 1/4). Inherited signatures continue from the bar's own
+  signature, not from the effective one. A bar cut off by the end of the beats keeps its
+  signature.
+- Example: two 4/4 bars, each starting with `firstBeat: start`; subdividing a gap in the first
+  gives a 4/4 bar, a 1/4 bar, and the second 4/4 bar.
 
 ### Spectrogram (from milestone 8)
 
@@ -585,16 +632,16 @@ frequency axis in spectrogram mode), spanning the whole pane.
 
 Which lines:
 
-- Bar lines at the downbeats (`firstBeat` placed or computed), beat lines at the other beats
-  (placed or computed, drawn alike). Both in waveform and spectrogram mode, independent of the
+- Bar lines at the bar starts (forced or counted, see "Bars"; before milestone 12: the downbeats),
+  beat lines at the other beats. Both in waveform and spectrogram mode, independent of the
   Show Beats toggle. Not in the navigator.
 - Grid lines only in spectrogram mode, and only while the Grid lines checkbox is on. From each
-  downbeat to the next one (so only between the first and the last downbeat of the file: no grid
-  in a pickup, after the last downbeat, or in a file without downbeats), a line every grid step,
+  bar start to the next one (so only between the first and the last bar start of the file: no
+  grid in a partial first bar or after the last bar start), a line every grid step,
   1/n of a whole note (the Grid value), from the bar start until it reaches or passes the next
-  downbeat. Grid lines that fall exactly on a beat are left out (the beat or bar line is there).
+  bar start. Grid lines that fall exactly on a beat are left out (the beat or bar line is there).
 - Grid timing, piecewise through the beats: each beat interval counts as one `beat_note` (1/4).
-  A grid line at musical position p beats after the bar's downbeat (p = k · (1/n) / `beat_note`,
+  A grid line at musical position p beats after the bar start (p = k · (1/n) / `beat_note`,
   k = 1, 2, …, exact fractions) lies in the interval from beat ⌊p⌋ to beat ⌊p⌋ + 1 of the bar,
   at the fraction p − ⌊p⌋ of it (linear in time). So the grid follows tempo changes and a bar
   whose last beat is short (5/8 has 3 beats) still gets a grid over all its beats.
@@ -699,7 +746,17 @@ navigator's analysis window polyline (shown, points), and the zoom axis chosen f
 ⌘-scroll gesture. From milestone 11 on, also: each waveform pane's dump has `editorLines`, the
 drawn bar, beat and grid lines (kind, time, axis position), and the dump adds the grid settings
 (checkbox, kind, each kind's value, the current n); commands `gridlines on|off` and
-`grid straight|triplet|tuplet [n]` set them through the control's code paths. From milestone 10 on, also: each waveform pane's dump has `columns` instead of
+`grid straight|triplet|tuplet [n]` set them through the control's code paths. From milestone 12 on,
+also: each dumped beat has its bar number, beat in bar, signature in effect, effective signature
+(bar starts) and whether it is selected; the dump adds the selected beat indices, the anchor,
+the beat context menu as it would open now (title, enabled, checked, separator, section header),
+the axis positions of the drawn selected beats, the open beat dialog, the time signature
+dialog's fields (change, inherited, numerator, denominator, OK enabled) and the subdivide
+dialog's (text, maximum, OK enabled), and the strip's beat marks carry their samples; commands
+`beatsel <i,j,…>|none` (selection by index, the last one the anchor), `beatmenu <title>` (runs a
+menu item's action), `tsdialog ok|cancel|mode change|continue|numerator <n>|denominator <d>`
+and `subdivide <n>|ok|cancel` (through the dialogs' code paths). Milestone 7's `tsdialog
+<n>/<d>|dontset` is gone. From milestone 10 on, also: each waveform pane's dump has `columns` instead of
 `points`: per drawn column its index j, the min, max and rms (before the amplitude zoom), and the
 drawn extents of the min/max bar and of the RMS span (whose endpoints are the marks) across the
 time axis (pane coordinates, after the zoom
@@ -838,7 +895,8 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
   input driver's `key` command accepts `b` and modifiers (for ⌘B).
 - (Milestone 7) Beat grab distance in the strip: 4 points, like the lines. Where a beat mark and
   the last-start line are both in reach, the beat wins.
-- Beat cursor: open hand, closed hand while dragging.
+- Beat cursor: open hand, closed hand while dragging (milestone 12: resize arrows over a beat,
+  open / closed hand with a selection).
 - Placing at the pointer uses the pointer line's time (the pane's mapping), so B over the main
   pane and over the navigator at the same axis position gives the same sample.
 - (Milestone 8) Points per semitone: 14 in both orientations (a 10-point "A4" is about 13 points
@@ -881,3 +939,13 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
   fractions decide whether a grid line falls on a beat.
 - The crowding threshold (6 points) and the line widths and dash pattern are constants in
   `GridConstants`.
+- (Milestone 12) Beat data: `firstBeat` is `auto` / `start` (an enum `Beat.Bar`); everything else
+  about bars is computed on demand (`barLayout`) and kept next to the beats in the app state.
+  Beats carry an in-memory id (not saved) so the selection survives moves.
+- A time signature change makes its beat a bar start without changing `firstBeat`, so removing
+  the signature ("Continue") gives the beat back its earlier `auto` / `start` choice.
+- Context menu items are chosen in the verification with the keyboard (Down, Return): pressing
+  them through Accessibility reports success but doesn't run them. The menu sends its action
+  after its fade-out, so the script waits 0.5 s before the dump. The input driver gained
+  `rclick x y`.
+- The cursor dump knows `resizeLeftRight` / `resizeUpDown`.

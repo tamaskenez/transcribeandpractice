@@ -927,15 +927,72 @@ for the human check: `*_look_*.png` and the open panel, `panel_*.png`.
 
 ## 12. New bar/beat logic
 
-Iterative; the requirements are worked out step by step.
+Iterative; the requirements were worked out step by step (details: the spec, "Beat markers",
+"Placing and editing beats", "Bars", "Editor grid").
 
-Step 1 (done): no automatic beat computation (no interpolated or extrapolated beats); beats have
-no `source` field, every beat is a placed beat (drag, delete and the minimum distance apply to all
-beats). `firstBeat` keeps `no` / `placed` / `computed`: computed downbeats still follow the time
-signature. Old sidecar files load with their `source` ignored, so their computed beats become
-ordinary beats.
+1. No automatic beat computation: no interpolated or extrapolated beats, no `source` field;
+   every beat is the user's (drag, delete and the minimum distance apply to all beats).
+2. Selectable beats: plain click (only this beat), ⌘-click (toggle), ⇧-click (range from the
+   anchor), Escape; selected beats drawn in the strip (3-point accent line, white borders).
+   Cursor: resize arrows over a beat, an open hand anywhere in the strip with a selection;
+   dragging moves all selected beats together without changing the beat order.
+3. Context menu: one beat — "Beat within bar" (Auto (<n>) / Start bar (1st)), "Time
+   signature…" (Continue / Change dialog), Delete; several beats — "Subdivide…", "Equalize beats
+   within bars", Delete.
+4. Bars: default 4/4, no time signature dialog when placing; `firstBeat` is `auto` / `start`; a
+   time signature change starts a bar; bars count from the first forced bar start (bar 1),
+   backwards before it (0, −1, …) in its signature; a bar ends early at the next forced bar start
+   (effective time signature).
 
-Status: `in progress`
+Status: `criteria proposed`
+
+Acceptance criteria:
+
+Only the milestone 12 checks are run (`verify_m12.py`); earlier milestones are not re-verified
+(their scripts write `source` / `placed` / `computed` sidecars and expect computed beats).
+Test audio: a generated 20 s noise WAV (44.1 kHz) with generated sidecar files, mostly 38 evenly
+spaced beats (0.5 s apart). The reference bar layout is a Python implementation of the spec's
+"Bars" rules. Mouse input uses the synthetic-event driver; checks marked "both" run in both
+orientations.
+
+1. Builds. (CLI)
+2. File format and bars: an old-format sidecar (`source`, `firstBeat` placed / computed / no)
+   loads without an alert, `placed` → `start`, the rest → `auto`; after a change the saved file
+   has no `source` and only `auto` / `start`. The dumped bar numbers, beats in bar and effective
+   signatures match the reference for: no forced bar start (4/4 from the first beat); pickup
+   beats before a start bar (bar 0, beats 3, 4); 7 beats before a 3/4 change (bars −2 partial,
+   −1, 0); 4/4 with a start bar after 5 beats (4/4, 1/4, 4/4); 6/8 cut to 2 beats (4/8); 2/2 cut
+   to 1 beat (1/4) then 3/4; 7/8 then 5/4. (dump + Python reference)
+3. Mouse, both: the cursor is the resize arrow over a beat and the arrow elsewhere (no
+   selection), an open hand anywhere in the strip with a selection; click selects only the beat;
+   ⌘-click adds / removes; ⇧-click adds the range from the anchor (also after a ⌘-click); the
+   selected beats are drawn. A drag from the empty strip moves exactly the selected beats by one
+   amount (≈ the pointer's time change) and saves; a long drag in either direction stops at
+   0.25 s from an unselected neighbour, the order unchanged, also with unselected beats between
+   selected ones; a click on the empty strip clears the selection; without a selection a drag
+   moves only the grabbed beat; Escape clears; Backspace deletes the selected beats.
+   (synthetic events + dump)
+4. Context menu, both: a right-click on an unselected beat selects it and opens the single-beat
+   menu (section header, Auto (<n>) with the right ordinal, Start bar (1st), Time signature…,
+   Delete; the current choice checked); choosing "Start bar (1st)" (keyboard) makes it a bar
+   start, the earlier beats become pickup bars, and it is saved; with several beats selected a
+   right-click on the empty strip opens the multi-beat menu (Subdivide…, Equalize beats within
+   bars, Delete) and Delete removes them. (synthetic events + dump)
+5. Time signature dialog: opens prefilled with the inherited 4/4 and "Continue"; editing the
+   numerator or the denominator switches to "Change"; "Continue" resets to the inherited value;
+   OK sets the signature (the beat starts a bar, the layout matches the reference, saved) and
+   the menu then shows "Auto (1st)"; reopened it shows "Change" with the beat's own signature;
+   "Continue" + OK removes it; Cancel changes nothing; a later beat inherits an earlier change.
+   (hook commands through the dialog's code paths + dump)
+6. Subdivide and Equalize: Subdivide's maximum n keeps 0.25 s (OK disabled above it); n = 2
+   inserts one beat in the middle of each gap between neighbouring selected beats; Equalize
+   evens out exactly the bars whose start and next start are both selected (bar starts and other
+   bars unchanged); Subdivide is disabled without neighbouring selected beats, Equalize without
+   a selected pair of bar starts. (hook commands + dump)
+7. B / ⇧B place `auto` / `start` beats without any dialog. (synthetic events + dump)
+8. Appearance (dark mode): the selected beats in the strip, both orientations; the single- and
+   multi-beat menus; the time signature and subdivide dialogs. (screenshots, checked by the
+   human)
 
 ## Fine-tuning (to do later)
 
