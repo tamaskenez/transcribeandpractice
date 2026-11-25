@@ -140,10 +140,29 @@ enum VerificationHooks {
                         let a = arg.split(separator: " ", maxSplits: 1).map(String.init)
                         switch a.first ?? "" {
                         case "ok": state.answerTimeSignatureDialog(ok: true)
-                        case "dontset": state.answerTimeSignatureDialog(ok: false)
-                        case "numerator": state.timeSignatureNumerator = a.count > 1 ? a[1] : ""
-                        case "denominator": if a.count > 1, let d = Int(a[1]) { state.timeSignatureDenominator = d }
+                        case "cancel": state.answerTimeSignatureDialog(ok: false)
+                        case "mode": state.tsChange = a.count > 1 && a[1] == "change"
+                        case "numerator": state.tsNumerator = a.count > 1 ? a[1] : ""
+                        case "denominator": if a.count > 1, let d = Int(a[1]) { state.tsDenominator = d }
                         default: break
+                        }
+                    case "subdivide":
+                        switch arg {
+                        case "ok": state.answerSubdivideDialog(ok: true)
+                        case "cancel": state.answerSubdivideDialog(ok: false)
+                        default: state.subdivideText = arg
+                        }
+                    case "beatsel":
+                        // Beat indices, comma-separated ("none" clears); the last one is the anchor.
+                        state.clearBeatSelection()
+                        for i in arg.split(separator: ",").compactMap({ Int($0) }) where state.beats.indices.contains(i) {
+                            state.toggleBeat(id: state.beats[i].id)
+                        }
+                    case "beatmenu":
+                        // Runs the beat context menu item with this title.
+                        if let item = allViews().compactMap({ $0 as? WaveformNSView }).first(where: { $0.isRuler })?
+                            .beatMenu()?.items.first(where: { $0.title == arg }), item.isEnabled, let action = item.action {
+                            NSApp.sendAction(action, to: item.target, from: item)
                         }
                     case "record":
                         if arg == "stop" {
@@ -184,16 +203,27 @@ enum VerificationHooks {
             "windowCount": NSApp.windows.filter { $0.isVisible && $0.sheetParent == nil }.count,
             "alertText": state.errorMessage ?? NSNull(),
             "alertTitle": state.errorMessage == nil ? NSNull() : state.errorTitle as Any,
-            "beats": state.beats.map { b -> [String: Any] in
-                ["sample": b.sample, "timeSignature": b.timeSignature ?? NSNull(),
-                 "firstBeat": b.firstBeat.rawValue]
+            "beats": zip(state.beats, state.beatPositions).map { b, p -> [String: Any] in
+                ["sample": b.sample, "timeSignature": b.timeSignature ?? NSNull(), "firstBeat": b.bar.rawValue,
+                 "barNumber": p.bar, "beatInBar": p.beatInBar, "signature": p.signature.description,
+                 "effective": p.effective?.description ?? NSNull(), "selected": state.selectedBeats.contains(b.id)]
             },
+            "selectedBeats": state.selectedBeatIndices,
+            "beatAnchor": state.beatAnchor.flatMap { a in state.beats.firstIndex { $0.id == a } } ?? NSNull(),
+            "beatMenu": (allViews().compactMap { $0 as? WaveformNSView }.first { $0.isRuler }?.beatMenu()?.items ?? [])
+                .map { ["title": $0.title, "enabled": $0.isEnabled, "checked": $0.state == .on,
+                        "separator": $0.isSeparatorItem, "header": $0.isSectionHeader] },
+            "selectedBeatAxes": (allViews().compactMap { $0 as? WaveformNSView }.first { $0.isRuler }?.selectedBeatAxes() ?? [])
+                .map { Double($0) },
             "beepCount": state.beepCount,
             "hoveredBeat": state.hoveredBeatSample ?? NSNull(),
-            "timeSignatureDialog": ["shown": state.timeSignatureDialogShown, "pending": state.timeSignatureDialogPending,
-                                    "numerator": state.timeSignatureNumerator, "denominator": state.timeSignatureDenominator,
-                                    "okEnabled": state.timeSignatureDialogValid, "denominatorOptions": timeSignatureDenominators,
+            "beatDialog": state.beatDialog.map { d -> String in if case .subdivide = d { "subdivide" } else { "timeSignature" } } ?? NSNull(),
+            "timeSignatureDialog": ["change": state.tsChange, "inherited": state.tsInherited.description,
+                                    "numerator": state.tsNumerator, "denominator": state.tsDenominator,
+                                    "okEnabled": state.tsDialogValid, "denominatorOptions": timeSignatureDenominators,
                                     "sheetVisible": mainWindow?.attachedSheet?.isVisible ?? false] as [String: Any],
+            "subdivideDialog": ["text": state.subdivideText, "max": state.maxSubdivision,
+                                "okEnabled": state.subdivideValue != nil] as [String: Any],
             "beatConstants": ["beatNote": BeatConstants.beatNote.description, "maxReasonableBPM": BeatConstants.maxReasonableBPM],
             "showBeats": ["stored": state.showBeats, "enabled": state.beatsAvailable, "on": state.stripShowsBeats],
             "allWindows": NSApp.windows.map { "\($0.className) visible=\($0.isVisible) title=\($0.title)" },

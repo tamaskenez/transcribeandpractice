@@ -27,17 +27,18 @@ struct EditorLine: Equatable {
 /// note from each downbeat until the next one (between the first and the last downbeat only). A
 /// beat interval counts as one `beatNote`; inside it, time is interpolated linearly. Grid lines
 /// that fall on a beat are left out. Only lines in `range` are returned.
-func editorLines(beats: [Beat], sampleRate fs: Double, gridDenominator: Int?, range: ClosedRange<Double>) -> [EditorLine] {
+func editorLines(beats: [Beat], barStarts: [Bool], sampleRate fs: Double, gridDenominator: Int?,
+                 range: ClosedRange<Double>) -> [EditorLine] {
     guard fs > 0 else { return [] }
     let t = beats.map { Double($0.sample) / fs }
     var lines: [EditorLine] = []
-    for (i, b) in beats.enumerated() where range.contains(t[i]) {
-        lines.append(EditorLine(kind: b.isDownbeat ? .bar : .beat, time: t[i]))
+    for i in beats.indices where range.contains(t[i]) {
+        lines.append(EditorLine(kind: barStarts[i] ? .bar : .beat, time: t[i]))
     }
     if let d = gridDenominator, d > 0 {
         // Step in beats: (1/d) / beatNote.
         let step = Rational(1, d) / BeatConstants.beatNote
-        let bars = beats.indices.filter { beats[$0].isDownbeat }
+        let bars = beats.indices.filter { barStarts[$0] }
         for (s, e) in zip(bars, bars.dropFirst()) where t[e] >= range.lowerBound && t[s] <= range.upperBound {
             var k = 1
             while true {
@@ -62,7 +63,7 @@ extension WaveformNSView {
     func visibleEditorLines() -> [(line: EditorLine, axis: CGFloat)] {
         guard name == "main", let state, let audio = state.audio, !state.beats.isEmpty, state.viewLength > 0 else { return [] }
         let len = orientation == .horizontal ? bounds.width : bounds.height
-        let all = editorLines(beats: state.beats, sampleRate: audio.sampleRate,
+        let all = editorLines(beats: state.beats, barStarts: state.beatPositions.map(\.isBarStart), sampleRate: audio.sampleRate,
                               gridDenominator: isSpectrogram && state.gridLinesShown ? state.gridDenominator : nil,
                               range: state.viewStart...state.viewEnd)
         func axis(_ t: Double) -> CGFloat { CGFloat((t - state.viewStart) / state.viewLength) * len }

@@ -2,15 +2,29 @@ import Foundation
 
 /// A beat marker (see the spec, "Beat markers").
 struct Beat: Equatable {
-    enum FirstBeat: String { case no, placed, computed }
+    /// "Beat within bar": `auto` counts from the bar start before it; `start` forces a bar start.
+    enum Bar: String { case auto, start }
 
+    /// Identity for the selection (not stored in the file).
+    let id: Int
     /// Sample frame index in the file.
     var sample: Int
-    /// e.g. "3/4"; nil inherits the previous beat's.
+    /// e.g. "3/4": a time signature change here (nil: continue the previous one).
     var timeSignature: String?
-    var firstBeat: FirstBeat
+    var bar: Bar
 
-    var isDownbeat: Bool { firstBeat != .no }
+    init(sample: Int, timeSignature: String? = nil, bar: Bar = .auto) {
+        id = Beat.makeID()
+        self.sample = sample
+        self.timeSignature = timeSignature
+        self.bar = bar
+    }
+
+    /// A forced bar start: set to `start` or changing the time signature.
+    var forcesBarStart: Bool { bar == .start || timeSignature != nil }
+
+    nonisolated(unsafe) private static var lastID = 0
+    private static func makeID() -> Int { lastID += 1; return lastID }
 }
 
 struct BeatFileError: LocalizedError {
@@ -51,9 +65,13 @@ enum BeatFile {
             guard sample >= 0, sample < frameCount else {
                 throw BeatFileError(message: "\(n): sample \(sample) is outside the file (0 … \(frameCount - 1)).")
             }
+            // Older files: "placed" was a forced bar start; "no" and "computed" count automatically.
             guard let rawFirst = e["firstBeat"] else { throw BeatFileError(message: "\(n): “firstBeat” is missing.") }
-            guard let f = rawFirst as? String, let firstBeat = Beat.FirstBeat(rawValue: f) else {
-                throw BeatFileError(message: "\(n): “firstBeat” must be “no”, “placed” or “computed”.")
+            let bar: Beat.Bar
+            switch rawFirst as? String {
+            case "auto", "no", "computed": bar = .auto
+            case "start", "placed": bar = .start
+            default: throw BeatFileError(message: "\(n): “firstBeat” must be “auto” or “start”.")
             }
             var timeSignature: String?
             if let rawTS = e["timeSignature"], !(rawTS is NSNull) {
@@ -62,7 +80,7 @@ enum BeatFile {
                 }
                 timeSignature = ts
             }
-            beats.append(Beat(sample: sample, timeSignature: timeSignature, firstBeat: firstBeat))
+            beats.append(Beat(sample: sample, timeSignature: timeSignature, bar: bar))
         }
         beats.sort { $0.sample < $1.sample }
         for (a, b) in zip(beats, beats.dropFirst()) where a.sample == b.sample {
@@ -126,32 +144,95 @@ enum BeatConstants {
 /// for the non-negative positions here).
 @inline(__always) func roundSample(_ x: Double) -> Int { Int((x + 0.5).rounded(.down)) }
 
-/// Recomputes the computed downbeats: from the first beat with a time signature on, every
-/// (signature / beatNote)-th beat (rounded up) after a placed downbeat is a computed downbeat.
-func recomputeBars(_ beats: [Beat]) -> [Beat] {
-    var out = beats
-    var signature: Rational?
-    var beatInBar = 1
-    for i in out.indices {
-        if out[i].firstBeat == .computed { out[i].firstBeat = .no }
-        if let ts = out[i].timeSignature { signature = Rational(ts) }
-        guard let sig = signature else { continue }
-        let perBar = Swift.max((sig / BeatConstants.beatNote).ceil, 1)
-        if out[i].firstBeat == .placed {
-            beatInBar = 1
-        } else if beatInBar == 1 {
-            out[i].firstBeat = .computed
+/// A time signature, kept as written (4/4 is not 1/1).
+struct TimeSignature: Equatable, CustomStringConvertible {
+    var num: Int
+    var den: Int
+    static let standard = TimeSignature(num: 4, den: 4)
+
+    init(num: Int, den: Int) { self.num = num; self.den = den }
+    init?(_ s: String?) {
+        guard let s, BeatFile.isValidTimeSignature(s) else { return nil }
+        let p = s.split(separator: "/")
+        num = Int(p[0])!; den = Int(p[1])!
+    }
+
+    var description: String { "\(num)/\(den)" }
+    /// Beats (of `BeatConstants.beatNote`) in a bar, rounded up.
+    var beatsPerBar: Int { Swift.max((Rational(num, den) / BeatConstants.beatNote).ceil, 1) }
+
+    /// A bar of `k` beats, in this signature's denominator if that is exact (6/8 cut to 2 beats:
+    /// 4/8), otherwise in the beat note (2/2 cut to 1 beat: 1/4).
+    func truncated(toBeats k: Int) -> TimeSignature {
+        let bn = BeatConstants.beatNote
+        if (k * bn.num * den) % bn.den == 0 { return TimeSignature(num: k * bn.num * den / bn.den, den: den) }
+        return TimeSignature(num: k * bn.num, den: bn.den)
+    }
+}
+
+/// Where a beat is in the bars (see the spec, "Bars").
+struct BeatPosition: Equatable {
+    /// Bar number: the first forced bar start is bar 1, earlier bars are 0, −1, …
+    var bar: Int
+    /// 1-based beat within the bar.
+    var beatInBar: Int
+    /// The time signature in effect (set or inherited).
+    var signature: TimeSignature
+    /// At a bar start: the bar's effective signature (shortened when the next forced bar start
+    /// comes early); nil elsewhere.
+    var effective: TimeSignature?
+
+    var isBarStart: Bool { beatInBar == 1 }
+}
+
+/// Bars of `beats` (sorted): the default signature is 4/4. Counting starts at the first forced bar
+/// start (the first beat if there is none), which is bar 1; its signature (set there, else 4/4)
+/// also counts the beats before it, backwards (bars 0, −1, …). From there on each bar lasts its
+/// signature's beats per bar, but ends early at the next forced bar start.
+func barLayout(_ beats: [Beat]) -> [BeatPosition] {
+    let n = beats.count
+    guard n > 0 else { return [] }
+    let forced = beats.indices.filter { beats[$0].forcesBarStart }
+    let first = forced.first ?? 0
+    var sig = TimeSignature(beats[first].timeSignature) ?? .standard
+    var out = [BeatPosition](repeating: BeatPosition(bar: 1, beatInBar: 1, signature: sig), count: n)
+    let p0 = sig.beatsPerBar
+    for j in 0..<first {
+        let d = first - j - 1 // beats between j and the first bar start
+        let beatInBar = p0 - d % p0
+        out[j] = BeatPosition(bar: -(d / p0), beatInBar: beatInBar, signature: sig,
+                              effective: beatInBar == 1 ? sig : nil)
+    }
+    var nextForced = forced.makeIterator()
+    var nf = nextForced.next() // the next forced bar start at or after i
+    var i = first, bar = 1
+    while i < n {
+        if let ts = TimeSignature(beats[i].timeSignature) { sig = ts }
+        while let f = nf, f <= i { nf = nextForced.next() }
+        let p = sig.beatsPerBar
+        let cut = nf.map { $0 < i + p } ?? false
+        let end = Swift.min(cut ? nf! : i + p, n)
+        let effective = cut ? sig.truncated(toBeats: end - i) : sig
+        for m in i..<end {
+            out[m] = BeatPosition(bar: bar, beatInBar: m - i + 1, signature: sig, effective: m == i ? effective : nil)
         }
-        beatInBar = beatInBar % perBar + 1
+        bar += 1
+        i = end
     }
     return out
+}
+
+/// "1st", "2nd", "3rd", "4th", … "11th", "21st".
+func ordinal(_ n: Int) -> String {
+    let suffix = (11...13).contains(n % 100) ? "th" : [1: "st", 2: "nd", 3: "rd"][n % 10] ?? "th"
+    return "\(n)\(suffix)"
 }
 
 extension BeatFile {
     /// The sidecar's JSON for `beats` (`timeSignature` left out when absent).
     static func encode(_ beats: [Beat]) throws -> Data {
         let array: [[String: Any]] = beats.map { b in
-            var d: [String: Any] = ["sample": b.sample, "firstBeat": b.firstBeat.rawValue]
+            var d: [String: Any] = ["sample": b.sample, "firstBeat": b.bar.rawValue]
             if let ts = b.timeSignature { d["timeSignature"] = ts }
             return d
         }

@@ -26,9 +26,10 @@ final class WaveformNSView: NSView {
         /// Ruler: a plain press. Stopped at the press: the playhead follows the pointer; playing:
         /// playback jumped to the press point and the rest of the drag does nothing.
         case seek(playing: Bool)
-        /// Ruler: a beat mark (`sample` at the press); `index` is set once it moves.
-        /// `offset` = beat time − press time.
-        case beat(sample: Int, index: Int?, offset: Double)
+        /// Ruler, beats mode: a press on a beat (`pressed`) or, with selected beats, anywhere.
+        /// Once it moves, `original` holds the moving beats (the selection, else the pressed
+        /// beat) by id with their samples at the press.
+        case beats(pressed: Int?, original: [Int: Int]?, pressTime: Double)
     }
 
     /// Lines grabbed by a press: the nearest one within the tolerance, plus the other lines at
@@ -39,7 +40,13 @@ final class WaveformNSView: NSView {
         var edge: Bool { startEdge || endEdge }
     }
     /// What a plain press at a point would do; also decides the cursor.
-    private enum Hover: Equatable { case none, lines(Grab), inside, beat(sample: Int) }
+    private enum Hover: Equatable {
+        case none, lines(Grab), inside
+        /// Ruler: a beat mark (no beats selected).
+        case beat(id: Int, sample: Int)
+        /// Ruler: anywhere while beats are selected (a press moves them).
+        case selectedBeats
+    }
     /// Distance (points) from a line within which it can be grabbed.
     private static let edgeTolerance: CGFloat = 4
     /// Name of the cursor the view last set, for the state dump.
@@ -353,6 +360,7 @@ final class WaveformNSView: NSView {
         var bar: Int?
         var labelFrame: CGRect?
         var sample = 0
+        var id = 0
     }
 
     /// Whether the strip draws beats (otherwise time ticks).
@@ -363,10 +371,10 @@ final class WaveformNSView: NSView {
         guard let state, let audio = state.audio, !state.beats.isEmpty, timeLength > 0, state.viewLength > 0
         else { return [] }
         let horizontal = orientation == .horizontal
-        // Bar numbers over the whole file; then the visible beats.
-        var bars: [Int?] = []
-        var bar = 0
-        for b in state.beats { if b.isDownbeat { bar += 1; bars.append(bar) } else { bars.append(nil) } }
+        // Bar numbers (at the bar starts); then the visible beats.
+        let pos = state.beatPositions
+        let bars: [Int?] = pos.map { $0.isBarStart ? $0.bar : nil }
+        let barSpan = (pos.last?.bar ?? 0) - (pos.first?.bar ?? 0) + 1
         let lo = max(state.viewStart, 0), hi = min(state.viewEnd, state.duration)
         let visible = state.beats.indices.filter {
             let t = Double(state.beats[$0].sample) / audio.sampleRate
@@ -380,15 +388,15 @@ final class WaveformNSView: NSView {
         // Bar number step: the smallest power of two keeping the labels apart.
         let downbeats = visible.filter { bars[$0] != nil }
         var k = 1
-        while k < max(bar, 1) {
-            let numbered = downbeats.filter { (bars[$0]! - 1) % k == 0 }
+        while k < max(barSpan, 1) {
+            let numbered = downbeats.filter { ((bars[$0]! - 1) % k + k) % k == 0 }
             let fits = zip(numbered, numbered.dropFirst()).allSatisfy { a, b in
                 axis(ofTime: t(b)) - axis(ofTime: t(a)) >= extent(bars[a]!) + rulerLabelGap
             }
             if fits { break }
             k *= 2
         }
-        let isNumbered = { (i: Int) in bars[i].map { ($0 - 1) % k == 0 } ?? false }
+        let isNumbered = { (i: Int) in bars[i].map { (($0 - 1) % k + k) % k == 0 } ?? false }
         // Small marks: all beats, or only the un-numbered downbeats, or none.
         func spaced(_ idx: [Int]) -> Bool {
             zip(idx, idx.dropFirst()).allSatisfy { axis(ofTime: t($1)) - axis(ofTime: t($0)) >= rulerMinMinorSpacing }
@@ -406,10 +414,10 @@ final class WaveformNSView: NSView {
                 let frame = horizontal
                     ? CGRect(x: a + rulerLabelOffset, y: ((bounds.height - size.height) / 2).rounded(), width: size.width, height: size.height)
                     : CGRect(x: rulerLabelOffset, y: a + rulerLabelOffset, width: size.width, height: size.height)
-                marks.append(BeatMark(time: t(i), axis: a, kind: beat.firstBeat == .computed ? .bigDotted : .big,
-                                      bar: n, labelFrame: bounds.contains(frame) ? frame : nil, sample: beat.sample))
-            } else if smallAll || (smallDown && beat.isDownbeat) {
-                marks.append(BeatMark(time: t(i), axis: a, kind: .small, sample: beat.sample))
+                marks.append(BeatMark(time: t(i), axis: a, kind: beat.forcesBarStart ? .big : .bigDotted,
+                                      bar: n, labelFrame: bounds.contains(frame) ? frame : nil, sample: beat.sample, id: beat.id))
+            } else if smallAll || (smallDown && pos[i].isBarStart) {
+                marks.append(BeatMark(time: t(i), axis: a, kind: .small, sample: beat.sample, id: beat.id))
             }
         }
         return marks
@@ -443,6 +451,36 @@ final class WaveformNSView: NSView {
                 NSAttributedString(string: String(n), attributes: rulerLabelAttributes).draw(at: frame.origin)
             }
         }
+        drawSelectedBeats()
+    }
+
+    /// Axis positions of the selected beats in the visible range (drawn even where crowding
+    /// hides their marks).
+    func selectedBeatAxes() -> [CGFloat] {
+        guard let state, let audio = state.audio, !state.selectedBeats.isEmpty else { return [] }
+        return state.beats.filter { state.selectedBeats.contains($0.id) }.compactMap { b in
+            let t = Double(b.sample) / audio.sampleRate
+            return t >= state.viewStart && t <= state.viewEnd ? axis(ofTime: t) : nil
+        }
+    }
+
+    /// Selected beats: a 3-point accent line with 1-point white borders, across the strip.
+    private func drawSelectedBeats() {
+        let horizontal = orientation == .horizontal
+        let core = NSBezierPath(), border = NSBezierPath()
+        func rect(_ a: CGFloat, _ w: CGFloat) -> NSRect {
+            horizontal ? NSRect(x: a, y: 0, width: w, height: bounds.height) : NSRect(x: 0, y: a, width: bounds.width, height: w)
+        }
+        for a in selectedBeatAxes() {
+            let a0 = (a - selectedBeatWidth / 2).rounded()
+            core.appendRect(rect(a0, selectedBeatWidth))
+            border.appendRect(rect(a0 - 1, 1))
+            border.appendRect(rect(a0 + selectedBeatWidth, 1))
+        }
+        NSColor.white.setFill()
+        border.fill()
+        NSColor.controlAccentColor.setFill()
+        core.fill()
     }
 
     /// Axis position of the pointer line in the strip, if drawn.
@@ -512,12 +550,9 @@ final class WaveformNSView: NSView {
     private func hover(at p: CGPoint) -> Hover {
         guard let state, let audio = state.audio else { return .none }
         if isRuler {
-            // Beat marks first (beats mode, stopped), the nearest within reach.
-            if showsBeats, !state.isPlaying,
-               let m = beatMarks().min(by: { abs($0.axis - axisPosition(p)) < abs($1.axis - axisPosition(p)) }),
-               abs(m.axis - axisPosition(p)) <= Self.edgeTolerance {
-                return .beat(sample: m.sample)
-            }
+            // Beats mode, stopped: with selected beats anywhere moves them; else a beat mark.
+            if beatsInteractive, !state.selectedBeats.isEmpty { return .selectedBeats }
+            if beatsInteractive, let m = beatMark(at: p) { return .beat(id: m.id, sample: m.sample) }
             // Then only the last-start line (with the playhead if they coincide while stopped).
             guard abs(axisPosition(p) - axis(ofTime: state.lastStart)) <= Self.edgeTolerance else { return .none }
             var g = Grab(time: state.lastStart)
@@ -549,6 +584,16 @@ final class WaveformNSView: NSView {
         return pos > axis(ofTime: sel.lowerBound) && pos < axis(ofTime: sel.upperBound) ? .inside : .none
     }
 
+    /// Beats can be selected, moved and edited: the strip shows beats and playback is stopped.
+    private var beatsInteractive: Bool { showsBeats && state?.isPlaying == false }
+
+    /// The beat mark nearest to the point, within reach.
+    private func beatMark(at p: CGPoint) -> BeatMark? {
+        guard let m = beatMarks().min(by: { abs($0.axis - axisPosition(p)) < abs($1.axis - axisPosition(p)) }),
+              abs(m.axis - axisPosition(p)) <= Self.edgeTolerance else { return nil }
+        return m
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
@@ -563,16 +608,17 @@ final class WaveformNSView: NSView {
         let cursor: NSCursor, name: String
         if isRuler {
             // The beat mark under the pointer, for Backspace.
-            if case let .beat(sample) = hover(at: p), drag == nil, bounds.contains(p) {
-                state?.hoveredBeatSample = sample
+            if beatsInteractive, drag == nil, bounds.contains(p), let m = beatMark(at: p) {
+                state?.hoveredBeatSample = m.sample
             } else if drag == nil {
                 state?.hoveredBeatSample = nil
             }
         }
         if case .move = drag {
             (cursor, name) = (.closedHand, "closedHand")
-        } else if case .beat = drag {
-            (cursor, name) = (.closedHand, "closedHand")
+        } else if case .beats = drag {
+            (cursor, name) = state?.selectedBeats.isEmpty == false ? (.closedHand, "closedHand")
+                : orientation == .horizontal ? (.resizeLeftRight, "resizeLeftRight") : (.resizeUpDown, "resizeUpDown")
         } else if case .lines = drag {
             (cursor, name) = orientation == .horizontal ? (.columnResize, "columnResize") : (.rowResize, "rowResize")
         } else if drag != nil || !flags.intersection([.option, .shift, .command]).isEmpty {
@@ -581,7 +627,9 @@ final class WaveformNSView: NSView {
             switch hover(at: p) {
             case .lines:
                 (cursor, name) = orientation == .horizontal ? (.columnResize, "columnResize") : (.rowResize, "rowResize")
-            case .inside, .beat: (cursor, name) = (.openHand, "openHand")
+            case .inside, .selectedBeats: (cursor, name) = (.openHand, "openHand")
+            case .beat:
+                (cursor, name) = orientation == .horizontal ? (.resizeLeftRight, "resizeLeftRight") : (.resizeUpDown, "resizeUpDown")
             case .none: (cursor, name) = (.arrow, "arrow")
             }
         }
@@ -642,9 +690,14 @@ final class WaveformNSView: NSView {
         let t = time(atAxis: clampedAxis(p))
         if event.modifierFlags.contains(.option) {
             drag = panDrag(at: p)
-        } else if isRuler, case let .beat(sample) = hover(at: p) {
-            let bt = Double(sample) / (state.audio?.sampleRate ?? 44100)
-            drag = .beat(sample: sample, index: nil, offset: bt - time(atAxis: axisPosition(p)))
+        } else if isRuler, beatsInteractive, !event.modifierFlags.intersection([.command, .shift]).isEmpty {
+            // Command+click toggles a beat, Shift+click adds the range from the anchor.
+            if let m = beatMark(at: p) {
+                if event.modifierFlags.contains(.command) { state.toggleBeat(id: m.id) } else { state.selectBeatRange(to: m.id) }
+            }
+            drag = nil
+        } else if isRuler, case let h = hover(at: p), h == .selectedBeats || { if case .beat = h { true } else { false } }() {
+            drag = .beats(pressed: beatMark(at: p)?.id, original: nil, pressTime: time(atAxis: axisPosition(p)))
         } else if isRuler, hover(at: p) == .none {
             let playing = state.isPlaying
             drag = .seek(playing: playing)
@@ -666,6 +719,45 @@ final class WaveformNSView: NSView {
             drag = .select(anchor: t, extend: false)
         }
         updateCursor(at: p, flags: event.modifierFlags)
+    }
+
+    /// Right-click on a beat (an unselected one becomes the selection) or, with selected beats,
+    /// anywhere in the strip: the beat context menu.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard isRuler, beatsInteractive, let state, drag == nil else { return nil }
+        let p = location(event)
+        if let m = beatMark(at: p), !state.selectedBeats.contains(m.id) { state.selectOnlyBeat(id: m.id) }
+        return beatMenu()
+    }
+
+    /// The beat context menu for the current selection (nil without one).
+    func beatMenu() -> NSMenu? {
+        guard let state, !state.selectedBeats.isEmpty else { return nil }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        func item(_ title: String, enabled: Bool = true, checked: Bool = false, _ action: @escaping () -> Void) {
+            let it = ClosureMenuItem(title: title, action: action)
+            it.isEnabled = enabled
+            it.state = checked ? .on : .off
+            menu.addItem(it)
+        }
+        if state.selectedBeats.count == 1, let id = state.selectedBeats.first,
+           let beat = state.beats.first(where: { $0.id == id }) {
+            menu.addItem(NSMenuItem.sectionHeader(title: "Beat within bar"))
+            let auto = state.autoBeatInBar(id: id).map(ordinal) ?? "?"
+            item("Auto (\(auto))", checked: beat.bar == .auto) { state.setBar(.auto, id: id) }
+            item("Start bar (1st)", checked: beat.bar == .start) { state.setBar(.start, id: id) }
+            menu.addItem(.separator())
+            item("Time signature…") { state.openTimeSignatureDialog(id: id) }
+            menu.addItem(.separator())
+            item("Delete") { state.deleteSelectedBeats() }
+        } else {
+            item("Subdivide…", enabled: state.canSubdivide) { state.openSubdivideDialog() }
+            item("Equalize beats within bars", enabled: state.canEqualize) { state.equalizeBeatsWithinBars() }
+            menu.addItem(.separator())
+            item("Delete") { state.deleteSelectedBeats() }
+        }
+        return menu
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -700,9 +792,10 @@ final class WaveformNSView: NSView {
             default: break
             }
             if case .pan = drag { state.manualViewChange() }
-            if case let .beat(sample, nil, offset) = drag {
-                let k = state.beginBeatDrag(sample: sample)
-                self.drag = .beat(sample: sample, index: k, offset: offset)
+            if case let .beats(pressed, nil, pressTime) = drag {
+                let ids = state.selectedBeats.isEmpty ? Set(pressed.map { [$0] } ?? []) : state.selectedBeats
+                let original = Dictionary(uniqueKeysWithValues: state.beats.filter { ids.contains($0.id) }.map { ($0.id, $0.sample) })
+                self.drag = .beats(pressed: pressed, original: original, pressTime: pressTime)
             }
         }
         guard let drag = self.drag else { return }
@@ -726,9 +819,9 @@ final class WaveformNSView: NSView {
             state.moveSelection(from: original, by: time(atAxis: axisPosition(p)) - pressTime)
         case let .seek(playing):
             if !playing { state.dragPlayhead(to: time(atAxis: clampedAxis(p))) }
-        case let .beat(_, index, offset):
-            guard dragged, let k = index else { return }
-            state.dragBeat(index: k, to: time(atAxis: axisPosition(p)) + offset)
+        case let .beats(_, original, pressTime):
+            guard dragged, let original else { return }
+            state.moveBeats(original: original, by: time(atAxis: axisPosition(p)) - pressTime)
         }
     }
 
@@ -745,9 +838,17 @@ final class WaveformNSView: NSView {
         case .lines where isRuler: if !dragged { seek(to: time(atAxis: clampedAxis(p))) }
         case .lines, .move: if !dragged { state.clickedToClear(at: clicked) }
         case .pan, .seek: break
-        case .beat:
-            // A click without a drag acts as a plain strip press.
-            if dragged { state.endBeatDrag() } else { seek(to: time(atAxis: clampedAxis(p))) }
+        case let .beats(pressed, _, _):
+            // A click without a drag: on a beat selects only it; elsewhere clears the selection
+            // and acts as a plain strip press.
+            if dragged {
+                state.endBeatMove()
+            } else if let pressed {
+                state.selectOnlyBeat(id: pressed)
+            } else {
+                state.clearBeatSelection()
+                seek(to: time(atAxis: clampedAxis(p)))
+            }
         }
         self.drag = nil
         updateCursor(at: p, flags: event.modifierFlags)
@@ -826,7 +927,7 @@ struct WaveformView: NSViewRepresentable {
             _ = (state.beats, state.gridDenominator, state.gridLinesShown)
         }
         if name == "navigator" { _ = (state.mainMode, state.windowLengthMs) }
-        if isRuler { _ = (state.beats.count, state.showBeats, state.pointer?.fraction, state.pointer?.pane) }
+        if isRuler { _ = (state.beats, state.selectedBeats, state.showBeats, state.pointer?.fraction, state.pointer?.pane) }
         view.needsDisplay = true
     }
 }
@@ -934,7 +1035,9 @@ let rulerLabelOffset: CGFloat = 3
 let rulerLabelGap: CGFloat = 30
 let rulerMinMinorSpacing: CGFloat = 4
 let rulerMinorLength: CGFloat = 4
-/// Dash and gap length of a dotted big tick (`firstBeat: computed`).
+/// Core width (points) of a selected beat line.
+let selectedBeatWidth: CGFloat = 3
+/// Dash and gap length of a dotted big tick (a bar start counted automatically).
 let rulerDash: CGFloat = 2
 /// Height of the strip in horizontal mode.
 let rulerHorizontalThickness: CGFloat = 18
@@ -977,4 +1080,16 @@ func formatRulerTime(_ t: Double, step: Double) -> String {
     var s = String(format: "%d:%02d", ms / 60000, ms / 1000 % 60)
     if decimals > 0 { s += "." + String(String(format: "%03d", ms % 1000).prefix(decimals)) }
     return s
+}
+
+/// A menu item running a closure.
+final class ClosureMenuItem: NSMenuItem {
+    private let handler: () -> Void
+    init(title: String, action handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(run), keyEquivalent: "")
+        target = self
+    }
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    @objc private func run() { handler() }
 }
