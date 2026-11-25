@@ -270,8 +270,9 @@ if run(5):
         side({})
         s = session(f'{o}_notes', o)
         s.command('grid straight 8')
+        fr = s.state['screenFrames']['main']
         placed = []
-        for tm, cross in [(5.1, 0.5), (5.3, 0.5), (5.1, 0.5 - 14 / 700 if o == 'horizontal' else 0.5 + 14 / 1000),
+        for tm, cross in [(5.1, 0.5), (5.3, 0.5), (5.1, 0.5 - 14 / fr['height'] if o == 'horizontal' else 0.5 + 14 / fr['width']),
                           (6.6, 0.4)]:
             p = main_point(s, tm, cross)
             s.input(f'move {P(p)}')
@@ -281,7 +282,7 @@ if run(5):
             exp = {'midi': cell['note'], 'start': round(cell['start'] * SR), 'end': round(cell['end'] * SR)}
             got = notes[-1] if notes else None
             ok = got is not None and len(notes) == len(placed) + 1 and \
-                all(got[k] == exp[k] for k in exp) and lines_state(s) == lines_state(s)
+                all(got[k] == exp[k] for k in exp)
             check(5, f'{o}: click at {tm} s: note MIDI {exp["midi"]} {exp["start"] / SR:.3f}–{exp["end"] / SR:.3f} s',
                   ok, f'{got} vs {exp}')
             placed.append(exp)
