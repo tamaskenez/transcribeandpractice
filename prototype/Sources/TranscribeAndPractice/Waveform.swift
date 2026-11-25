@@ -52,13 +52,15 @@ final class WaveformNSView: NSView {
     /// Name of the cursor the view last set, for the state dump.
     private(set) var cursorName = "arrow"
     private var drag: Drag?
+    /// Spectrogram: the pointer's position while it is over the pane (for the hover cell).
+    private(set) var hoverPoint: CGPoint? { didSet { if hoverPoint != oldValue { needsDisplay = true } } }
     private var pressPoint: CGPoint = .zero
     private var dragged = false
 
     override var isFlipped: Bool { true }
 
     var orientation: TimeOrientation { state?.orientation ?? .horizontal }
-    private var timeLength: CGFloat { orientation == .horizontal ? bounds.width : bounds.height }
+    var timeLength: CGFloat { orientation == .horizontal ? bounds.width : bounds.height }
 
     private struct ColumnsKey: Equatable { var loadID: Int; var start: Double; var end: Double; var count: Int }
     private var columnsCache: (key: ColumnsKey, columns: [WaveformColumn])?
@@ -127,14 +129,14 @@ final class WaveformNSView: NSView {
     static var rmsColor: NSColor { NSColor.controlAccentColor.blended(withFraction: 0.5, of: .white) ?? .controlAccentColor }
 
     /// Position along the time axis (points from the pane's start) of a point in view coordinates.
-    private func axisPosition(_ p: CGPoint) -> CGFloat { orientation == .horizontal ? p.x : p.y }
+    func axisPosition(_ p: CGPoint) -> CGFloat { orientation == .horizontal ? p.x : p.y }
 
     private func time(atAxis pos: CGFloat) -> Double {
         guard let state, timeLength > 0 else { return 0 }
         return state.viewStart + Double(pos / timeLength) * state.viewLength
     }
 
-    private func axis(ofTime t: Double) -> CGFloat {
+    func axis(ofTime t: Double) -> CGFloat {
         guard let state, state.viewLength > 0 else { return 0 }
         return CGFloat((t - state.viewStart) / state.viewLength) * timeLength
     }
@@ -147,7 +149,7 @@ final class WaveformNSView: NSView {
     var isSpectrogram: Bool { name == "main" && state?.mainMode == .spectrogram }
     private var crossLength: CGFloat { orientation == .horizontal ? bounds.height : bounds.width }
     /// Distance (points) from the pane's low-frequency edge: the bottom (horizontal) or left (vertical).
-    private func crossFromLow(_ p: CGPoint) -> CGFloat { orientation == .horizontal ? bounds.height - p.y : p.x }
+    func crossFromLow(_ p: CGPoint) -> CGFloat { orientation == .horizontal ? bounds.height - p.y : p.x }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
@@ -171,6 +173,7 @@ final class WaveformNSView: NSView {
             drawEditorLines()
             drawSelection()
             drawLines()
+            drawHoverCell()
             return
         }
         if !isRuler { drawSelection() }
@@ -548,7 +551,7 @@ final class WaveformNSView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     private func hover(at p: CGPoint) -> Hover {
-        guard let state, let audio = state.audio else { return .none }
+        guard let state, let audio = state.audio, !isSpectrogram else { return .none }
         if isRuler {
             // Beats mode, stopped: with selected beats anywhere moves them; else a beat mark.
             if beatsInteractive, !state.selectedBeats.isEmpty { return .selectedBeats }
@@ -648,6 +651,7 @@ final class WaveformNSView: NSView {
     /// Under the spectrum pane (no drag): no pointer line, the arrow cursor.
     private func leaveForSpectrum(_ p: CGPoint) -> Bool {
         guard drag == nil, underSpectrum(p) else { return false }
+        hoverPoint = nil
         if state?.pointer?.pane == name { state?.pointer = nil }
         NSCursor.arrow.set(); cursorName = "arrow"
         return true
@@ -664,6 +668,7 @@ final class WaveformNSView: NSView {
     }
     override func mouseEntered(with event: NSEvent) { if !leaveForSpectrum(location(event)) { updatePointer(location(event)) } }
     override func mouseExited(with event: NSEvent) {
+        hoverPoint = nil
         if state?.pointer?.pane == name { state?.pointer = nil }
         if isRuler, drag == nil { state?.hoveredBeatSample = nil }
         if drag == nil { NSCursor.arrow.set(); cursorName = "arrow" }
@@ -671,6 +676,7 @@ final class WaveformNSView: NSView {
 
     /// The pointer line follows the pointer's time (also while dragging).
     private func updatePointer(_ p: CGPoint) {
+        hoverPoint = isSpectrogram && bounds.contains(p) && !underSpectrum(p) ? p : nil
         guard let state, timeLength > 0 else { return }
         if bounds.contains(p) || drag != nil {
             state.pointer = (name, Double(axisPosition(p) / timeLength))
@@ -690,6 +696,10 @@ final class WaveformNSView: NSView {
         let t = time(atAxis: clampedAxis(p))
         if event.modifierFlags.contains(.option) {
             drag = panDrag(at: p)
+        } else if isSpectrogram {
+            // Milestone 13: plain presses on the spectrogram leave the playhead, the last start
+            // and the selection alone (only pan and zoom work here).
+            drag = nil
         } else if isRuler, beatsInteractive, !event.modifierFlags.intersection([.command, .shift]).isEmpty {
             // Command+click toggles a beat, Shift+click adds the range from the anchor.
             if let m = beatMark(at: p) {
@@ -924,7 +934,7 @@ struct WaveformView: NSViewRepresentable {
             _ = (state.mainMode, state.windowLengthMs, state.freqLow, state.spectrogramVersion,
                  state.mainCrossLength, state.mainAxisLength, state.loadID)
             view.reportSize()
-            _ = (state.beats, state.gridDenominator, state.gridLinesShown)
+            _ = (state.beats, state.gridDenominator, state.gridPanelOpen)
         }
         if name == "navigator" { _ = (state.mainMode, state.windowLengthMs) }
         if isRuler { _ = (state.beats, state.selectedBeats, state.showBeats, state.pointer?.fraction, state.pointer?.pane) }

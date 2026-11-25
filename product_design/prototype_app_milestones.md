@@ -1006,6 +1006,9 @@ Auto ordinal; a 6/8 on the first forced bar start also counts the pickup in 6/8)
 the human check: `*_mouse_selected.png`, `*_menu_menu_single.png`, `*_menu_menu_multi.png`,
 `tsdialog_ts_continue.png`, `tsdialog_ts_change.png`, `subdivide_subdivide.png`.
 
+## 13. Note drawing
+
+
 ## Fine-tuning (to do later)
 
 - Don't drag playhead/last-playback-start when dragging selection edge

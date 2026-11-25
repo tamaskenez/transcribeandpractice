@@ -110,7 +110,7 @@ enum VerificationHooks {
                     case "follow": state.followPlayhead = arg == "on"
                     case "beats": state.showBeats = arg == "on"
                     case "beatkey": state.beatKey(downbeat: arg == "shift")
-                    case "gridlines": state.gridLinesShown = arg == "on"
+                    case "gridpanel": state.gridPanelOpen = arg == "open"
                     case "grid":
                         let a = arg.split(separator: " ").map(String.init)
                         if let k = a.first.flatMap(GridKind.init(rawValue:)) {
@@ -251,7 +251,7 @@ enum VerificationHooks {
             "screenFrames": screenFrames(state: state),
             "spectrogram": spectrogramDump(state: state),
             "spectrum": spectrumDump(),
-            "grid": ["linesShown": state.gridLinesShown, "kind": state.gridKind.rawValue, "straight": state.gridStraight,
+            "grid": ["panelOpen": state.gridPanelOpen, "kind": state.gridKind.rawValue, "straight": state.gridStraight,
                      "triplet": state.gridTriplet, "tuplet": state.gridTuplet, "n": state.gridDenominator],
         ]
         if let audio = state.audio {
@@ -363,6 +363,10 @@ enum VerificationHooks {
                     "lastColumnsMs": w.lastColumnsMs ?? NSNull(),
                     "analysisWindow": w.analysisWindowPolylines().map { $0.map { $0.map { [$0.x, $0.y] } } } ?? NSNull(),
                     "editorLines": w.visibleEditorLines().map { ["kind": $0.line.kind.rawValue, "time": $0.line.time, "axis": $0.axis] },
+                    "hoverCell": w.hoverPoint.flatMap(w.gridCell(at:)).map { c -> Any in
+                        let r = w.rect(of: c)
+                        return ["start": c.start, "end": c.end, "note": c.note,
+                                "rect": [r.minX, r.minY, r.width, r.height]] } ?? NSNull(),
                     "zoomAxis": w.zoomTimeAxis.map { $0 ? "time" : "amplitude" } ?? NSNull(),
                 ] as [String: Any]
             }

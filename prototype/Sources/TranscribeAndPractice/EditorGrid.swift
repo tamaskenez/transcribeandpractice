@@ -11,10 +11,8 @@ enum GridConstants {
     /// A kind of line is hidden while two neighbouring visible lines (of it or a stronger kind)
     /// are closer than this (points).
     static let minSpacing: CGFloat = 6
-    /// Core widths (points) of the bar, beat and grid lines; each has a 1-point border on both sides.
-    static let barWidth: CGFloat = 3, beatWidth: CGFloat = 1, gridWidth: CGFloat = 1
-    /// Grid lines are dotted: dashes this long (points), repeating with this period.
-    static let gridDash: CGFloat = 2, gridPeriod: CGFloat = 4
+    /// Core widths (points) of the bar and beat lines; each has a 1-point border on both sides.
+    static let barWidth: CGFloat = 3, beatWidth: CGFloat = 1
 }
 
 struct EditorLine: Equatable {
@@ -64,7 +62,7 @@ extension WaveformNSView {
         guard name == "main", let state, let audio = state.audio, !state.beats.isEmpty, state.viewLength > 0 else { return [] }
         let len = orientation == .horizontal ? bounds.width : bounds.height
         let all = editorLines(beats: state.beats, barStarts: state.beatPositions.map(\.isBarStart), sampleRate: audio.sampleRate,
-                              gridDenominator: isSpectrogram && state.gridLinesShown ? state.gridDenominator : nil,
+                              gridDenominator: isSpectrogram && state.gridPanelOpen ? state.gridDenominator : nil,
                               range: state.viewStart...state.viewEnd)
         func axis(_ t: Double) -> CGFloat { CGFloat((t - state.viewStart) / state.viewLength) * len }
         func crowded(_ kinds: Set<EditorLine.Kind>) -> Bool {
@@ -78,7 +76,8 @@ extension WaveformNSView {
         return all.filter { shown.contains($0.kind) }.map { ($0, axis($0.time)) }
     }
 
-    /// White 50 % core with 1-point black 50 % borders, across the whole pane.
+    /// Bar and beat lines: white 50 % core with 1-point black 50 % borders, across the whole pane.
+    /// Grid lines: the alternating style (`strokeAlternating`).
     func drawEditorLines() {
         let lines = visibleEditorLines()
         guard !lines.isEmpty else { return }
@@ -89,26 +88,15 @@ extension WaveformNSView {
             let l = l ?? cross
             return horizontal ? NSRect(x: a, y: c0, width: w, height: l) : NSRect(x: c0, y: a, width: l, height: w)
         }
-        let core = NSBezierPath(), border = NSBezierPath()
+        let core = NSBezierPath(), border = NSBezierPath(), grid = NSBezierPath()
         for (line, a) in lines {
             if line.kind == .grid {
-                // Dotted: short dashes, each with its side borders.
-                let w = GridConstants.gridWidth, a0 = (a - w / 2).rounded()
-                var c: CGFloat = 0
-                while c < cross {
-                    let l = min(GridConstants.gridDash, cross - c)
-                    core.appendRect(rect(a0, w, c, l))
-                    border.appendRect(rect(a0 - 1, 1, c, l))
-                    border.appendRect(rect(a0 + w, 1, c, l))
-                    c += GridConstants.gridPeriod
-                }
+                let c = pixelCentre(a)
+                grid.move(to: horizontal ? CGPoint(x: c, y: 0) : CGPoint(x: 0, y: c))
+                grid.line(to: horizontal ? CGPoint(x: c, y: cross) : CGPoint(x: cross, y: c))
                 continue
             }
-            let w: CGFloat = switch line.kind {
-            case .bar: GridConstants.barWidth
-            case .beat: GridConstants.beatWidth
-            case .grid: GridConstants.gridWidth
-            }
+            let w = line.kind == .bar ? GridConstants.barWidth : GridConstants.beatWidth
             let a0 = (a - w / 2).rounded()
             core.appendRect(rect(a0, w))
             border.appendRect(rect(a0 - 1, 1))
@@ -118,27 +106,88 @@ extension WaveformNSView {
         border.fill()
         NSColor.white.withAlphaComponent(0.5).setFill()
         core.fill()
+        strokeAlternating(grid)
     }
+
+    /// The centre of the 1-point column nearest to `a`, for crisp 1-point lines.
+    func pixelCentre(_ a: CGFloat) -> CGFloat { (a - 0.5).rounded() + 0.5 }
+
+    /// Grid line style (milestone 13): 1 point wide, alternating 1-point dashes of 50 % black and
+    /// 50 % white, visible on any background.
+    func strokeAlternating(_ path: NSBezierPath) {
+        guard !path.isEmpty else { return }
+        path.lineWidth = 1
+        for (color, phase) in [(NSColor.black, CGFloat(0)), (NSColor.white, CGFloat(1))] {
+            path.setLineDash([1, 1], count: 2, phase: phase)
+            color.withAlphaComponent(0.5).setStroke()
+            path.stroke()
+        }
+    }
+
+    // MARK: Hover cell (milestone 13)
+
+    /// The grid cell under a point of the spectrogram: between the nearest division lines (bar,
+    /// beat or grid lines of the current grid, whether drawn or not) before and after the
+    /// pointer's time, and the boundaries (note ± ½) of the note under the pointer. Nil outside
+    /// the divided range or the note range.
+    func gridCell(at p: CGPoint) -> GridCell? {
+        guard isSpectrogram, let state, let audio = state.audio, !state.beats.isEmpty, timeLength > 0 else { return nil }
+        let t = state.viewStart + Double(axisPosition(p) / timeLength) * state.viewLength
+        let s = state.freqBottom + Double(crossFromLow(p)) / SpectrogramConstants.pointsPerSemitone
+        guard s >= 0, s < SpectrogramConstants.rangeSemitones else { return nil }
+        let starts = state.beatPositions.map(\.isBarStart)
+        func bracket(_ range: ClosedRange<Double>) -> (Double, Double)? {
+            let times = editorLines(beats: state.beats, barStarts: starts, sampleRate: audio.sampleRate,
+                                    gridDenominator: state.gridDenominator, range: range).map(\.time)
+            guard let lo = times.last(where: { $0 <= t }), let hi = times.first(where: { $0 > t }) else { return nil }
+            return (lo, hi)
+        }
+        // Near the view first; the whole file if a side has no line there.
+        let near = (state.viewStart - state.viewLength)...(state.viewEnd + state.viewLength)
+        guard let (t0, t1) = bracket(near) ?? bracket(0...state.duration) else { return nil }
+        let k = Int(s.rounded(.down))
+        return GridCell(start: t0, end: t1, note: SpectrogramConstants.lowestNote + k)
+    }
+
+    /// The cell's rectangle in view coordinates (on whole points).
+    func rect(of c: GridCell) -> NSRect {
+        guard let state else { return .zero }
+        let a0 = pixelCentre(axis(ofTime: c.start)), a1 = pixelCentre(axis(ofTime: c.end))
+        let k = Double(c.note - SpectrogramConstants.lowestNote)
+        let lo = pixelCentre(CGFloat((k - state.freqBottom) * SpectrogramConstants.pointsPerSemitone))
+        let hi = pixelCentre(CGFloat((k + 1 - state.freqBottom) * SpectrogramConstants.pointsPerSemitone))
+        return orientation == .horizontal
+            ? NSRect(x: a0, y: bounds.height - hi, width: a1 - a0, height: hi - lo)
+            : NSRect(x: lo, y: a0, width: hi - lo, height: a1 - a0)
+    }
+
+    func drawHoverCell() {
+        guard let p = hoverPoint, let c = gridCell(at: p) else { return }
+        strokeAlternating(NSBezierPath(rect: rect(of: c)))
+    }
+}
+
+/// A grid cell: from one division line to the next, one note high.
+struct GridCell: Equatable {
+    var start: Double, end: Double
+    /// MIDI note number.
+    var note: Int
 }
 
 /// Toolbar "Grid" control: a button showing the current value, opening a panel with the grid kind
 /// and the note values.
 struct GridControl: View {
     @Environment(AppState.self) private var state
-    @State private var shown = false
 
     var body: some View {
         @Bindable var state = state
         HStack(spacing: 6) {
-            Toggle("Grid lines", isOn: $state.gridLinesShown)
-                .toggleStyle(.checkbox)
-                .help("Show grid lines")
-            Button { shown.toggle() } label: {
+            Button { state.gridPanelOpen.toggle() } label: {
                 Text("Grid \(state.gridLabel)").monospacedDigit()
             }
             .help("Grid")
             .accessibilityLabel("Grid")
-            .popover(isPresented: $shown, arrowEdge: .bottom) { GridPanel().padding(12) }
+            .popover(isPresented: $state.gridPanelOpen, arrowEdge: .bottom) { GridPanel().padding(12) }
         }
         .padding(.horizontal, 6)
     }
