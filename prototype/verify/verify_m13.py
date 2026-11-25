@@ -301,8 +301,17 @@ if run(5):
         check(5, f'{o}: neighbouring notes in time and pitch touch without overlapping',
               touch_t and touch_p and not any(overlap(rects[i], rects[j]) for i in range(4) for j in range(i + 1, 4)),
               str(rects[:3]))
+        s.command('grid straight 32')
+        s.input(f'click {P(main_point(s, 7.1, 0.5))}')
+        short = s.state['waveforms']['main']['notes'][-1]
+        r = short['rect']
+        check(5, f'{o}: a 1/32 note is shorter than it is high (drawn as an ellipse)',
+              len(s.state['waveforms']['main']['notes']) == 5 and (r[2] < r[3] if o == 'horizontal' else r[3] < r[2]), str(r))
         s.input(f'move {P(main_point(s, 8.5, 0.6))}')
         s.snapshot('placed')
+        s.command('view 4.9,7.3'); s.dump()
+        s.input(f'move {P(s.at("navigator", 0.5))}')
+        s.snapshot('closeup')
         s.quit()
 
 print(f'{sum(results)}/{len(results)} passed')
