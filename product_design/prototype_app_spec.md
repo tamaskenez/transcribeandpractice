@@ -709,9 +709,9 @@ Placing: a plain click (no drag) on the spectrogram away from the notes places a
 hover cell: a single segment at the cell's note (see the model below: one point with pre = post =
 end pitch = the note, at the cell's start; the end at the cell's end). It also clears the note
 selection (milestone 14). Clicking where the same note already is adds nothing. A click on a note
-selects (below) and places nothing. A drag, an Option-click (pan) and ⇧/⌘/⌃-clicks place
-nothing. (Entering multi-segment notes and editing come later; such notes can be written into
-the session file.)
+selects (below) and places nothing. An Option-click (pan) and ⇧/⌘/⌃-clicks place nothing. A
+drag from the hover cell creates a longer or multi-segment note (milestone 15, "Creating notes by
+dragging" below); a click is the same flow without moving.
 
 Model (note trajectories):
 
@@ -772,8 +772,10 @@ Hovering a note (milestone 14):
   the two end circles' centres and the middle between them, drawn in the moving dashes style at
   full opacity, each with a cross (+) as wide as the circle, black and then white offset by
   (−1, −1) like the note outline. Only the middle handle when the segment is shorter than 3 ×
-  its width; none for an ellipse. (Handles are for editing later; now they only show.)
-- Over a handle the cursor is the open hand; elsewhere on a note the arrow.
+  its width; none for an ellipse. Dragging a handle edits the pitch (milestone 15, "Editing
+  pitches with the handles" below).
+- Over a handle the cursor is the open hand (the closed hand while dragging it); elsewhere on a
+  note the arrow.
 - Instead of the hover cell: the hovered note's outline repeated 12 · log2(i) semitones higher
   for i = 2 … the Harmonics setting, in the moving dashes style (50 %).
 
@@ -797,6 +799,64 @@ run of consecutive segments of a note becomes a note of its own, ending at the n
 location with that point's pre-pitch (or at the note's end); a piece that starts at a former
 inner point gets pre = post there, so no pre → post capsule is left at its new start. A
 note with all segments deleted disappears; the beats it used are free again.
+
+Creating notes by dragging (milestone 15):
+
+- A press on the spectrogram in the hover cell (away from the notes) clears the note selection
+  and starts a new note: its first segment is the *current segment*, from the cell's start to its
+  end at the cell's note, with its *first point fixed*. Until the release the note is only being
+  created (drawn like a note, not in the session).
+- Tracking: the pointer's grid cell (as for the hover cell, but also over existing notes: notes
+  may overlap) is *valid* when it starts at or after the current segment's start. Over a valid
+  cell the current segment ends at that cell's end; over no cell (before the first or after the
+  last beat, under the spectrum pane, outside the pitch range) or a cell before the current
+  segment's start, the current segment stays as it last was and is marked *invalid*.
+- Pitch is the pointer's note (snapped to semitones, as the hover cell).
+- First point fixed: the current segment starts at its first point's post-pitch (fixed) and ends
+  at the pointer's note: a glide when they differ. The second point's handle (at the segment's
+  end circle) is drawn.
+- First point not fixed: the current segment's first point has its pre-pitch fixed (the previous
+  segment's end pitch) and its post-pitch at the pointer's note; the segment is flat at that
+  note up to its end (a pre → post capsule joins it to the previous segment when they differ).
+  The first point's handle (at the segment's start circle) is drawn.
+- Hold timer: when the pointer enters the drawn handle (the handle's circle, as in "Hovering a
+  note") a 1-second timer starts, shown as a pie beside the pointer (14 points across, centred 16
+  points right of and 16 points below the pointer tip (in screen terms, both orientations),
+  translucent accent fill growing clockwise from 12 o'clock, with a thin accent outline).
+  Leaving the handle stops and hides it. A handle that is under the pointer when it appears
+  (after a state change) doesn't start the timer until the pointer leaves it and comes back.
+- The timer elapsing on the second point's handle finalises the current segment: a new point is
+  added at its end (pre-pitch = the segment's end pitch) and the next segment becomes current,
+  first point not fixed, covering the next grid cell at the same pitch. Since the pointer is
+  then in a cell before it, it starts invalid. If there is no next grid cell (the segment ends at
+  the last beat) the note is complete: it is added and saved at once, and nothing changes until
+  the release.
+- The timer elapsing on the first point's handle fixes the first point (its post-pitch stays at
+  the current note); the second point's handle is drawn from then on.
+- Release: if the current segment is valid, the note is added with it, otherwise without it
+  (only the finalised segments; nothing if there are none). Escape during the drag works like a
+  release with the current segment invalid. The note is added unless the same note already
+  exists, and the session is saved. Nothing gets selected.
+- While creating: no hover cell; the created note's harmonic copies (as for a hovered note) are
+  drawn; the cursor is the arrow. The view doesn't scroll.
+- A click without moving is this flow with one valid segment: the one-cell note of "Placing".
+
+Editing pitches with the handles (milestone 15):
+
+- A press on a handle of the hovered segment clears the note selection and selects that segment;
+  dragging along the pitch axis changes pitches by whole semitones (the pointer's offset from the
+  press, rounded), live, kept within MIDI 21 … 120:
+  - the start handle: the segment's first point's post-pitch (on a note's first point the
+    pre-pitch moves with it by the same offset, so the note doesn't get a transition before its
+    start);
+  - the end handle: the next point's pre-pitch (the end pitch for the last segment);
+  - the middle handle (also when it is the only one): both by the same offset.
+  Other segments of the note keep their pitches (a point's pre and post belong to different
+  segments). Time doesn't change.
+- During the drag the cursor is the closed hand, the segment's handles stay drawn, and the
+  note's harmonic copies follow. Release saves (if anything changed); Escape restores the
+  pitches from the press and ends the drag. No hold timer on existing notes; no joining notes or
+  moving in time.
 
 ### Session file (from milestone 13)
 
