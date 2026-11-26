@@ -342,8 +342,8 @@ extension WaveformNSView {
     }
 
     /// Each note: the union of its capsules as a black 1-point outline and a white one over it,
-    /// offset by (−1, −1); no fill. Then the hovered segment's handles (moving dashes circles,
-    /// half the capsule's diameter).
+    /// offset by (−1, −1); no fill. Then the hovered segment's handles (moving dashes circles at
+    /// full opacity, half the capsule's diameter).
     func drawNotes() {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.saveGState()
@@ -360,7 +360,7 @@ extension WaveformNSView {
             let sg = sh.segments[k], d = sg.width / 2
             let path = NSBezierPath()
             for c in sg.visibleHandles { path.appendOval(in: NSRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)) }
-            strokeAlternating(path)
+            strokeAlternating(path, opacity: 1)
         }
     }
 }
