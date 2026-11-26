@@ -970,7 +970,7 @@ struct WaveformView: NSViewRepresentable {
             _ = (state.mainMode, state.windowLengthMs, state.freqLow, state.spectrogramVersion,
                  state.mainCrossLength, state.mainAxisLength, state.loadID)
             view.reportSize()
-            _ = (state.beats, state.gridDenominator, state.gridPanelOpen, state.notes)
+            _ = (state.beats, state.gridDenominator, state.gridPanelOpen, state.notes, state.harmonics)
         }
         if name == "navigator" { _ = (state.mainMode, state.windowLengthMs) }
         if isRuler { _ = (state.beats, state.selectedBeats, state.showBeats, state.pointer?.fraction, state.pointer?.pane) }

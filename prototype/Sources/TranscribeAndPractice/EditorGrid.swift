@@ -194,11 +194,11 @@ extension WaveformNSView {
         return GridCell(start: t0, end: t1, note: SpectrogramConstants.lowestNote + k)
     }
 
-    /// The cell's rectangle in view coordinates (on whole points).
-    func rect(of c: GridCell) -> NSRect {
+    /// The cell's rectangle in view coordinates (on whole points), `shift` semitones higher.
+    func rect(of c: GridCell, shift: Double = 0) -> NSRect {
         guard let state else { return .zero }
         let a0 = pixelCentre(axis(ofTime: c.start)), a1 = pixelCentre(axis(ofTime: c.end))
-        let k = Double(c.note - SpectrogramConstants.lowestNote)
+        let k = Double(c.note - SpectrogramConstants.lowestNote) + shift
         let lo = pixelCentre(CGFloat((k - state.freqBottom) * SpectrogramConstants.pointsPerSemitone))
         let hi = pixelCentre(CGFloat((k + 1 - state.freqBottom) * SpectrogramConstants.pointsPerSemitone))
         return orientation == .horizontal
@@ -206,9 +206,19 @@ extension WaveformNSView {
             : NSRect(x: lo, y: a0, width: hi - lo, height: a1 - a0)
     }
 
+    /// Shifts (semitones) of the hover cell copies: 12·log2(i) for the harmonics i = 2…n.
+    func harmonicShifts() -> [Double] {
+        guard let n = state?.harmonics, n >= 2 else { return [] }
+        return (2...n).map { 12 * log2(Double($0)) }
+    }
+
+    /// The hover cell and, with the harmonics setting, its copies 12·log2(i) semitones higher
+    /// (only drawn; placing a note is not affected).
     func drawHoverCell() {
         guard let p = hoverPoint, let c = gridCell(at: p) else { return }
-        strokeAlternating(NSBezierPath(rect: rect(of: c)))
+        let path = NSBezierPath(rect: rect(of: c))
+        for s in harmonicShifts() { path.append(NSBezierPath(rect: rect(of: c, shift: s))) }
+        strokeAlternating(path)
     }
 }
 

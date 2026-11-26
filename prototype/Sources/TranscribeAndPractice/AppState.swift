@@ -193,6 +193,9 @@ final class AppState {
         case .tuplet: gridTuplet
         }
     }
+    /// Hover cell copies at the harmonics 2…n (1: none) (milestone 13). Remembered across launches.
+    var harmonics: Int { didSet { UserDefaults.standard.set(harmonics, forKey: "harmonics") } }
+    static let maxHarmonics = 5
     var gridLabel: String { "1/\(gridDenominator)" }
     private static let mainModeKey = "mainPaneMode", windowKey = "spectrogramWindowMs"
 
@@ -205,6 +208,7 @@ final class AppState {
         mainMode = UserDefaults.standard.string(forKey: Self.mainModeKey).flatMap(MainPaneMode.init(rawValue:)) ?? .waveform
         windowLengthMs = min(max(UserDefaults.standard.object(forKey: Self.windowKey) as? Double ?? 50, Self.minWindowMs), Self.maxWindowMs)
         let d = UserDefaults.standard
+        harmonics = (d.object(forKey: "harmonics") as? Int).flatMap { (1...Self.maxHarmonics).contains($0) ? $0 : nil } ?? 1
         gridKind = d.string(forKey: "gridKind").flatMap(GridKind.init(rawValue:)) ?? .straight
         gridStraight = (d.object(forKey: "gridStraight") as? Int).flatMap { GridConstants.straight.contains($0) ? $0 : nil } ?? 16
         gridTriplet = (d.object(forKey: "gridTriplet") as? Int).flatMap { GridConstants.triplet.contains($0) ? $0 : nil } ?? 12

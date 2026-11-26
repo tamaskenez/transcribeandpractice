@@ -22,7 +22,7 @@ AUDIO = os.path.abspath(f'{OUT}/audio')
 ONLY = set(os.environ.get('ONLY', '').split(',')) - {''}
 ORIENTATIONS = ('horizontal', 'vertical')
 SR = 44100
-KEYS = ['timeOrientation', 'followPlayhead', 'mainPaneMode', 'showBeats', 'gridKind', 'gridStraight']
+KEYS = ['timeOrientation', 'followPlayhead', 'mainPaneMode', 'showBeats', 'gridKind', 'gridStraight', 'harmonics']
 LOWEST = 21
 
 
@@ -312,6 +312,59 @@ if run(5):
         s.command('view 4.9,7.3'); s.dump()
         s.input(f'move {P(s.at("navigator", 0.5))}')
         s.snapshot('closeup')
+        s.quit()
+
+# 6. Control layout and harmonics.
+if run(6):
+    for o in ORIENTATIONS:
+        side({})
+        s = session(f'{o}_harmonics', o)
+        F = s.state['paneFrames']
+        h, g, m, sl = F.get('harmonicsPicker'), F.get('gridControl'), F.get('modePicker'), F.get('windowSlider')
+        rd, pr = F.get('windowReadout'), F.get('progress')
+        ok = all([h, g, m, sl, rd, pr])
+        if ok:
+            cy = lambda r: r['y'] + r['height'] / 2
+            row = abs(cy(h) - cy(m)) < 3 and abs(cy(g) - cy(m)) < 3
+            order = h['x'] + h['width'] <= g['x'] + 1 and g['x'] + g['width'] <= m['x'] + 1
+            below = sl['y'] >= m['y'] + m['height'] - 1
+            right = abs((pr['x'] + pr['width']) - (m['x'] + m['width'])) < 2
+            ok = row and order and below and right
+            d = f'row {row} order {order} below {below} right {right}'
+        else:
+            d = str(sorted(F))
+        check(6, f'{o}: [Harmonics] [Grid] [View] in one row, the window slider below, right-aligned', ok, d)
+        tb = json.dumps(s.state['toolbar'])
+        check(6, f'{o}: no Grid control in the toolbar', 'Grid 1/' not in tb, tb[:300])
+        s.snapshot('controls')
+        s.command('grid straight 4')
+        s.command('view 0,10')
+        p = main_point(s, 5.1, 0.8)
+        for n in (1, 3, 5):
+            s.command(f'harmonics {n}')
+            s.input(f'move {P(p)}')
+            c = s.state['waveforms']['main']['hoverCell']
+            hr = c['harmonicRects'] if c else None
+            ok = hr is not None and len(hr) == n - 1
+            if ok:
+                base = c['rect']
+                for i, r in zip(range(2, n + 1), hr):
+                    want = 12 * math.log2(i) * 14
+                    got = (base[1] - r[1]) if o == 'horizontal' else (r[0] - base[0])
+                    ok = ok and abs(got - want) <= 1 and r[2] == base[2] and r[3] == base[3]
+            check(6, f'{o}: harmonics {n}: {n - 1} copies, 12·log2(i) semitones higher', ok, str(hr))
+            if n == 5:
+                s.snapshot('harmonics5')
+        notes = len(s.state['waveforms']['main']['notes'])
+        s.input(f'click {P(p)}')
+        nn = s.state['waveforms']['main']['notes']
+        check(6, f'{o}: a click with harmonics 5 places one note (the fundamental)',
+              len(nn) == notes + 1 and nn[-1]['midi'] == c['note'], str(nn[-1:]))
+        s.command('harmonics 1')
+        s.command('mode waveform'); s.dump()
+        F = s.state['paneFrames']
+        check(6, f'{o}: waveform mode: only the View dropdown',
+              'modePicker' in F and not any(k in F for k in ('harmonicsPicker', 'gridControl', 'windowSlider')), str(sorted(F)))
         s.quit()
 
 print(f'{sum(results)}/{len(results)} passed')

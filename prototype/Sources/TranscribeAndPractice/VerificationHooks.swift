@@ -111,6 +111,7 @@ enum VerificationHooks {
                     case "beats": state.showBeats = arg == "on"
                     case "beatkey": state.beatKey(downbeat: arg == "shift")
                     case "notes": if arg == "clear" { state.notes = [] }
+                    case "harmonics": if let n = Int(arg), (1...AppState.maxHarmonics).contains(n) { state.harmonics = n }
                     case "gridpanel": state.gridPanelOpen = arg == "open"
                     case "grid":
                         let a = arg.split(separator: " ").map(String.init)
@@ -252,7 +253,7 @@ enum VerificationHooks {
             "screenFrames": screenFrames(state: state),
             "spectrogram": spectrogramDump(state: state),
             "spectrum": spectrumDump(),
-            "grid": ["panelOpen": state.gridPanelOpen, "kind": state.gridKind.rawValue, "straight": state.gridStraight,
+            "grid": ["panelOpen": state.gridPanelOpen, "harmonics": state.harmonics, "kind": state.gridKind.rawValue, "straight": state.gridStraight,
                      "triplet": state.gridTriplet, "tuplet": state.gridTuplet, "n": state.gridDenominator],
         ]
         if let audio = state.audio {
@@ -376,7 +377,10 @@ enum VerificationHooks {
                     "hoverCell": w.hoverPoint.flatMap(w.gridCell(at:)).map { c -> Any in
                         let r = w.rect(of: c)
                         return ["start": c.start, "end": c.end, "note": c.note,
-                                "rect": [r.minX, r.minY, r.width, r.height]] } ?? NSNull(),
+                                "rect": [r.minX, r.minY, r.width, r.height],
+                                "harmonicRects": w.harmonicShifts().map { s -> [Double] in
+                                    let h = w.rect(of: c, shift: s)
+                                    return [h.minX, h.minY, h.width, h.height].map { Double($0) } }] } ?? NSNull(),
                     "zoomAxis": w.zoomTimeAxis.map { $0 ? "time" : "amplitude" } ?? NSNull(),
                 ] as [String: Any]
             }
