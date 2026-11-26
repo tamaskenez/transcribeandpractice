@@ -458,6 +458,15 @@ if run(7):
           json.dumps(read_session()['notes']))
     s.quit()
 
+
+# 7b. Invalid session files (no input events: the error alert keeps the window from becoming key).
+class NoFront(Session):
+    def bring_to_front(self):
+        pass
+
+
+if run('7b'):
+    o = 'horizontal'
     bad = {
         'an old beats-only array': [{'sample': 22050, 'firstBeat': 'auto'}],
         'a legacy firstBeat value': {'beats': [{'sample': 22050, 'firstBeat': 'placed'}], 'notes': []},
@@ -469,7 +478,7 @@ if run(7):
     }
     for desc, content in bad.items():
         json.dump(content, open(SIDE, 'w'))
-        s = Session('storage_bad', opens=[AUDIO_PATH], orientation=o)
+        s = NoFront('storage_bad', opens=[AUDIO_PATH], orientation=o)
         s.dump()
         check(7, f'rejected: {desc}', s.state['alertText'] is not None and len(s.state['beats']) == 0,
               str(s.state['alertText']))
