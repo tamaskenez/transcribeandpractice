@@ -26,9 +26,13 @@ final class WaveformNSView: NSView {
         /// Ruler: a plain press. Stopped at the press: the playhead follows the pointer; playing:
         /// playback jumped to the press point and the rest of the drag does nothing.
         case seek(playing: Bool)
-        /// Spectrogram: a plain press away from the notes; a release without a drag clears the note
-        /// selection and places a note in the grid cell (if there is one).
-        case note(GridCell?)
+        /// Spectrogram: a plain press away from the notes and the grid cells; a release without a
+        /// drag clears the note selection.
+        case note
+        /// Spectrogram: a plain press in a grid cell: creating a note (`creation`; milestone 15).
+        case create
+        /// Spectrogram: a plain press on a note handle: editing its pitches (`handleEdit`).
+        case handle
         /// Spectrogram: a plain press on a note segment; a release without a drag selects only it
         /// (a double-click: the whole note).
         case noteClick(SegmentRef, clicks: Int)
@@ -68,6 +72,24 @@ final class WaveformNSView: NSView {
     var isBandDragging: Bool { if case .noteBand = drag { true } else { false } }
     /// Spectrogram: the pointer's position while it is over the pane (for the hover cell).
     private(set) var hoverPoint: CGPoint? { didSet { if hoverPoint != oldValue { needsDisplay = true } } }
+    /// Milestone 15: the note being created by a drag, and a handle drag on a note.
+    var creation: NoteCreation? { didSet { needsDisplay = true } }
+    var handleEdit: HandleEdit? { didSet { needsDisplay = true } }
+    var holdTimer: Timer?
+    var isNoteDragging: Bool { creation != nil || handleEdit != nil }
+    /// The view with a note creation or handle drag in progress (for Escape).
+    private static weak var noteDragView: WaveformNSView?
+
+    /// Escape during a note drag: creating drops the current segment and adds the finished ones;
+    /// a handle drag restores the pitches. False without such a drag.
+    static func cancelNoteDrag() -> Bool {
+        guard let v = noteDragView, v.isNoteDragging else { return false }
+        if v.creation != nil { v.finishCreation(keepCurrent: false) }
+        if v.handleEdit != nil { v.finishHandleEdit(restore: true) }
+        v.drag = nil
+        noteDragView = nil
+        return true
+    }
     private var pressPoint: CGPoint = .zero
     private var dragged = false
 
@@ -221,6 +243,7 @@ final class WaveformNSView: NSView {
             drawLines()
             drawNotes()
             drawHoverCell()
+            drawHoldPie()
             if let band = noteBand {
                 NSColor.controlAccentColor.withAlphaComponent(NoteDrawing.bandFillOpacity).setFill()
                 band.fill(using: .sourceOver)
@@ -671,6 +694,8 @@ final class WaveformNSView: NSView {
         }
         if case .move = drag {
             (cursor, name) = (.closedHand, "closedHand")
+        } else if case .handle = drag {
+            (cursor, name) = (.closedHand, "closedHand")
         } else if case .beats = drag {
             (cursor, name) = state?.selectedBeats.isEmpty == false ? (.closedHand, "closedHand")
                 : orientation == .horizontal ? (.resizeLeftRight, "resizeLeftRight") : (.resizeUpDown, "resizeUpDown")
@@ -697,7 +722,7 @@ final class WaveformNSView: NSView {
 
     /// Spectrogram mode: whether a point is under the spectrum pane (milestone 9), which covers
     /// the main pane's left side (horizontal) or bottom (vertical).
-    private func underSpectrum(_ p: CGPoint) -> Bool {
+    func underSpectrum(_ p: CGPoint) -> Bool {
         guard isSpectrogram, state?.audio != nil else { return false }
         let cover = SpectrumConstants.thickness + 1
         return orientation == .horizontal ? p.x < cover : p.y > bounds.height - cover
@@ -763,8 +788,19 @@ final class WaveformNSView: NSView {
                 if let (sh, k) = onNote { state.toggleSegment(SegmentRef(note: sh.note.id, segment: k)) }
                 drag = nil
             } else if mods.isEmpty, !underSpectrum(p) {
-                drag = onNote.map { .noteClick(SegmentRef(note: $0.note.note.id, segment: $0.segment), clicks: event.clickCount) }
-                    ?? .note(visibleGridCell(at: p))
+                // Milestone 15: a press on a handle edits its pitches; in a grid cell it creates a note.
+                if onNote != nil, event.clickCount == 1, startHandleEdit(at: p) {
+                    drag = .handle
+                    Self.noteDragView = self
+                } else if let (sh, k) = onNote {
+                    drag = .noteClick(SegmentRef(note: sh.note.id, segment: k), clicks: event.clickCount)
+                } else if let cell = visibleGridCell(at: p) {
+                    drag = .create
+                    Self.noteDragView = self
+                    startCreation(in: cell, at: p)
+                } else {
+                    drag = .note
+                }
             } else {
                 drag = nil
             }
@@ -896,6 +932,8 @@ final class WaveformNSView: NSView {
             guard dragged else { return }
             state.moveSelection(from: original, by: time(atAxis: axisPosition(p)) - pressTime)
         case .note, .noteClick: break
+        case .create: trackCreation(at: p)
+        case .handle: trackHandleEdit(at: p)
         case let .noteBand(anchor, base):
             noteBand = dragged ? NSRect(x: min(anchor.x, p.x), y: min(anchor.y, p.y),
                                         width: abs(p.x - anchor.x), height: abs(p.y - anchor.y)) : nil
@@ -924,11 +962,9 @@ final class WaveformNSView: NSView {
         case .lines where isRuler: if !dragged { seek(to: time(atAxis: clampedAxis(p))) }
         case .lines, .move: if !dragged { state.clickedToClear(at: clicked) }
         case .pan, .seek: break
-        case let .note(cell):
-            if !dragged {
-                state.clearNoteSelection()
-                if let cell { state.placeNote(in: cell) }
-            }
+        case .note: if !dragged { state.clearNoteSelection() }
+        case .create: finishCreation(keepCurrent: true)
+        case .handle: finishHandleEdit(restore: false)
         case let .noteClick(ref, clicks):
             if !dragged { if clicks >= 2 { state.selectOnlyNote(id: ref.note) } else { state.selectOnlySegment(ref) } }
         case .noteBand:

@@ -204,16 +204,6 @@ extension AppState {
         notes = out
         saveSession()
     }
-
-    /// Click on the spectrogram: a single-segment note in the grid cell (none if the same note
-    /// is already there).
-    func placeNote(in cell: GridCell) {
-        let g = beatGrid
-        let n = NoteTrajectory(pitch: Float(cell.note), from: g.loc(at: cell.startPos), to: g.loc(at: cell.endPos))
-        guard cell.startPos < cell.endPos, !notes.contains(where: { $0.sameNote(as: n) }) else { return }
-        notes.append(n)
-        saveSession()
-    }
 }
 
 // MARK: Drawing (milestone 14: segments, pre → post capsules, handles)
@@ -441,17 +431,32 @@ extension WaveformNSView {
                 ctx.addPath(p); ctx.setStrokeColor(accent.cgColor); ctx.setLineWidth(2); ctx.strokePath()
             }
         }
+        // Milestone 15: the note being created, drawn the same way (never selected).
+        if let sh = creationShape() {
+            var shift = CGAffineTransform(translationX: 1, y: 1)
+            if let black = sh.outline.copy(using: &shift) {
+                ctx.addPath(black); ctx.setStrokeColor(NSColor.black.cgColor); ctx.setLineWidth(1); ctx.strokePath()
+            }
+            ctx.addPath(sh.outline); ctx.setStrokeColor(NSColor.white.cgColor); ctx.setLineWidth(1); ctx.strokePath()
+        }
         ctx.restoreGState()
-        if let p = hoverPoint, let (sh, k) = hoveredSegment(at: p) {
-            let sg = sh.segments[k], d = sg.width / 2
+        if let (sh, k) = handleSegment() {
+            let sg = sh.segments[k]
+            drawHandles(sg.visibleHandles, diameter: sg.width / 2)
+        }
+        if let (c, d) = creationHandle() { drawHandles([c], diameter: d) }
+    }
+
+    /// Handles: moving dashes circles at full opacity, with a cross (+) in each, as wide as the
+    /// circle: black, then white over it offset by (−1, −1), like the note outline; on whole points.
+    func drawHandles(_ centres: [CGPoint], diameter d: CGFloat) {
+        do {
             let path = NSBezierPath()
-            for c in sg.visibleHandles { path.appendOval(in: NSRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)) }
+            for c in centres { path.appendOval(in: NSRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)) }
             strokeAlternating(path, opacity: 1)
-            // A cross (+) in each, as wide as the circle: black, then white over it offset by
-            // (−1, −1), like the note outline; on whole points.
             let black = NSBezierPath(), white = NSBezierPath()
             let w = d.rounded()
-            for c in sg.visibleHandles {
+            for c in centres {
                 // The white cross is centred half a point up-left of the handle's centre.
                 let x0 = (c.x - 0.5 - w / 2).rounded(), y0 = (c.y - 0.5 - w / 2).rounded()
                 let cx = (c.x - 1).rounded(), cy = (c.y - 1).rounded()
@@ -468,7 +473,8 @@ extension WaveformNSView {
     /// The hovered note's outline moved 12 · log2(i) semitones higher for i = 2 … harmonics (the
     /// white outline's path; up in horizontal mode, right in vertical mode).
     func noteHarmonicOutlines() -> [CGPath] {
-        guard let p = hoverPoint, let (sh, _) = hoveredSegment(at: p) else { return [] }
+        // Milestone 15: of the note being created, or the one whose handle is dragged.
+        guard let sh = creation != nil ? creationShape() : handleSegment()?.note else { return [] }
         return harmonicShifts().compactMap { semis in
             let d = CGFloat(semis * SpectrogramConstants.pointsPerSemitone)
             var t = orientation == .horizontal ? CGAffineTransform(translationX: 0, y: -d) : CGAffineTransform(translationX: d, y: 0)

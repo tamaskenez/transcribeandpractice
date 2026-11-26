@@ -1186,7 +1186,7 @@ changes pitches only (start handle: the point's post-pitch; end handle: the next
 pre-pitch or the end pitch; middle handle: both), selecting that segment; no time movement, no
 joining, no hold timer on existing notes.
 
-Status: `criteria proposed`
+Status: `criteria approved`
 
 Acceptance criteria:
 

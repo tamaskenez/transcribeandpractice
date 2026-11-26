@@ -397,6 +397,25 @@ enum VerificationHooks {
         return out
     }
 
+    /// Milestone 15: the note being created (nil without a creation drag).
+    private static func creationDump(_ w: WaveformNSView) -> Any {
+        guard let c = w.creation, let state = w.state else { return NSNull() }
+        let g = state.beatGrid
+        func point(_ p: NotePoint) -> [String: Any] {
+            ["pos": (g.position(p.loc) ?? Rational(-1, 1)).description, "pre": Double(p.pre), "post": Double(p.post)]
+        }
+        let handle = w.creationHandle()
+        return ["finished": c.finished.map(point), "current": point(c.current),
+                "startPos": c.startPos.description, "endPos": c.endPos.description, "endPitch": Double(c.endPitch),
+                "firstFixed": c.firstFixed, "valid": c.valid, "complete": c.complete, "armed": c.armed,
+                "handle": handle.map { [Double($0.centre.x), Double($0.centre.y), Double($0.diameter)] } ?? NSNull(),
+                "holdProgress": c.holdProgress ?? NSNull(), "timerRunning": w.holdTimer != nil,
+                "pie": c.holdStart == nil ? NSNull() : { let r = w.pieRect(c); return [r.minX, r.minY, r.width, r.height].map { Double($0) } }(),
+                "pointer": [Double(c.pointer.x), Double(c.pointer.y)],
+                "segments": (w.creationShape()?.segments ?? []).map { sg in
+                    ["start": [Double(sg.start.x), Double(sg.start.y)], "end": [Double(sg.end.x), Double(sg.end.y)], "ellipse": sg.isEllipse] }]
+    }
+
     private static func waveformDump() -> [String: Any] {
         var result: [String: Any] = [:]
         func visit(_ view: NSView) {
@@ -434,6 +453,13 @@ enum VerificationHooks {
                                 "harmonicRects": w.harmonicShifts().map { s -> [Double] in
                                     let h = w.rect(of: c, shift: s)
                                     return [h.minX, h.minY, h.width, h.height].map { Double($0) } }] } ?? NSNull(),
+                    "creation": creationDump(w),
+                    "handleEdit": w.handleEdit.map { e -> Any in
+                        ["note": w.state?.notes.firstIndex(where: { $0.id == e.note }) ?? -1, "segment": e.segment,
+                         "kind": e.kind.rawValue, "offset": e.offset] } ?? NSNull(),
+                    "handleSegment": w.handleSegment().map { h -> Any in
+                        ["note": w.state?.notes.firstIndex(where: { $0.id == h.note.note.id }) ?? -1, "segment": h.segment,
+                         "handles": h.note.segments[h.segment].visibleHandles.map { [Double($0.x), Double($0.y)] }] } ?? NSNull(),
                     "zoomAxis": w.zoomTimeAxis.map { $0 ? "time" : "amplitude" } ?? NSNull(),
                 ] as [String: Any]
             }

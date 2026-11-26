@@ -47,6 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // B / Shift+B: place a beat (Shift: a downbeat).
             if event.keyCode == 11 { state.beatKey(downbeat: event.modifierFlags.contains(.shift)); return nil }
             guard !event.modifierFlags.contains(.shift) else { return event }
+            // Escape during a note drag (milestone 15): ends it first.
+            if event.keyCode == 53, WaveformNSView.cancelNoteDrag() { return nil }
             switch event.keyCode {
             case 51 where !state.selectedSegments.isEmpty: state.deleteSelectedSegments() // Backspace: notes first
             case 51 where !state.isPlaying && (state.hoveredBeatSample != nil || !state.selectedBeats.isEmpty):
