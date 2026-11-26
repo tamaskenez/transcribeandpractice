@@ -1092,8 +1092,6 @@ Screenshots for the human check: `*_grid_open.png`, `*_hover_cell16.png`, `*_hov
 `*_harmonics_harmonics5.png`, `*_hover34_pickup_lines.png`, `*_notes_placed.png`,
 `*_notes_closeup.png`, `*_harmonics_controls.png`.
 
-## 14. Advanced note editing
-
 ## 14. Note selection and deletion
 
 Iterative; started as "advanced note editing" (selection and deletion, entering multi-segment
@@ -1112,7 +1110,7 @@ handles come later. Details: the spec, "Notes".
 4. Backspace deletes the selected segments (splitting or trimming notes); Escape clears the note
    selection.
 
-Status: `criteria proposed`
+Status: `verified`
 
 Acceptance criteria:
 
