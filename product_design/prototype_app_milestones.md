@@ -1027,7 +1027,7 @@ Iterative; the requirements were worked out step by step (details: the spec, "Sp
    backward compatibility). Beats a note uses can't be deleted, and no beat can be inserted
    between them.
 
-Status: `verified`
+Status: `done`
 
 Acceptance criteria:
 
