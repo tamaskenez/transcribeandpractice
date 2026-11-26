@@ -818,14 +818,17 @@ Creating notes by dragging (milestone 15):
 - First point not fixed: the current segment's first point has its pre-pitch fixed (the previous
   segment's end pitch) and its post-pitch at the pointer's note; the segment is flat at that
   note up to its end (a pre → post capsule joins it to the previous segment when they differ).
-  The first point's handle (at the segment's start circle) is drawn.
+  The first point's handle (at the segment's start circle) and the second point's are drawn.
 - Hold timer: when the pointer enters the drawn handle (the handle's circle, as in "Hovering a
   note") a 1-second timer starts, shown as a pie beside the pointer (14 points across, centred 16
   points right of and 16 points below the pointer tip (in screen terms, both orientations),
-  translucent accent fill growing clockwise from 12 o'clock, with a thin accent outline).
+  translucent accent fill growing clockwise from 12 o'clock, with a thin accent outline). (A
+  segment drawn as an ellipse has one handle, at its middle: the first point's while that is
+  not fixed.)
   Leaving the handle stops and hides it. A handle that is under the pointer when it appears
   (after a state change) doesn't start the timer until the pointer leaves it and comes back.
-- The timer elapsing on the second point's handle finalises the current segment: a new point is
+- The timer elapsing on the second point's handle (first point fixed or not) finalises the
+  current segment: a new point is
   added at its end (pre-pitch = the segment's end pitch) and the next segment becomes current,
   first point not fixed, covering the next grid cell at the same pitch. Since the pointer is
   then in a cell before it, it starts invalid. If there is no next grid cell (the segment ends at

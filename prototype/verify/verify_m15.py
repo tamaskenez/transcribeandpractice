@@ -292,6 +292,21 @@ for o in ORIENTATIONS:
               json.dumps(saved_notes()))
         s.input(f'up {at(s, 5.85, M + 5)}')
         check(5, f'{o}: the release after Escape adds nothing more', len(saved_notes()) == 2, json.dumps(saved_notes()))
+        # First point not fixed: the second point's handle is drawn too, and its timer finalises.
+        s.input(f'down {at(s, 2.6, M - 8)}', f'dragto {handle_pt(s)}', 'sleep 1200', f'dragto {at(s, 3.1, M - 6)}')
+        c = cr(s)
+        check(5, f'{o}: not fixed: both handles drawn', not c['firstFixed'] and c['handle'] is not None
+              and c['secondHandle'] is not None and c['secondHandle'] != c['handle'][:2], json.dumps(c))
+        sh = c['secondHandle']
+        s.input(f'dragto {P(scr(s, sh))}', 'sleep 1200')
+        c = cr(s)
+        check(5, f'{o}: the timer on the second point\'s handle (first point not fixed) finalises the segment; the next one not fixed',
+              len(c['finished']) == 2 and c['finished'][1]['post'] == M - 6 and c['startPos'] == pos(3.25)
+              and c['current']['pre'] == M - 6 and not c['firstFixed'], json.dumps(c))
+        s.input(f'up {P(scr(s, sh))}')
+        check(5, f'{o}: released: the two finalised segments', saved_notes()[2:] ==
+              [{'points': [pt(4, M - 8, M - 8), pt(4, M - 8, M - 6, '1/2')], 'end': dict(loc(5, '1/2'), pitch=M - 6)}],
+              json.dumps(saved_notes()))
         s.command('harmonics 1')
         s.quit()
 

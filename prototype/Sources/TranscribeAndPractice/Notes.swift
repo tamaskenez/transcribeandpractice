@@ -444,7 +444,7 @@ extension WaveformNSView {
             let sg = sh.segments[k]
             drawHandles(sg.visibleHandles, diameter: sg.width / 2)
         }
-        if let (c, d) = creationHandle() { drawHandles([c], diameter: d) }
+        for h in creationHandles() { drawHandles([h.centre], diameter: h.diameter) }
     }
 
     /// Handles: moving dashes circles at full opacity, with a cross (+) in each, as wide as the

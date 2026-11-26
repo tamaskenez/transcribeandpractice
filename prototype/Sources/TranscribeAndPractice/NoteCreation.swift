@@ -28,8 +28,10 @@ struct NoteCreation {
     var valid = true
     /// The note was added (the beats ran out); the rest of the drag does nothing.
     var complete = false
-    /// The pointer entered the drawn handle at this time: the hold timer runs.
+    /// The pointer entered a drawn handle at this time: the hold timer runs.
     var holdStart: Date?
+    /// The handle the timer runs on: the second point's (true) or the first point's.
+    var holdSecond = true
     /// The handle may start the timer; false while the pointer stays on a handle that appeared
     /// under it.
     var armed = true
@@ -138,24 +140,26 @@ extension WaveformNSView {
         return shape(of: n)
     }
 
-    /// The drawn handle: the second point's (first point fixed) or the first point's; at the
-    /// middle of an ellipse.
-    func creationHandle() -> (centre: CGPoint, diameter: CGFloat)? {
-        guard let c = creation, let sh = creationShape(), let sg = sh.segments.last else { return nil }
-        let h = sg.handleCentres
-        let centre = sg.isEllipse ? CGPoint(x: sg.ellipseBox.midX, y: sg.ellipseBox.midY) : c.firstFixed ? h[2] : h[0]
-        return (centre, sg.width / 2)
+    /// The drawn handles: the second point's always, and the first point's while it is not fixed
+    /// (`second`: which one). An ellipse has one handle at its middle (the first point's while
+    /// it is not fixed).
+    func creationHandles() -> [(centre: CGPoint, diameter: CGFloat, second: Bool)] {
+        guard let c = creation, let sh = creationShape(), let sg = sh.segments.last else { return [] }
+        let h = sg.handleCentres, d = sg.width / 2
+        if sg.isEllipse { return [(CGPoint(x: sg.ellipseBox.midX, y: sg.ellipseBox.midY), d, c.firstFixed)] }
+        return c.firstFixed ? [(h[2], d, true)] : [(h[0], d, false), (h[2], d, true)]
     }
 
-    /// Starts or stops the hold timer as the pointer enters or leaves the drawn handle.
+    /// Starts or stops the hold timer as the pointer enters or leaves a drawn handle.
     func updateHold(at p: CGPoint) {
         guard var c = creation else { return }
-        let over = creationHandle().map { hypot($0.centre.x - p.x, $0.centre.y - p.y) <= $0.diameter / 2 + 1 } ?? false
-        if !over {
+        let over = creationHandles().first { hypot($0.centre.x - p.x, $0.centre.y - p.y) <= $0.diameter / 2 + 1 }
+        if let over {
+            if c.holdStart != nil, over.second != c.holdSecond { c.holdStart = nil; c.armed = true }
+            if c.armed, c.holdStart == nil { c.holdStart = Date(); c.holdSecond = over.second }
+        } else {
             c.holdStart = nil
             c.armed = true
-        } else if c.armed, c.holdStart == nil {
-            c.holdStart = Date()
         }
         creation = c
         updateHoldTimer()
@@ -182,14 +186,15 @@ extension WaveformNSView {
         holdElapsed()
     }
 
-    /// The timer elapsed: on the second point's handle the current segment is finalised and the
-    /// next one starts (first point not fixed), or, without a next grid cell, the note is added;
-    /// on the first point's handle the first point gets fixed.
+    /// The timer elapsed: on the second point's handle (whether or not the first point is fixed)
+    /// the current segment is finalised and the next one starts (first point not fixed), or,
+    /// without a next grid cell, the note is added; on the first point's handle the first point
+    /// gets fixed.
     func holdElapsed() {
         guard var c = creation, let state, let audio = state.audio else { return }
         c.holdStart = nil
         c.armed = false
-        if c.firstFixed {
+        if c.holdSecond {
             let g = state.beatGrid
             let endTime = g.time(c.endPos, sampleRate: audio.sampleRate)
             if let next = gridCellSpan(beats: state.beats, barStarts: state.beatPositions.map(\.isBarStart),

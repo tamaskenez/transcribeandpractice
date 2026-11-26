@@ -404,11 +404,13 @@ enum VerificationHooks {
         func point(_ p: NotePoint) -> [String: Any] {
             ["pos": (g.position(p.loc) ?? Rational(-1, 1)).description, "pre": Double(p.pre), "post": Double(p.post)]
         }
-        let handle = w.creationHandle()
+        let hs = w.creationHandles()
         return ["finished": c.finished.map(point), "current": point(c.current),
                 "startPos": c.startPos.description, "endPos": c.endPos.description, "endPitch": Double(c.endPitch),
                 "firstFixed": c.firstFixed, "valid": c.valid, "complete": c.complete, "armed": c.armed,
-                "handle": handle.map { [Double($0.centre.x), Double($0.centre.y), Double($0.diameter)] } ?? NSNull(),
+                "handle": (hs.first { $0.second == c.firstFixed } ?? hs.first).map { [Double($0.centre.x), Double($0.centre.y), Double($0.diameter)] } ?? NSNull(),
+                "secondHandle": hs.first { $0.second }.map { [Double($0.centre.x), Double($0.centre.y)] } ?? NSNull(),
+                "holdSecond": c.holdSecond,
                 "holdProgress": c.holdProgress ?? NSNull(), "timerRunning": w.holdTimer != nil,
                 "pie": c.holdStart == nil ? NSNull() : { let r = w.pieRect(c); return [r.minX, r.minY, r.width, r.height].map { Double($0) } }(),
                 "pointer": [Double(c.pointer.x), Double(c.pointer.y)],
