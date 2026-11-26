@@ -343,7 +343,7 @@ extension WaveformNSView {
 
     /// Each note: the union of its capsules as a black 1-point outline and a white one over it,
     /// offset by (−1, −1); no fill. Then the hovered segment's handles (moving dashes circles at
-    /// full opacity, half the capsule's diameter).
+    /// full opacity, half the capsule's diameter, with a black-and-white cross as wide).
     func drawNotes() {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.saveGState()
@@ -361,6 +361,21 @@ extension WaveformNSView {
             let path = NSBezierPath()
             for c in sg.visibleHandles { path.appendOval(in: NSRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)) }
             strokeAlternating(path, opacity: 1)
+            // A cross (+) in each, as wide as the circle: black, then white over it offset by
+            // (−1, −1), like the note outline; on whole points.
+            let black = NSBezierPath(), white = NSBezierPath()
+            let w = d.rounded()
+            for c in sg.visibleHandles {
+                // The white cross is centred half a point up-left of the handle's centre.
+                let x0 = (c.x - 0.5 - w / 2).rounded(), y0 = (c.y - 0.5 - w / 2).rounded()
+                let cx = (c.x - 1).rounded(), cy = (c.y - 1).rounded()
+                for (path, off) in [(black, CGFloat(1)), (white, CGFloat(0))] {
+                    path.appendRect(NSRect(x: x0 + off, y: cy + off, width: w, height: 1))
+                    path.appendRect(NSRect(x: cx + off, y: y0 + off, width: 1, height: w))
+                }
+            }
+            NSColor.black.setFill(); black.fill()
+            NSColor.white.setFill(); white.fill()
         }
     }
 }
