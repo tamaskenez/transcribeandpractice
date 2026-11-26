@@ -197,6 +197,8 @@ final class WaveformNSView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         usedDashes = false
         defer { updateDashTimer() }
+        // Views don't clip to their bounds by default (macOS 14): keep hover copies inside.
+        bounds.clip()
         background.setFill()
         bounds.fill()
         let horizontal = orientation == .horizontal
