@@ -1008,6 +1008,75 @@ the human check: `*_mouse_selected.png`, `*_menu_menu_single.png`, `*_menu_menu_
 
 ## 13. Note drawing
 
+Iterative; the requirements were worked out step by step (details: the spec, "Spectrogram",
+"Editor grid", "Notes", "Session file", "Placing and editing beats").
+
+1. Grid lines in a new style: 1 point, alternating 4-point dashes of 50 % black and white that
+   move along the line; shown only while the Grid panel is open (the checkbox is gone); also in
+   the partial first bar.
+2. Mouse over the spectrogram: never changes the playhead, the last start or the selection; only
+   pan and zoom (and placing notes).
+3. Hover cell: the grid cell under the pointer (one grid step from the bar start, cut at the bar
+   line; one semitone high) in the moving dashes style; copies at the harmonics 2 … h (Harmonics
+   dropdown, 1 … 5), 12 · log2(i) semitones higher.
+4. Spectrogram controls: [Harmonics] [Grid] [View] in one row, the window length slider below.
+5. Notes: a click places a single-segment note in the hover cell, drawn as a capsule (an ellipse
+   when short) with a black and a white outline offset by a point. Notes are note trajectories on
+   the beat grid (grid locations: beat + exact τ; points with pre/post pitch; an end).
+6. Session file `<audio>.session.json` with the beats and the notes (replaces `.beats.json`, no
+   backward compatibility). Beats a note uses can't be deleted, and no beat can be inserted
+   between them.
+
+Status: `criteria proposed`
+
+Acceptance criteria:
+
+Only the milestone 13 checks are run (`verify_m13.py`, run from `prototype/`); earlier milestones
+are not re-verified (their scripts write `.beats.json` sidecars). Test audio: a generated 20 s
+WAV (44.1 kHz; a 440 Hz sine with a little noise) with generated session files, mostly 38 evenly
+spaced beats (0.5 s apart, 4/4 from the first beat). Mouse input uses the synthetic-event driver;
+checks marked "both" run in both orientations. Hover-cell times are compared with a Python
+implementation of the spec's cell rule.
+
+1. Builds. (CLI)
+2. Grid lines, both: with the Grid panel closed the main pane has bar and beat lines and no grid
+   lines; opened (1/16), grid lines at every 1/16 step; closed again, none; no "Grid lines"
+   checkbox and no Grid control in the toolbar. (hook commands + dump)
+3. Spectrogram mouse, both: a click, a drag, a ⇧-click, a drag on a selection edge and a drag on
+   the playhead change neither the playhead, the last start nor the selection; the cursor over a
+   selection edge is the arrow; an Option-drag pans time and frequency; in waveform mode a click
+   still moves the playhead. (synthetic events + dump)
+4. Hover cell, both: the cell matches the reference for 1/16, 1/2 (two beats), 1/1 (the bar) and
+   triplet 1/6 in 4/4; for 1/2 in a 3/4 bar (two beats, then one cut at the bar line); for a
+   triplet 1/3 in a two-beat pickup (counted back from bar 1, the first cell cut at the first
+   beat); for 1/2 in the last bar (cut at the last beat); its note is the one under the pointer
+   and its rectangle contains the pointer, one semitone (14 points) high. No cell before the
+   first or after the last beat, off the spectrogram, or in waveform mode. The 1/8 grid lines
+   also fill the pickup. The dashes move while a cell is shown and the timer stops without one.
+   (synthetic events + dump + Python reference)
+5. Placing notes, both: clicks store notes at exactly the hover cell's note, start and end
+   (samples); a second click on the same note, a drag and an Option-click add none; neighbours
+   in time and in pitch touch without overlapping; a 1/32 note shorter than its height (drawn as
+   an ellipse). (synthetic events + dump)
+6. Controls and harmonics, both: [Harmonics] [Grid] [View] in one row in that order, the window
+   slider row below, right-aligned; in waveform mode only the View dropdown; harmonics 1, 3, 5
+   give 0, 2, 4 copies of the hover cell, each 12 · log2(i) semitones higher (± 1 point) and the
+   same size; a click with harmonics 5 places one note at the fundamental.
+   (hook commands + synthetic events + dump)
+7. Storage and beat protection: two placed notes give exactly the expected session file
+   (`{beats, notes}`; a 1/2 note = beat 8 → beat 10, a 1/8 note = beat 13 + 1/2 → beat 14);
+   their used beats are 8 … 10 and 13 … 14; reopened, the notes come back at the same place;
+   deleting a beat inside a note, or a selection with a note's end beat in it, beeps and deletes
+   nothing; deleting a free beat works and the notes keep their times; B inside a note beeps, B
+   elsewhere adds a beat; Subdivide with a gap inside a note beeps without a dialog; moving a
+   note's start beat moves the note's start; a hand-written three-point trajectory (fractional
+   pitches, τ 1/3) loads and is written back unchanged after another change. Invalid files are
+   rejected with the alert and no beats: an old beats-only array, a legacy `firstBeat` value,
+   τ = 1, an end before the start (`ONLY=7b`, without input events). (synthetic events + hook
+   commands + dump + the session file)
+8. Appearance (dark mode): the grid lines in the new style with the panel open; the hover cell
+   (1/16 and 1/2); the harmonic copies; placed notes (capsules, the ellipse, a close-up); the
+   spectrogram controls; both orientations. (screenshots, checked by the human)
 
 ## Fine-tuning (to do later)
 

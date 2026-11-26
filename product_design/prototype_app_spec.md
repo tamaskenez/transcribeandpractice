@@ -315,18 +315,8 @@ Data:
     signature there (and starts a bar); a beat without one continues the previous (see "Bars").
   - `firstBeat` ("beat within bar", from milestone 12): `auto` (the beat's place in its bar is
     counted) or `start` (the beat starts a bar).
-- The beats come from a sidecar file next to the audio file: the full
-  audio file name plus `.beats.json` (`song.mp3` → `song.mp3.beats.json`), read when the audio
-  file is opened. Format: a JSON array of objects
-  `{"sample": 44100, "timeSignature": "3/4", "firstBeat": "auto"}`
-  (`timeSignature` may be left out; other keys are ignored). The entries may come in any order;
-  the app sorts them. Files from before milestone 12 still load: their `source` is ignored (so
-  their computed beats become ordinary beats), `firstBeat: placed` reads as `start`, `no` and
-  `computed` as `auto`.
-- No sidecar file: the file has no beats. An invalid sidecar file (not JSON, not an array of
-  objects, a missing or unknown field value, a malformed time signature, a sample outside the
-  file, two beats at the same sample): an alert names the sidecar file and the problem; the audio
-  file opens normally, with no beats. An empty array is valid (no beats).
+- The beats are stored in the session file with the notes (see "Session file"; until milestone 12
+  in a `.beats.json` sidecar, which is no longer read).
 - Opening another audio file replaces the beats with that file's.
 
 Display (the navigator's marker strip):
@@ -380,7 +370,8 @@ Placing (keyboard; plain B and Shift+B, no Command / Option / Control):
   the pointer (wherever the pointer is).
 - Shift+B does the same with `firstBeat: start`.
 - Refused, with a system beep and no change: no file loaded; the pointer not over those panes
-  (when stopped); the time outside the file; another beat closer than 0.25 s.
+  (when stopped); the time outside the file; another beat closer than 0.25 s; the time inside
+  the beats a note uses (milestone 13, see "Notes").
 - No dialog (milestone 7's time signature dialog for a new first beat is gone: the default is 4/4).
 - Works in both strip modes (the beats are placed even while the strip shows time).
 - Time signatures with a denominator up to 128 are valid.
@@ -424,6 +415,8 @@ Deleting:
 - Backspace deletes the selected beats; without a selection, the beat whose mark is under the
   pointer (no click needed).
 - A deleted beat's time signature is dropped (the following bars inherit the previous one).
+- (Milestone 13) Beats a note uses can't be deleted: if any of the beats to delete is one, a
+  system beep and nothing is deleted (also for a selection with only some such beats).
 
 Context menu (right-click):
 
@@ -462,15 +455,15 @@ Subdivide dialog (modal sheet): "Split each gap into [n] parts", the allowed ran
   "Bars").
 - n is 2 or more and at most the largest value keeping the new beats 0.25 s apart in every gap
   (shown in the dialog; OK disabled outside the range).
+- (Milestone 13) If a gap lies inside the beats a note uses: a system beep, and the dialog
+  doesn't open.
 
 Equalize beats within bars: selected beats that don't start a bar are ignored. For every bar
 whose start and the next bar start are both selected, the beats between the two are moved to
 equal spacing (rounded to the nearest sample); the bar starts stay.
 
-Saving: after every change (on release for a drag) the beats are written to the sidecar file
-(format above: `sample`, `firstBeat` `auto` / `start`, `timeSignature` left out when absent),
-replacing it atomically. If writing fails, an alert ("Could not save beats") names the file and
-the reason; the beats stay in memory.
+Saving: after every change (on release for a drag) the session file is written (see "Session
+file").
 
 ### Bars (from milestone 12)
 
@@ -502,12 +495,14 @@ View modes of the main pane: waveform (milestones 2–7) and spectrogram. The na
 the waveform.
 
 Controls, floating over the main pane's top-right corner on a small translucent background, in
-both orientations (right to left):
+both orientations:
 
-- A dropdown: Waveform / Spectrogram.
-- Spectrogram mode only:
-  - A small spinning progress indicator, shown while the background computation is working.
-  - The window length slider: 10 ms … 500 ms, logarithmic, with a readout in ms.
+- Top row (right to left): a dropdown Waveform / Spectrogram; in spectrogram mode also the Grid
+  control and the Harmonics dropdown (milestone 13, see "Editor grid" and "Notes").
+- Spectrogram mode only, a second row below it, right-aligned (milestone 13; before: in the top
+  row, left of the dropdown): the window length slider (10 ms … 500 ms, logarithmic), its
+  readout in ms, and a small spinning progress indicator, shown while the background
+  computation is working.
 - One column per point along the time axis and one row per point across it (screen points, not
   physical pixels). (A Retina toggle computing per physical pixel was removed after milestone 8:
   it made no visible difference.)
@@ -515,8 +510,14 @@ both orientations (right to left):
 - With no file loaded the controls are hidden.
 
 Everything else in the main pane stays as in waveform mode: the selection band, the playhead and
-last-start lines (the pointer line stays in the strip, as before), and all mouse and keyboard behaviour (selection, line drags,
-seeking, B / Shift+B, pan, zoom). The ±50 ms margins and the time outside the file are blank.
+last-start lines (the pointer line stays in the strip, as before) and the keyboard (B / Shift+B).
+The ±50 ms margins and the time outside the file are blank.
+
+Mouse over the spectrogram (milestone 13; until then as in waveform mode): it never changes the
+playhead, the last start or the selection. Plain presses and drags don't select, seek or grab
+lines (the cursor stays the arrow, also over those lines); ⇧/⌘/⌃-clicks do nothing. Pan
+(Option-drag, middle-drag, scroll) and zoom (⌘-scroll, pinch) work as before. A plain click
+places a note (see "Notes").
 
 Computation (a short-time Fourier transform of the mono mix, the signal the waveform shows):
 
@@ -635,11 +636,12 @@ Which lines:
 - Bar lines at the bar starts (forced or counted, see "Bars"; before milestone 12: the downbeats),
   beat lines at the other beats. Both in waveform and spectrogram mode, independent of the
   Show Beats toggle. Not in the navigator.
-- Grid lines only in spectrogram mode, and only while the Grid lines checkbox is on. From each
-  bar start to the next one (so only between the first and the last bar start of the file: no
-  grid in a partial first bar or after the last bar start), a line every grid step,
-  1/n of a whole note (the Grid value), from the bar start until it reaches or passes the next
-  bar start. Grid lines that fall exactly on a beat are left out (the beat or bar line is there).
+- Grid lines only in spectrogram mode, and only while the Grid panel is open (milestone 13;
+  before: while the Grid lines checkbox was on). A line every grid step, 1/n of a whole note
+  (the Grid value), from each bar start until it reaches or passes the next bar start; in the
+  last bar until the last beat; in the beats before the first bar start (a partial first bar)
+  counted backwards from that bar start down to the first beat (milestone 13; before: no grid
+  there). Grid lines that fall exactly on a beat are left out (the beat or bar line is there).
 - Grid timing, piecewise through the beats: each beat interval counts as one `beat_note` (1/4).
   A grid line at musical position p beats after the bar start (p = k · (1/n) / `beat_note`,
   k = 1, 2, …, exact fractions) lies in the interval from beat ⌊p⌋ to beat ⌊p⌋ + 1 of the bar,
@@ -652,25 +654,115 @@ Which lines:
 Drawing (dark mode; a light-mode color scheme is to be designed later, until then the same
 colors are used):
 
-- Each line has a white 50 % opaque core and a 1-point black 50 % opaque border on both sides.
-- Core width: bar 3 points, beat 1 point, grid 1 point. Grid lines are dotted: 2-point dashes
-  every 4 points (core and side borders), transparent in between.
-- The core is aligned to whole points (its start rounded to the nearest point).
+- Bar and beat lines have a white 50 % opaque core and a 1-point black 50 % opaque border on both
+  sides. Core width: bar 3 points, beat 1 point. The core is aligned to whole points (its start
+  rounded to the nearest point).
+- Grid lines (milestone 13; before: dotted like the others): 1 point wide, centred on a whole
+  point, in the "moving dashes" style: alternating 4-point dashes of 50 % black and 50 % white
+  that move along the line by 0.5 point every 1/16 s (8 points per second), visible on any
+  background. The dashes move only while something in this style is drawn (grid lines or the
+  hover cell); otherwise the timer stops.
 - Spectrogram mode: over the spectrogram, under the selection band, the playhead, the
   last-start and the pointer lines. Waveform mode: over the waveform, under those lines.
 
-The Grid control (toolbar, shown only in spectrogram mode):
+The Grid control (from milestone 13 in the spectrogram controls, left of the View dropdown;
+before: in the toolbar; shown only in spectrogram mode):
 
-- A "Grid lines" checkbox: shows or hides the grid lines.
-- A "Grid 1/n" button (showing the current value) that opens a small panel:
+- A "Grid 1/n" button (showing the current value) that opens a small panel (the grid lines are
+  shown while it is open; milestone 11's "Grid lines" checkbox is gone):
   - Radio buttons: Straight, Triplet, Tuplet.
   - Straight: a list 1/1, 1/2, 1/4, 1/8, 1/16, 1/32, 1/64; Triplet: 1/3, 1/6, 1/12, 1/24,
     1/48; the current value has a checkmark, clicking a value selects it.
   - Tuplet: "1 / [ ]", a text field taking a whole number 1 … 64; other input is ignored (the
     value stays the last valid one).
 - Each kind keeps its own value; switching the kind switches to that kind's value. Defaults:
-  checkbox on, Straight, 1/16 (Triplet 1/12, Tuplet 1/5). All of it is remembered across
-  launches.
+  Straight, 1/16 (Triplet 1/12, Tuplet 1/5). All of it is remembered across launches.
+
+### Notes (from milestone 13)
+
+Notes are drawn into the spectrogram on the editor grid, like MIDI notes over a piano roll.
+
+Hover cell (spectrogram mode, while the pointer is over the spectrogram and not over the spectrum
+pane):
+
+- A rectangle in the moving dashes style (see "Editor grid") around the grid cell under the
+  pointer, drawn above everything else in the pane.
+- Time: one grid step (1/n note, n the Grid value), counted from the bar start, cut at the next
+  bar start (a 1/2 grid in a 3/4 bar: a half note, then a quarter note); in the partial first
+  bar counted backwards from the first bar start and cut at the first beat; in the last bar cut
+  at the last beat. Beat lines don't split a cell. Positions are exact fractions of beats (the
+  grid timing of "Editor grid"). Before the first and after the last beat there is no cell.
+- Pitch: from the boundary below the note under the pointer to the one above it (note − ½ …
+  note + ½), MIDI notes 21 … 120 (the spectrogram's range).
+- The cell's lines are at whole-point centres; the grid lines and the hover cell use the grid
+  whether or not its lines are shown (the Grid panel open or not, crowding).
+- Harmonics dropdown (spectrogram controls, left of the Grid control): 1 … 5, default 1,
+  remembered across launches. With h > 1 the hover cell is repeated 12 · log2(i) semitones higher
+  for i = 2 … h (+12, +19.02, +24, +27.86), same size and style. Only drawn: it doesn't affect
+  placing. Drawing is clipped to the main pane.
+
+Placing: a plain click (no drag) on the spectrogram places a note in the hover cell: a single
+segment at the cell's note (see the model below: one point with pre = post = end pitch = the
+note, at the cell's start; the end at the cell's end). Clicking where the same note already is
+adds nothing. A drag, an Option-click (pan) and ⇧/⌘/⌃-clicks place nothing. (Editing,
+deleting and multi-segment notes come in the next milestone.)
+
+Model (note trajectories):
+
+- A grid location is a beat and τ, an exact fraction 0 ≤ τ < 1: the time τ of the way from that
+  beat to the next one (linear in time). τ > 0 needs a next beat.
+- A note trajectory is a sequence of one or more points and an end. A point has a grid location,
+  a pre-pitch and a post-pitch; the end has a grid location and a pitch. The locations strictly
+  increase. Pitches are MIDI note numbers (fractional values between semitones). A trajectory
+  of N − 1 segments has N locations; two neighbouring locations may be many beats apart.
+- Pitch over time (computed, not stored; used for drawing from the next milestone): linear in
+  MIDI note numbers (logarithmic in frequency) from a point's post-pitch to the next point's
+  pre-pitch (or the end pitch), over beat positions. Around a point with pre ≠ post the pitch
+  goes linearly from pre to post in a transition just before the point, taking
+  min(`beat_note`/8, preceding segment / 8) from the preceding segment (in beats: at most 1/8
+  beat); at the first point (no preceding segment) the transition takes `beat_note`/8 before
+  the point, so the note starts sounding earlier. A point with pre = post has no transition.
+- Notes follow their beats: moving a beat moves the notes' locations on it. A note uses the beats
+  from its first point's beat to the beat at or after its end (the end's beat, or the next one if
+  its τ > 0); those can't be deleted, and no beat can be inserted between them (B, Subdivide; see
+  "Placing and editing beats"). Notes may overlap.
+- The notes are cleared when another file is opened (replaced by that file's).
+
+Drawing (spectrogram mode only; notes have a constant pitch in this milestone):
+
+- A note's area spans its start to its end in time and pitch − ½ … pitch + ½, with the edges
+  rounded to whole points, so the areas of neighbouring notes touch without overlapping.
+- In it: a capsule along the time axis (semicircles of the area's cross size at both ends; an
+  ellipse filling the area when it is shorter than that), drawn as a black 1-point outline and a
+  white one over it offset by (−1, −1) (light from the top left of the screen, in both
+  orientations). Each is one point smaller than the area, so the two together fill it exactly.
+  No fill: the spectrogram stays visible inside.
+- Over the spectrogram, the editor lines, the selection band and the playhead and last-start
+  lines; under the hover cell.
+
+### Session file (from milestone 13)
+
+The beats and the notes of an audio file are stored together in a session file next to it: the
+full audio file name plus `.session.json` (`song.mp3` → `song.mp3.session.json`), read when the
+audio file is opened. It replaces milestone 6–12's `.beats.json` sidecar (not read any more, no
+conversion: the prototype keeps no backward compatibility).
+
+    {"beats": [{"sample": 22050, "firstBeat": "auto"}, {"sample": 44100, "firstBeat": "start", "timeSignature": "3/4"}, …],
+     "notes": [{"points": [{"beat": 3, "tau": "1/2", "pre": 60, "post": 60}, …],
+                "end": {"beat": 4, "tau": "0/1", "pitch": 60}}, …]}
+
+- `beats`: in strictly ascending `sample` order (0 ≤ sample < frame count), `firstBeat` `auto`
+  or `start`, `timeSignature` optional (`n/d`, n ≥ 1, d one of 1, 2, 4 … 128).
+- `notes`: `beat` is an index into `beats`; `tau` the exact fraction as "n/d" (written reduced,
+  "0/1" for 0); `pre`, `post`, `pitch` MIDI numbers 0 … 127. Points strictly increasing, the end
+  after the last point, τ > 0 only before another beat.
+- Unknown keys are ignored. Anything else is invalid (not JSON, not an object with `beats` and
+  `notes` arrays, a missing or wrong value, beats out of order, a wrong reference): an alert
+  ("Could not read the session") names the file and the problem; the audio file opens normally,
+  with no beats and no notes. No session file: no beats and no notes.
+- Written after every change of the beats or the notes (on release for a drag), replacing the
+  file atomically. If writing fails, an alert ("Could not save the session") names the file and
+  the reason; the beats and notes stay in memory.
 
 ### Loading audio files
 
@@ -756,7 +848,15 @@ dialog's (text, maximum, OK enabled), and the strip's beat marks carry their sam
 `beatsel <i,j,…>|none` (selection by index, the last one the anchor), `beatmenu <title>` (runs a
 menu item's action), `tsdialog ok|cancel|mode change|continue|numerator <n>|denominator <d>`
 and `subdivide <n>|ok|cancel` (through the dialogs' code paths). Milestone 7's `tsdialog
-<n>/<d>|dontset` is gone. From milestone 10 on, also: each waveform pane's dump has `columns` instead of
+<n>/<d>|dontset` is gone. From milestone 13 on, also: the grid settings in the dump have
+`panelOpen` and `harmonics` (no checkbox); the main pane's dump has `hoverCell` (start and end
+time and beat position, note, rectangle, the harmonic copies' rectangles, or null), `dashPhase`
+and `dashesMoving`, and `notes` (per note its points and end as stored, by beat index and τ,
+its start and end time and sample, the first pitch, the beat indices it uses and its drawn
+rectangle); the spectrogram controls report their frames (`harmonicsPicker`, `gridControl`,
+`modePicker`, `windowSlider`, `windowReadout`, `progress`); commands `gridpanel open|close`
+(replaces `gridlines`), `harmonics <n>`, `notes clear`, and `beatat <seconds>` (B with the
+pointer exactly at that time over the main pane). From milestone 10 on, also: each waveform pane's dump has `columns` instead of
 `points`: per drawn column its index j, the min, max and rms (before the amplitude zoom), and the
 drawn extents of the min/max bar and of the RMS span (whose endpoints are the marks) across the
 time axis (pane coordinates, after the zoom
@@ -949,3 +1049,24 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
   after its fade-out, so the script waits 0.5 s before the dump. The input driver gained
   `rclick x y`.
 - The cursor dump knows `resizeLeftRight` / `resizeUpDown`.
+- (Milestone 13) "Single pixel" lines are 1 point (2 physical pixels on Retina), as elsewhere.
+- Hover cell and grid lines share one implementation of the grid (`gridSegments`,
+  `gridCellSpan`), with exact fractions; the hover cell is computed from the pointer per draw.
+- The moving dashes are a 1/16 s timer on the main pane that runs only while the last draw used
+  them; the dash length (4), step (0.5) and interval are constants in `GridConstants`.
+- The main pane clips its drawing to its bounds (macOS 14 views don't by default): harmonic
+  copies above the pane spilled onto the scrollbar.
+- Note areas round their edges to whole points (the hover cell centres its lines on them), so
+  neighbouring notes never overlap.
+- Placing the same note twice adds nothing; overlapping different notes are allowed.
+- Note trajectories carry an in-memory id; grid locations refer to beats by id in memory and by
+  index in the file (hence the beats' strict order in the file).
+- Beats a note uses: from ⌊start⌋ to ⌈end⌉ in beat positions. Deleting is all-or-nothing (the
+  user's choice); insertion is refused strictly between those beats.
+- Pitch transitions only exist where pre ≠ post, so a plain note doesn't start an eighth beat
+  early.
+- The session file's `tau` is a string "n/d" so it stays exact; pitches are written as JSON
+  numbers.
+- Verification: invalid session files are checked without input events (the error alert keeps
+  the window from becoming key); `beatat` places a beat at an exact time, because a mouse
+  position at exactly the minimum distance could beep for the distance rule instead.
