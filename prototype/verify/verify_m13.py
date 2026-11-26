@@ -339,7 +339,7 @@ if run(6):
         s.snapshot('controls')
         s.command('grid straight 4')
         s.command('view 0,10')
-        p = main_point(s, 5.1, 0.8)
+        p = main_point(s, 5.1, 0.8 if o == 'horizontal' else 0.2)
         for n in (1, 3, 5):
             s.command(f'harmonics {n}')
             s.input(f'move {P(p)}')
