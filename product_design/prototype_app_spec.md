@@ -389,7 +389,8 @@ Selection (a list of selected beats, cleared when another file is opened):
   anchor.
 - ⇧-click on a beat mark adds all beats from the anchor to that beat (inclusive) to the
   selection; without an anchor it selects only that beat (and makes it the anchor).
-- Escape clears the beat selection (if there is one; otherwise it clears the time selection as
+- Escape clears the note selection if there is one (milestone 14), else the beat selection (if
+  there is one; otherwise it clears the time selection as
   before).
 - Beats in a range are selected even where crowding hides their marks.
 - Selected beats are drawn in the strip only: a 3-point line in the accent colour with a 1-point
@@ -413,7 +414,8 @@ Cursor and moving:
 Deleting:
 
 - Backspace deletes the selected beats; without a selection, the beat whose mark is under the
-  pointer (no click needed).
+  pointer (no click needed). With note segments selected, Backspace deletes those instead
+  (milestone 14, see "Notes").
 - A deleted beat's time signature is dropped (the following bars inherit the previous one).
 - (Milestone 13) Beats a note uses can't be deleted: if any of the beats to delete is one, a
   system beep and nothing is deleted (also for a selection with only some such beats).
@@ -517,7 +519,7 @@ Mouse over the spectrogram (milestone 13; until then as in waveform mode): it ne
 playhead, the last start or the selection. Plain presses and drags don't select, seek or grab
 lines (the cursor stays the arrow, also over those lines); ⇧/⌘/⌃-clicks do nothing. Pan
 (Option-drag, middle-drag, scroll) and zoom (⌘-scroll, pinch) work as before. A plain click
-places a note (see "Notes").
+places a note; clicks, ⌘-clicks and ⇧-drags select notes (milestone 14; see "Notes").
 
 Computation (a short-time Fourier transform of the mono mix, the signal the waveform shows):
 
@@ -687,6 +689,8 @@ pane):
 
 - A rectangle in the moving dashes style (see "Editor grid") around the grid cell under the
   pointer, drawn above everything else in the pane.
+- (Milestone 14) Not while the pointer hovers a note (see "Hovering a note" below), and not during
+  a ⇧-drag selection.
 - Time: one grid step (1/n note, n the Grid value), counted from the bar start, cut at the next
   bar start (a 1/2 grid in a 3/4 bar: a half note, then a quarter note); in the partial first
   bar counted backwards from the first bar start and cut at the first beat; in the last bar cut
@@ -701,11 +705,13 @@ pane):
   for i = 2 … h (+12, +19.02, +24, +27.86), same size and style. Only drawn: it doesn't affect
   placing. Drawing is clipped to the main pane.
 
-Placing: a plain click (no drag) on the spectrogram places a note in the hover cell: a single
-segment at the cell's note (see the model below: one point with pre = post = end pitch = the
-note, at the cell's start; the end at the cell's end). Clicking where the same note already is
-adds nothing. A drag, an Option-click (pan) and ⇧/⌘/⌃-clicks place nothing. (Editing,
-deleting and multi-segment notes come in the next milestone.)
+Placing: a plain click (no drag) on the spectrogram away from the notes places a note in the
+hover cell: a single segment at the cell's note (see the model below: one point with pre = post =
+end pitch = the note, at the cell's start; the end at the cell's end). It also clears the note
+selection (milestone 14). Clicking where the same note already is adds nothing. A click on a note
+selects (below) and places nothing. A drag, an Option-click (pan) and ⇧/⌘/⌃-clicks place
+nothing. (Entering multi-segment notes and editing come later; such notes can be written into
+the session file.)
 
 Model (note trajectories):
 
@@ -715,7 +721,8 @@ Model (note trajectories):
   a pre-pitch and a post-pitch; the end has a grid location and a pitch. The locations strictly
   increase. Pitches are MIDI note numbers (fractional values between semitones). A trajectory
   of N − 1 segments has N locations; two neighbouring locations may be many beats apart.
-- Pitch over time (computed, not stored; used for drawing from the next milestone): linear in
+- Pitch over time (computed, not stored; for turning notes into MIDI later — drawing has its own
+  rules, below): linear in
   MIDI note numbers (logarithmic in frequency) from a point's post-pitch to the next point's
   pre-pitch (or the end pitch), over beat positions. Around a point with pre ≠ post the pitch
   goes linearly from pre to post in a transition just before the point, taking
@@ -726,19 +733,70 @@ Model (note trajectories):
   from its first point's beat to the beat at or after its end (the end's beat, or the next one if
   its τ > 0); those can't be deleted, and no beat can be inserted between them (B, Subdivide; see
   "Placing and editing beats"). Notes may overlap.
-- The notes are cleared when another file is opened (replaced by that file's).
+- The notes are cleared when another file is opened (replaced by that file's), and so is the note
+  selection.
 
-Drawing (spectrogram mode only; notes have a constant pitch in this milestone):
+Drawing (spectrogram mode only; milestone 14 — milestone 13 drew one capsule per note at its
+first pitch). The pre → post transitions of the model are for turning notes into MIDI later; the
+drawing follows its own rules:
 
-- A note's area spans its start to its end in time and pitch − ½ … pitch + ½, with the edges
-  rounded to whole points, so the areas of neighbouring notes touch without overlapping.
-- In it: a capsule along the time axis (semicircles of the area's cross size at both ends; an
-  ellipse filling the area when it is shorter than that), drawn as a black 1-point outline and a
-  white one over it offset by (−1, −1) (light from the top left of the screen, in both
-  orientations). Each is one point smaller than the area, so the two together fill it exactly.
-  No fill: the spectrogram stays visible inside.
+- Segment k (from point k to point k + 1, or the end) is a capsule along the time axis: the hull
+  of two circles one semitone in diameter. Their centres are at the segment's start and end
+  locations, inset by the radius (so the capsule stays between the two locations), at the start
+  point's post-pitch and the next point's pre-pitch (the end pitch for the last segment): a
+  segment between different pitches slopes. Location edges are rounded to whole points, so
+  neighbouring segments and notes touch without overlapping (a flat note looks as in milestone
+  13).
+- A segment shorter (along time) than its width is an ellipse filling its time span, one
+  semitone high at the average of its two pitches.
+- Pre → post capsules: where a point's pre- and post-pitch differ, a capsule joins the end circle
+  of the segment before it to the start circle of the segment after it. At the first point
+  (pre ≠ post) it crosses the point: from a circle at the pre-pitch just before the location
+  (inset like an end circle, mirrored) to the first segment's start circle. None next to an
+  ellipse.
+- The note is one outline: the union of all its capsules and ellipses, as a black 1-point
+  outline and a white one over it offset by (−1, −1) (light from the top left of the screen, in
+  both orientations). Each outline's circles are one point smaller than the semitone, so the two
+  together fill it exactly. No fill: the spectrogram stays visible inside.
+- Selected: with all of a note's segments selected, the whole outline gets a translucent accent
+  fill (35 %) and a 2-point accent outline instead of the white one; otherwise each selected
+  segment's own capsule (or ellipse) does. The black outline stays.
 - Over the spectrogram, the editor lines, the selection band and the playhead and last-start
-  lines; under the hover cell.
+  lines; under the handles, the hover cell and the selection rectangle.
+
+Hovering a note (milestone 14):
+
+- A segment is hovered when the pointer is within its capsule (or ellipse) plus 3 points; the
+  nearest such segment. Not under the spectrum pane, not during a ⇧-drag selection.
+- Handles on the hovered segment only: small circles half the capsule's diameter (7 points) at
+  the two end circles' centres and the middle between them, drawn in the moving dashes style at
+  full opacity, each with a cross (+) as wide as the circle, black and then white offset by
+  (−1, −1) like the note outline. Only the middle handle when the segment is shorter than 3 ×
+  its width; none for an ellipse. (Handles are for editing later; now they only show.)
+- Over a handle the cursor is the open hand; elsewhere on a note the arrow.
+- Instead of the hover cell: the hovered note's outline repeated 12 · log2(i) semitones higher
+  for i = 2 … the Harmonics setting, in the moving dashes style (50 %).
+
+Selecting notes (milestone 14; by segment; the selection is a set of note segments):
+
+- A click (no drag) on a note selects only the hovered segment; a double-click selects the whole
+  note (all its segments). A click on the spectrogram away from the notes clears the selection
+  (and places a note, see "Placing").
+- ⌘-click on a note adds or removes the hovered segment; elsewhere nothing.
+- ⇧-drag: a selection rectangle (translucent accent fill at 20 %, moving dashes border). At the
+  press the selection is remembered; while dragging, the selection is that plus every segment
+  whose own capsule or ellipse (both outlines) lies fully inside the rectangle, so segments
+  are selected as the rectangle reaches them and go back to their earlier state when it shrinks
+  away. Pre → post capsules don't count. On release the selection stays and the rectangle
+  disappears. A ⇧-click without a drag does nothing. No hover feedback during the drag.
+- Escape clears the note selection (before the beat and the time selection).
+
+Deleting notes (milestone 14): Backspace with note segments selected deletes them (the beat
+deletion of "Placing and editing beats" only without a note selection) and saves. Each remaining
+run of consecutive segments of a note becomes a note of its own, ending at the next point's
+location with that point's pre-pitch (or at the note's end); a piece that starts at a former
+inner point gets pre = post there, so no pre → post capsule is left at its new start. A
+note with all segments deleted disappears; the beats it used are free again.
 
 ### Session file (from milestone 13)
 
@@ -856,7 +914,12 @@ its start and end time and sample, the first pitch, the beat indices it uses and
 rectangle); the spectrogram controls report their frames (`harmonicsPicker`, `gridControl`,
 `modePicker`, `windowSlider`, `windowReadout`, `progress`); commands `gridpanel open|close`
 (replaces `gridlines`), `harmonics <n>`, `notes clear`, and `beatat <seconds>` (B with the
-pointer exactly at that time over the main pane). From milestone 10 on, also: each waveform pane's dump has `columns` instead of
+pointer exactly at that time over the main pane). From milestone 14 on, also: each dumped note
+has its drawn `segments` (white end-circle centres, radius, length, width, ellipse flag and box,
+area, visible handles), its pre → post `transitions`, `hoveredSegment` and its `selected`
+segments; the main pane's dump adds `selectedSegments` ([note, segment] pairs), `noteBand` and
+`noteHarmonics` (the copies' bounding boxes); command `notesel i:k,…|i,…|none` (a segment, or all
+of note i). The input driver gained `dclick x y` and modifiers on `down`. From milestone 10 on, also: each waveform pane's dump has `columns` instead of
 `points`: per drawn column its index j, the min, max and rms (before the amplitude zoom), and the
 drawn extents of the min/max bar and of the RMS span (whose endpoints are the marks) across the
 time axis (pane coordinates, after the zoom
@@ -1070,3 +1133,14 @@ Alternatively, the root `CMakeLists.txt` builds the same app bundle (e.g. from C
 - Verification: invalid session files are checked without input events (the error alert keeps
   the window from becoming key); `beatat` places a beat at an exact time, because a mouse
   position at exactly the minimum distance could beep for the distance rule instead.
+- (Milestone 14) Note outlines are unions (`CGPath.union`, macOS 13+) of the segments' capsules
+  and the pre → post capsules, so a glide reads as one shape; each capsule is the union of two
+  circles and the quadrilateral between their outer tangents.
+- Ellipse segments sit at the average of their two pitches.
+- Hover reach 3 points; the handle hit area is the handle's radius plus 1 point. Handles use
+  `strokeAlternating` at full opacity (the grid lines and hover cell stay at 50 %).
+- The selected fill (35 %) and the rectangle's fill (20 %) are constants in `NoteDrawing`.
+- Escape and Backspace act on notes first, then beats (then the time selection, for Escape).
+- Deleting a middle segment sets pre = post at the following piece's new first point, so the
+  first-point capsule rule doesn't draw a leftover transition.
+- Selection is cleared by the click that places a note (the user's choice: clear and place).

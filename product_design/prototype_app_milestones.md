@@ -1092,6 +1092,72 @@ Screenshots for the human check: `*_grid_open.png`, `*_hover_cell16.png`, `*_hov
 `*_harmonics_harmonics5.png`, `*_hover34_pickup_lines.png`, `*_notes_placed.png`,
 `*_notes_closeup.png`, `*_harmonics_controls.png`.
 
+## 14. Note selection and deletion
+
+Iterative; started as "advanced note editing" (selection and deletion, entering multi-segment
+notes), narrowed to selection and deletion; entering multi-segment notes and editing with the
+handles come later. Details: the spec, "Notes".
+
+1. Note rendering per segment: sloped capsules between the post- and the next pre-pitch;
+   pre → post capsules at points whose pitches differ (across the first point); ellipses for
+   short segments (no pre → post capsules next to them); one merged black/white outline.
+2. Hovering a note: handles on the hovered segment (moving dashes circles at full opacity with a
+   black/white cross; three, one or none by length); the open hand over a handle; the note's
+   harmonic copies instead of the hover cell.
+3. Selection by segment: click (one segment), double-click (the whole note), ⌘-click (toggle),
+   a click elsewhere clears (and places a note), ⇧-drag rectangle (live, from the selection at
+   the press; no hover feedback meanwhile); accent fill and outline.
+4. Backspace deletes the selected segments (splitting or trimming notes); Escape clears the note
+   selection.
+
+Status: `done`
+
+Acceptance criteria:
+
+Only the milestone 14 checks are run (`verify_m14.py`, run from `prototype/`). Test audio: the
+milestone 13 WAV (20 s, 440 Hz sine and a little noise) with 38 beats 0.5 s apart and four
+hand-written notes in the session file: A flat (beats 6 → 8, MIDI 57); B a three-segment glide
+(beats 9 → 11 → 13 → 15, pre ≠ post at every point, the first segment sloping 62 → 64); C two
+1/8-beat segments (ellipses, pre ≠ post between them); D half a beat (between 1 and 3 widths
+long). Mouse input uses the synthetic-event driver; everything runs in both orientations.
+
+1. Builds. (CLI)
+2. Shapes: every segment's end circles are at its start and end locations (inset by the radius,
+   ± 1 point) and at the start's post- and the next pre-pitch (14 points per semitone, ± 1); A is
+   one flat capsule with no pre → post capsule; B has pre → post capsules across its first point
+   (from the pre-pitch before it) and between the segments at both inner points; C's segments are
+   ellipses without pre → post capsules. (dump)
+3. Hover: on A's middle and end handles the cursor is the open hand and A's segment is hovered
+   with 3 handles; between handles hovered with the arrow; on B's middle segment only that
+   segment is hovered; D shows only the middle handle; C (an ellipse) is hovered without
+   handles; away from the notes nothing is hovered. (synthetic events + dump)
+4. Over a note with harmonics 3: no hover cell, two copies of the note 12 and 19.02 semitones
+   higher; a click on the note places nothing; away from the notes the hover cell and its copies
+   are back. (hook commands + synthetic events + dump)
+5. Selection: a click selects one segment (A; B's middle one only); a double-click selects all of
+   B; ⌘-click removes and adds single segments (also an ellipse); ⌘-click on empty spectrogram
+   changes nothing; a plain click there clears the selection and places a note. ⇧-drag from a
+   selection of C's first segment: over A and D both get selected live, shrunk to A D is
+   unselected, shrunk to nothing only C's segment remains, grown again both return, the
+   rectangle shown and no hover feedback at every step; on release the selection stays and the
+   rectangle is gone. A rectangle around B's last segment selects only that segment. Escape
+   clears the selection. (synthetic events + dump)
+6. Deleting: Backspace with B's middle segment selected splits B into its first segment (ending
+   at the middle point with its pre-pitch) and its last (starting with pre = post), saved;
+   deleting all of A removes it and its beat 7 can then be deleted; deleting C's second segment
+   trims C to its first. (hook commands + key events + dump + the session file)
+7. Appearance (dark mode): the glide and the ellipses, handles with crosses, the note's harmonic
+   copies, a selected segment and a selected whole note, the selection rectangle mid-drag, the
+   notes after deleting; both orientations. (screenshots, checked by the human)
+
+Verification results (`python3 verify/verify_m14.py`; screenshots in `verify/out/m14/`): one full
+run of the current code, 69/69 checks passed (criteria 1–6; criterion 7 is the human check).
+Test-side fixes during the experiments: probes at an ellipse's end circle instead of its centre,
+and under the spectrum pane in vertical mode (the vertical view now ends at 12 s). Screenshots:
+`*_render_notes.png`, `*_render_hover_a.png`, `*_render_hover_b.png`, `*_render_closeup_b.png`,
+`*_render_note_harmonics.png`, `*_render_segment.png`, `*_render_whole.png`,
+`*_render_band.png`, `*_delete_after_delete.png`.
+
 ## Fine-tuning (to do later)
 
 - Don't drag playhead/last-playback-start when dragging selection edge

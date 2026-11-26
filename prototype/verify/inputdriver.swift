@@ -13,9 +13,10 @@
 //   front <pid>                           make the app frontmost via Accessibility
 //   focus <pid> <title>                   focus a text field via Accessibility
 //   type <text>                           type the text (unicode key events)
-//   down x y / dragto x y / up x y        a left-button drag in separate steps (dragto: 10 drag events
+//   down x y [mods] / dragto x y / up x y a left-button drag in separate steps (dragto: 10 drag events
 //                                         from the last position)
 //   rclick x y                            right-click (a context menu opens and stays open)
+//   dclick x y                            double-click
 //   sleep ms
 import ApplicationServices
 import Foundation
@@ -35,9 +36,10 @@ func flags(_ s: String?) -> CGEventFlags {
 
 func pause(_ ms: Int) { usleep(useconds_t(ms * 1000)) }
 
-func post(_ type: CGEventType, _ p: CGPoint, _ f: CGEventFlags = [], button: CGMouseButton = .left) {
+func post(_ type: CGEventType, _ p: CGPoint, _ f: CGEventFlags = [], button: CGMouseButton = .left, clicks: Int64 = 1) {
     guard let e = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: p, mouseButton: button) else { return }
     e.flags = f
+    if clicks != 1 { e.setIntegerValueField(.mouseEventClickState, value: clicks) }
     if button == .center { e.setIntegerValueField(.mouseEventButtonNumber, value: 2) }
     e.post(tap: .cghidEventTap)
 }
@@ -89,6 +91,14 @@ while let line = readLine() {
         post(.leftMouseDown, p, f); pause(30)
         post(.leftMouseUp, p, f); pause(30)
         setModifiers([])
+    case "dclick":
+        // A double-click: two clicks, the second with click state 2.
+        let p = CGPoint(x: d(1), y: d(2))
+        post(.mouseMoved, p); pause(30)
+        post(.leftMouseDown, p); pause(20)
+        post(.leftMouseUp, p); pause(60)
+        post(.leftMouseDown, p, clicks: 2); pause(20)
+        post(.leftMouseUp, p, clicks: 2); pause(30)
     case "drag":
         let p1 = CGPoint(x: d(1), y: d(2)), p2 = CGPoint(x: d(3), y: d(4))
         let f = flags(a.count > 5 ? a[5] : nil)
@@ -212,7 +222,7 @@ while let line = readLine() {
     case "down":
         let p = CGPoint(x: d(1), y: d(2))
         post(.mouseMoved, p); pause(30)
-        post(.leftMouseDown, p); pause(30)
+        post(.leftMouseDown, p, flags(a.count > 3 ? a[3] : nil)); pause(30)
         last = p
     case "dragto":
         let p = CGPoint(x: d(1), y: d(2))

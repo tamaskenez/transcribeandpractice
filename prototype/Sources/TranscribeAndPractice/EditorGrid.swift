@@ -169,14 +169,15 @@ extension WaveformNSView {
     func pixelCentre(_ a: CGFloat) -> CGFloat { (a - 0.5).rounded() + 0.5 }
 
     /// Grid line style (milestone 13): 1 point wide, alternating dashes of 50 % black and 50 %
-    /// white, visible on any background, moving along the line ("marching ants").
-    func strokeAlternating(_ path: NSBezierPath) {
+    /// white, visible on any background, moving along the line ("marching ants"). `opacity`:
+    /// of both colours (milestone 14: 1 for the note handles).
+    func strokeAlternating(_ path: NSBezierPath, opacity: CGFloat = 0.5) {
         guard !path.isEmpty else { return }
         path.lineWidth = 1
         usedDashes = true
         for (color, phase) in [(NSColor.black, dashPhase), (NSColor.white, dashPhase + GridConstants.dash)] {
             path.setLineDash([GridConstants.dash, GridConstants.dash], count: 2, phase: phase)
-            color.withAlphaComponent(0.5).setStroke()
+            color.withAlphaComponent(opacity).setStroke()
             path.stroke()
         }
     }
@@ -195,6 +196,11 @@ extension WaveformNSView {
         else { return nil }
         let k = Int(s.rounded(.down))
         return GridCell(startPos: p0, endPos: p1, start: t0, end: t1, note: SpectrogramConstants.lowestNote + k)
+    }
+
+    /// The hover cell, unless the pointer is over a note (milestone 14).
+    func visibleGridCell(at p: CGPoint) -> GridCell? {
+        !isBandDragging && hoveredSegment(at: p) == nil ? gridCell(at: p) : nil
     }
 
     /// The cell's rectangle in view coordinates (on whole points), `shift` semitones higher.
@@ -217,8 +223,11 @@ extension WaveformNSView {
 
     /// The hover cell and, with the harmonics setting, its copies 12·log2(i) semitones higher
     /// (only drawn; placing a note is not affected).
+    /// Milestone 14: over a note, the note's harmonic copies instead (see `drawNoteHarmonics`).
     func drawHoverCell() {
-        guard let p = hoverPoint, let c = gridCell(at: p) else { return }
+        guard let p = hoverPoint, !isBandDragging else { return }
+        if hoveredSegment(at: p) != nil { drawNoteHarmonics(); return }
+        guard let c = gridCell(at: p) else { return }
         let path = NSBezierPath(rect: rect(of: c))
         for s in harmonicShifts() { path.append(NSBezierPath(rect: rect(of: c, shift: s))) }
         strokeAlternating(path)

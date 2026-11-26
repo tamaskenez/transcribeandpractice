@@ -26,8 +26,15 @@ final class WaveformNSView: NSView {
         /// Ruler: a plain press. Stopped at the press: the playhead follows the pointer; playing:
         /// playback jumped to the press point and the rest of the drag does nothing.
         case seek(playing: Bool)
-        /// Spectrogram: a plain press in a grid cell; a release without a drag places a note there.
-        case note(GridCell)
+        /// Spectrogram: a plain press away from the notes; a release without a drag clears the note
+        /// selection and places a note in the grid cell (if there is one).
+        case note(GridCell?)
+        /// Spectrogram: a plain press on a note segment; a release without a drag selects only it
+        /// (a double-click: the whole note).
+        case noteClick(SegmentRef, clicks: Int)
+        /// Spectrogram: Shift-drag from `anchor` (view coordinates): a selection rectangle. The
+        /// selection is the one at the press (`base`) plus the notes inside the rectangle, live.
+        case noteBand(anchor: CGPoint, base: Set<SegmentRef>)
         /// Ruler, beats mode: a press on a beat (`pressed`) or, with selected beats, anywhere.
         /// Once it moves, `original` holds the moving beats (the selection, else the pressed
         /// beat) by id with their samples at the press.
@@ -54,6 +61,11 @@ final class WaveformNSView: NSView {
     /// Name of the cursor the view last set, for the state dump.
     private(set) var cursorName = "arrow"
     private var drag: Drag?
+    /// Spectrogram: the selection rectangle while Shift-dragging (view coordinates).
+    private(set) var noteBand: NSRect? { didSet { if noteBand != oldValue { needsDisplay = true } } }
+    /// A Shift-drag selection rectangle is in progress: no hover feedback (hovered note, handles,
+    /// harmonic copies, hover cell).
+    var isBandDragging: Bool { if case .noteBand = drag { true } else { false } }
     /// Spectrogram: the pointer's position while it is over the pane (for the hover cell).
     private(set) var hoverPoint: CGPoint? { didSet { if hoverPoint != oldValue { needsDisplay = true } } }
     private var pressPoint: CGPoint = .zero
@@ -209,6 +221,11 @@ final class WaveformNSView: NSView {
             drawLines()
             drawNotes()
             drawHoverCell()
+            if let band = noteBand {
+                NSColor.controlAccentColor.withAlphaComponent(NoteDrawing.bandFillOpacity).setFill()
+                band.fill(using: .sourceOver)
+                strokeAlternating(NSBezierPath(rect: band.insetBy(dx: 0.5, dy: 0.5)))
+            }
             return
         }
         if !isRuler { drawSelection() }
@@ -661,6 +678,9 @@ final class WaveformNSView: NSView {
             (cursor, name) = orientation == .horizontal ? (.columnResize, "columnResize") : (.rowResize, "rowResize")
         } else if drag != nil || !flags.intersection([.option, .shift, .command]).isEmpty {
             (cursor, name) = (.arrow, "arrow")
+        } else if isSpectrogram, !underSpectrum(p), handle(at: p) != nil {
+            // Milestone 14: a note handle.
+            (cursor, name) = (.openHand, "openHand")
         } else {
             switch hover(at: p) {
             case .lines:
@@ -734,8 +754,20 @@ final class WaveformNSView: NSView {
         } else if isSpectrogram {
             // Milestone 13: plain presses on the spectrogram leave the playhead, the last start
             // and the selection alone; a click places a note in the hovered grid cell.
-            drag = event.modifierFlags.intersection([.shift, .command, .control]).isEmpty && !underSpectrum(p)
-                ? gridCell(at: p).map { .note($0) } : nil
+            // Milestone 14: a click on a note selects it (⌘: toggles it); ⇧-drag: selection rectangle.
+            let mods = event.modifierFlags.intersection([.shift, .command, .control])
+            let onNote = underSpectrum(p) ? nil : hoveredSegment(at: p)
+            if mods == .shift {
+                drag = .noteBand(anchor: p, base: state.selectedSegments)
+            } else if mods == .command {
+                if let (sh, k) = onNote { state.toggleSegment(SegmentRef(note: sh.note.id, segment: k)) }
+                drag = nil
+            } else if mods.isEmpty, !underSpectrum(p) {
+                drag = onNote.map { .noteClick(SegmentRef(note: $0.note.note.id, segment: $0.segment), clicks: event.clickCount) }
+                    ?? .note(visibleGridCell(at: p))
+            } else {
+                drag = nil
+            }
         } else if isRuler, beatsInteractive, !event.modifierFlags.intersection([.command, .shift]).isEmpty {
             // Command+click toggles a beat, Shift+click adds the range from the anchor.
             if let m = beatMark(at: p) {
@@ -863,7 +895,14 @@ final class WaveformNSView: NSView {
         case let .move(original, pressTime):
             guard dragged else { return }
             state.moveSelection(from: original, by: time(atAxis: axisPosition(p)) - pressTime)
-        case .note: break
+        case .note, .noteClick: break
+        case let .noteBand(anchor, base):
+            noteBand = dragged ? NSRect(x: min(anchor.x, p.x), y: min(anchor.y, p.y),
+                                        width: abs(p.x - anchor.x), height: abs(p.y - anchor.y)) : nil
+            // Live: notes entering the rectangle are selected; leaving it, they go back to their
+            // state at the press.
+            let now = base.union(noteBand.map { segments(inside: $0) } ?? [])
+            if now != state.selectedSegments { state.selectedSegments = now }
         case let .seek(playing):
             if !playing { state.dragPlayhead(to: time(atAxis: clampedAxis(p))) }
         case let .beats(_, original, pressTime):
@@ -885,7 +924,16 @@ final class WaveformNSView: NSView {
         case .lines where isRuler: if !dragged { seek(to: time(atAxis: clampedAxis(p))) }
         case .lines, .move: if !dragged { state.clickedToClear(at: clicked) }
         case .pan, .seek: break
-        case let .note(cell): if !dragged { state.placeNote(in: cell) }
+        case let .note(cell):
+            if !dragged {
+                state.clearNoteSelection()
+                if let cell { state.placeNote(in: cell) }
+            }
+        case let .noteClick(ref, clicks):
+            if !dragged { if clicks >= 2 { state.selectOnlyNote(id: ref.note) } else { state.selectOnlySegment(ref) } }
+        case .noteBand:
+            // The selection was updated while dragging; it stays as it is.
+            noteBand = nil
         case let .beats(pressed, _, _):
             // A click without a drag: on a beat selects only it; elsewhere clears the selection
             // and acts as a plain strip press.
@@ -972,7 +1020,7 @@ struct WaveformView: NSViewRepresentable {
             _ = (state.mainMode, state.windowLengthMs, state.freqLow, state.spectrogramVersion,
                  state.mainCrossLength, state.mainAxisLength, state.loadID)
             view.reportSize()
-            _ = (state.beats, state.gridDenominator, state.gridPanelOpen, state.notes, state.harmonics)
+            _ = (state.beats, state.gridDenominator, state.gridPanelOpen, state.notes, state.harmonics, state.selectedSegments)
         }
         if name == "navigator" { _ = (state.mainMode, state.windowLengthMs) }
         if isRuler { _ = (state.beats, state.selectedBeats, state.showBeats, state.pointer?.fraction, state.pointer?.pane) }
