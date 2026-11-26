@@ -211,6 +211,8 @@ enum NoteDrawing {
     static let hoverReach: CGFloat = 3
     /// Opacity of a selected note's accent fill.
     static let selectedFillOpacity: CGFloat = 0.35
+    /// Opacity of the selection rectangle's accent fill.
+    static let bandFillOpacity: CGFloat = 0.2
 
     /// The hull of two circles of radius r (a capsule; a circle if they coincide).
     static func capsule(_ a: CGPoint, _ b: CGPoint, _ r: CGFloat) -> CGPath {

@@ -283,19 +283,31 @@ for o in ORIENTATIONS:
         empty = main_point(s, 4.0, 0.15 if hz else 0.15)
         s.input(f'click {P(empty)} cmd')
         check(5, f'{o}: ⌘-click on empty spectrogram changes nothing', sel() == [0, 2] and len(notes_of(s)) == count)
-        # ⇧-drag around A and D (fully) and part of B: adds A and D to [0, 2] → [0, 2, 3].
+        # ⇧-drag, live: start with only C selected; the rectangle grows over A and D, shrinks to A,
+        # to nothing, grows again; C (selected at the press) stays selected throughout.
+        s.input(f'click {P(on(n[0]))} cmd')
+        check(5, f'{o}: ⌘-click on A again removes it', sel() == [2], str(sel()))
         a, d = n[0]['rect'], n[3]['rect']
         x0, y0 = min(a[0], d[0]) - 6, min(a[1], d[1]) - 6
         x1, y1 = max(a[0] + a[2], d[0] + d[2]) + 6, max(a[1] + a[3], d[1] + d[3]) + 6
+        ax1, ay1 = a[0] + a[2] + 6, a[1] + a[3] + 6
         b = n[1]['rect']
-        p0, p1 = view_to_screen(s, (x0, y0)), view_to_screen(s, (x1, y1))
-        s.input(f'down {P(p0)} shift', f'dragto {P(p1)}')
-        band = s.state['waveforms']['main']['noteBand']
-        check(5, f'{o}: while ⇧-dragging the rectangle is shown', band is not None and abs(band[2] - (x1 - x0)) < 2, str(band))
-        s.snapshot('band')
+        p0 = view_to_screen(s, (x0, y0))
+        steps = [((x1, y1), [0, 2, 3], 'over A and D: both selected live'),
+                 ((ax1, ay1), [0, 2], 'shrunk to A: D unselected again'),
+                 ((x0 + 3, y0 + 3), [2], 'shrunk to nothing: back to the selection at the press (C)'),
+                 ((x1, y1), [0, 2, 3], 'grown again: A and D selected')]
+        s.input(f'down {P(p0)} shift')
+        for (q, want, desc) in steps:
+            s.input(f'dragto {P(view_to_screen(s, q))}')
+            band = s.state['waveforms']['main']['noteBand']
+            check(5, f'{o}: ⇧-drag {desc}; the rectangle shown', sel() == want and band is not None, f'{sel()} {band}')
+            if want == [0, 2, 3] and desc.startswith('over'):
+                s.snapshot('band')
+        p1 = view_to_screen(s, (x1, y1))
         s.input(f'up {P(p1)}')
         partly_b = x0 < b[0] + b[2] and b[0] < x1 and y0 < b[1] + b[3] and b[1] < y1
-        check(5, f'{o}: on release the fully contained notes (A, D) are added, B (partly inside: {partly_b}) is not; the rectangle is gone',
+        check(5, f'{o}: on release the selection stays (A, C, D; B partly inside: {partly_b}, not added); the rectangle is gone',
               sel() == [0, 2, 3] and s.state['waveforms']['main']['noteBand'] is None and len(notes_of(s)) == count, str(sel()))
         s.input(f'click {P(empty)}')
         check(5, f'{o}: a click on empty spectrogram clears the selection and places a note',

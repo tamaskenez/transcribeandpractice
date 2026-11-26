@@ -31,9 +31,9 @@ final class WaveformNSView: NSView {
         case note(GridCell?)
         /// Spectrogram: a plain press on a note; a release without a drag selects only it.
         case noteClick(id: Int)
-        /// Spectrogram: Shift-drag from `anchor` (view coordinates): a selection rectangle; on
-        /// release the notes inside it are added to the selection.
-        case noteBand(anchor: CGPoint)
+        /// Spectrogram: Shift-drag from `anchor` (view coordinates): a selection rectangle. The
+        /// selection is the one at the press (`base`) plus the notes inside the rectangle, live.
+        case noteBand(anchor: CGPoint, base: Set<Int>)
         /// Ruler, beats mode: a press on a beat (`pressed`) or, with selected beats, anywhere.
         /// Once it moves, `original` holds the moving beats (the selection, else the pressed
         /// beat) by id with their samples at the press.
@@ -217,7 +217,11 @@ final class WaveformNSView: NSView {
             drawLines()
             drawNotes()
             drawHoverCell()
-            if let band = noteBand { strokeAlternating(NSBezierPath(rect: band.insetBy(dx: 0.5, dy: 0.5))) }
+            if let band = noteBand {
+                NSColor.controlAccentColor.withAlphaComponent(NoteDrawing.bandFillOpacity).setFill()
+                band.fill(using: .sourceOver)
+                strokeAlternating(NSBezierPath(rect: band.insetBy(dx: 0.5, dy: 0.5)))
+            }
             return
         }
         if !isRuler { drawSelection() }
@@ -750,7 +754,7 @@ final class WaveformNSView: NSView {
             let mods = event.modifierFlags.intersection([.shift, .command, .control])
             let onNote = underSpectrum(p) ? nil : hoveredSegment(at: p)
             if mods == .shift {
-                drag = .noteBand(anchor: p)
+                drag = .noteBand(anchor: p, base: state.selectedNotes)
             } else if mods == .command {
                 if let (sh, _) = onNote { state.toggleNote(id: sh.note.id) }
                 drag = nil
@@ -887,9 +891,13 @@ final class WaveformNSView: NSView {
             guard dragged else { return }
             state.moveSelection(from: original, by: time(atAxis: axisPosition(p)) - pressTime)
         case .note, .noteClick: break
-        case let .noteBand(anchor):
+        case let .noteBand(anchor, base):
             noteBand = dragged ? NSRect(x: min(anchor.x, p.x), y: min(anchor.y, p.y),
                                         width: abs(p.x - anchor.x), height: abs(p.y - anchor.y)) : nil
+            // Live: notes entering the rectangle are selected; leaving it, they go back to their
+            // state at the press.
+            let now = base.union(noteBand.map { notes(inside: $0) } ?? [])
+            if now != state.selectedNotes { state.selectedNotes = now }
         case let .seek(playing):
             if !playing { state.dragPlayhead(to: time(atAxis: clampedAxis(p))) }
         case let .beats(_, original, pressTime):
@@ -918,7 +926,7 @@ final class WaveformNSView: NSView {
             }
         case let .noteClick(id): if !dragged { state.selectOnlyNote(id: id) }
         case .noteBand:
-            if let band = noteBand { state.addNotesToSelection(notes(inside: band)) }
+            // The selection was updated while dragging; it stays as it is.
             noteBand = nil
         case let .beats(pressed, _, _):
             // A click without a drag: on a beat selects only it; elsewhere clears the selection
