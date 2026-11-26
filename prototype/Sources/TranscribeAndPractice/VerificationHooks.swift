@@ -363,7 +363,8 @@ enum VerificationHooks {
             func xy(_ p: CGPoint) -> [Double] { [Double(p.x), Double(p.y)] }
             let segments: [[String: Any]] = (sh?.segments ?? []).map { sg in
                 ["start": xy(sg.start), "end": xy(sg.end), "radius": Double(sg.radius), "length": Double(sg.length),
-                 "width": Double(sg.width), "ellipse": sg.isEllipse, "handles": sg.visibleHandles.map(xy)]
+                 "width": Double(sg.width), "ellipse": sg.isEllipse,
+                 "ellipseBox": [sg.ellipseBox.minX, sg.ellipseBox.minY, sg.ellipseBox.width, sg.ellipseBox.height].map { Double($0) }, "handles": sg.visibleHandles.map(xy)]
             }
             let transitions: [[[Double]]] = (sh?.transitions ?? []).map { [xy($0.0), xy($0.1)] }
             var hovered: Any = NSNull()

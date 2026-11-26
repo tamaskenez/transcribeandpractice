@@ -144,7 +144,8 @@ for o in ORIENTATIONS:
     hz = o == 'horizontal'
     write_session(NOTES)
     s = session(f'{o}_render', o)
-    s.command('view 2,10'); s.dump()
+    # Vertical: the spectrum pane covers the pane's bottom, so the view reaches further.
+    s.command('view 2,10' if hz else 'view 2,12'); s.dump()
     n = notes_of(s)
     A, B, C, D = n
 
@@ -213,7 +214,8 @@ for o in ORIENTATIONS:
         check(3, f'{o}: D ({m["length"]:.0f} pt long, {m["width"]:.0f} wide): only the middle handle',
               hs == [None, None, None, 0] and len(m['handles']) == 1 and cur == 'openHand', f'{hs} {m["handles"]}')
         c0 = C['segments'][0]
-        hs, cur = hover(c0['start'])
+        eb = c0['ellipseBox']
+        hs, cur = hover((eb[0] + eb[2] / 2, eb[1] + eb[3] / 2))
         check(3, f'{o}: C (ellipse): hovered, no handles, arrow', hs[2] is not None and not c0['handles'] and cur == 'arrow', f'{hs} {cur}')
         far = A['segments'][0]['handles'][1]
         hs, cur = hover((far[0], far[1] - 60) if hz else (far[0] - 60, far[1]))
