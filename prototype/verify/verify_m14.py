@@ -297,15 +297,21 @@ for o in ORIENTATIONS:
                  ((ax1, ay1), [0, 2], 'shrunk to A: D unselected again'),
                  ((x0 + 3, y0 + 3), [2], 'shrunk to nothing: back to the selection at the press (C)'),
                  ((x1, y1), [0, 2, 3], 'grown again: A and D selected')]
+        s.command('harmonics 3')
         s.input(f'down {P(p0)} shift')
         for (q, want, desc) in steps:
             s.input(f'dragto {P(view_to_screen(s, q))}')
-            band = s.state['waveforms']['main']['noteBand']
-            check(5, f'{o}: ⇧-drag {desc}; the rectangle shown', sel() == want and band is not None, f'{sel()} {band}')
+            main = s.state['waveforms']['main']
+            band = main['noteBand']
+            quiet = all(x['hoveredSegment'] is None for x in notes_of(s)) and main['hoverCell'] is None \
+                and main['noteHarmonics'] == []
+            check(5, f'{o}: ⇧-drag {desc}; the rectangle shown; no hover feedback',
+                  sel() == want and band is not None and quiet, f'{sel()} {band} quiet {quiet}')
             if want == [0, 2, 3] and desc.startswith('over'):
                 s.snapshot('band')
         p1 = view_to_screen(s, (x1, y1))
         s.input(f'up {P(p1)}')
+        s.command('harmonics 1')
         partly_b = x0 < b[0] + b[2] and b[0] < x1 and y0 < b[1] + b[3] and b[1] < y1
         check(5, f'{o}: on release the selection stays (A, C, D; B partly inside: {partly_b}, not added); the rectangle is gone',
               sel() == [0, 2, 3] and s.state['waveforms']['main']['noteBand'] is None and len(notes_of(s)) == count, str(sel()))

@@ -62,6 +62,9 @@ final class WaveformNSView: NSView {
     private var drag: Drag?
     /// Spectrogram: the selection rectangle while Shift-dragging (view coordinates).
     private(set) var noteBand: NSRect? { didSet { if noteBand != oldValue { needsDisplay = true } } }
+    /// A Shift-drag selection rectangle is in progress: no hover feedback (hovered note, handles,
+    /// harmonic copies, hover cell).
+    var isBandDragging: Bool { if case .noteBand = drag { true } else { false } }
     /// Spectrogram: the pointer's position while it is over the pane (for the hover cell).
     private(set) var hoverPoint: CGPoint? { didSet { if hoverPoint != oldValue { needsDisplay = true } } }
     private var pressPoint: CGPoint = .zero

@@ -330,6 +330,7 @@ extension WaveformNSView {
 
     /// The segment under the point: the nearest one whose capsule (or ellipse) is within reach.
     func hoveredSegment(at p: CGPoint) -> (note: NoteShape, segment: Int)? {
+        if isBandDragging { return nil }
         var best: (NoteShape, Int, CGFloat)?
         for sh in noteShapes() {
             for (k, sg) in sh.segments.enumerated() {

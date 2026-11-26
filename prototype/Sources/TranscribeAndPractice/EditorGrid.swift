@@ -200,7 +200,7 @@ extension WaveformNSView {
 
     /// The hover cell, unless the pointer is over a note (milestone 14).
     func visibleGridCell(at p: CGPoint) -> GridCell? {
-        hoveredSegment(at: p) == nil ? gridCell(at: p) : nil
+        !isBandDragging && hoveredSegment(at: p) == nil ? gridCell(at: p) : nil
     }
 
     /// The cell's rectangle in view coordinates (on whole points), `shift` semitones higher.
@@ -225,7 +225,7 @@ extension WaveformNSView {
     /// (only drawn; placing a note is not affected).
     /// Milestone 14: over a note, the note's harmonic copies instead (see `drawNoteHarmonics`).
     func drawHoverCell() {
-        guard let p = hoverPoint else { return }
+        guard let p = hoverPoint, !isBandDragging else { return }
         if hoveredSegment(at: p) != nil { drawNoteHarmonics(); return }
         guard let c = gridCell(at: p) else { return }
         let path = NSBezierPath(rect: rect(of: c))
