@@ -29,12 +29,12 @@ final class AppState {
         let ids = Set(list.map(\.id))
         if !selectedBeats.isSubset(of: ids) { selectedBeats.formIntersection(ids) }
         if let a = beatAnchor, !ids.contains(a) { beatAnchor = nil }
-        if save { saveBeats() }
+        if save { saveSession() }
     }
     /// Selected beats (by id) and the last one selected individually (the Shift+click anchor).
     var selectedBeats: Set<Int> = []
-    /// Placed notes (milestone 13, experimental; see Notes.swift).
-    var notes: [Note] = []
+    /// Note trajectories (milestone 13; see Notes.swift), saved in the session file with the beats.
+    var notes: [NoteTrajectory] = []
     var beatAnchor: Int?
     /// Beeps so far (for the state dump).
     var beepCount = 0
@@ -396,8 +396,7 @@ final class AppState {
             selectedBeats = []
             beatAnchor = nil
             hoveredBeatSample = nil
-            notes = []
-            loadBeats(for: loaded)
+            loadSession(for: loaded)
             loadID += 1
         } catch {
             errorTitle = "Could not open file"
@@ -406,14 +405,17 @@ final class AppState {
     }
 
     /// Beats from the sidecar file; an invalid file shows an alert and leaves no beats.
-    private func loadBeats(for audio: LoadedAudio) {
+    private func loadSession(for audio: LoadedAudio) {
         do {
-            setBeats(try BeatFile.load(for: audio.url, frameCount: audio.frameCount) ?? [], save: false)
+            let s = try SessionFile.load(for: audio.url, frameCount: audio.frameCount)
+            notes = s?.notes ?? []
+            setBeats(s?.beats ?? [], save: false)
         } catch {
+            notes = []
             setBeats([], save: false)
-            errorTitle = "Could not read beats"
-            errorMessage = "“\(BeatFile.sidecarURL(for: audio.url).lastPathComponent)”: \(error.localizedDescription) "
-                + "The audio file is loaded without beats."
+            errorTitle = "Could not read the session"
+            errorMessage = "“\(SessionFile.url(for: audio.url).lastPathComponent)”: \(error.localizedDescription) "
+                + "The audio file is loaded without beats and notes."
         }
     }
 }

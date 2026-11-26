@@ -80,32 +80,35 @@ func editorLines(beats: [Beat], barStarts: [Bool], sampleRate fs: Double, gridDe
     return lines.sorted { $0.time < $1.time }
 }
 
-/// The time span of the grid cell containing `time`: one grid step (1/`gridDenominator` note)
-/// counted from the bar start, cut at the next bar start (in the pickup: counted backwards from
-/// the first bar start and cut at the first beat; in the last bar: cut at the last beat). Nil
-/// outside the beats.
+/// The grid cell containing `time`, as beat positions (beat index + fraction, exact) and times:
+/// one grid step (1/`gridDenominator` note) counted from the bar start, cut at the next bar start
+/// (in the pickup: counted backwards from the first bar start and cut at the first beat; in the
+/// last bar: cut at the last beat). Nil outside the beats.
 func gridCellSpan(beats: [Beat], barStarts: [Bool], sampleRate fs: Double, gridDenominator d: Int,
-                  time: Double) -> (start: Double, end: Double)? {
+                  time: Double) -> (startPos: Rational, endPos: Rational, start: Double, end: Double)? {
     guard fs > 0, d > 0, beats.count >= 2 else { return nil }
     let t = beats.map { Double($0.sample) / fs }
     guard time >= t[0], time < t[t.count - 1],
           let g = gridSegments(barStarts: barStarts).first(where: { time >= t[$0.from] && time < t[$0.to] }) else { return nil }
-    let r = Rational(1, d) / BeatConstants.beatNote
-    let step = Double(r.num) / Double(r.den)
-    // Fractional beat index of `time`.
+    let step = Rational(1, d) / BeatConstants.beatNote
+    let stepD = step.doubleValue
+    // Fractional beat index of `time`, from the segment start.
     let i = (g.from..<g.to).last { t[$0] <= time } ?? g.from
     let p = Double(i) + (time - t[i]) / (t[i + 1] - t[i]) - Double(g.from)
-    let len = Double(g.to - g.from)
+    let len = Rational(g.to - g.from, 1)
     let eps = 1e-9
-    let a: Double, b: Double
+    let a: Rational, b: Rational
     if g.backward {
-        let k = ((len - p) / step - eps).rounded(.down)
-        (a, b) = (max(len - (k + 1) * step, 0), len - k * step)
+        let k = Int(((len.doubleValue - p) / stepD - eps).rounded(.down))
+        a = max(len - Rational(k + 1, 1) * step, Rational(0, 1))
+        b = len - Rational(k, 1) * step
     } else {
-        let k = (p / step + eps).rounded(.down)
-        (a, b) = (k * step, min((k + 1) * step, len))
+        let k = Int((p / stepD + eps).rounded(.down))
+        a = Rational(k, 1) * step
+        b = min(Rational(k + 1, 1) * step, len)
     }
-    return (beatTime(Double(g.from) + a, t), beatTime(Double(g.from) + b, t))
+    let s = Rational(g.from, 1) + a, e = Rational(g.from, 1) + b
+    return (s, e, beatTime(s.doubleValue, t), beatTime(e.doubleValue, t))
 }
 
 extension WaveformNSView {
@@ -187,11 +190,11 @@ extension WaveformNSView {
         let t = state.viewStart + Double(axisPosition(p) / timeLength) * state.viewLength
         let s = state.freqBottom + Double(crossFromLow(p)) / SpectrogramConstants.pointsPerSemitone
         guard s >= 0, s < SpectrogramConstants.rangeSemitones else { return nil }
-        guard let (t0, t1) = gridCellSpan(beats: state.beats, barStarts: state.beatPositions.map(\.isBarStart),
+        guard let (p0, p1, t0, t1) = gridCellSpan(beats: state.beats, barStarts: state.beatPositions.map(\.isBarStart),
                                           sampleRate: audio.sampleRate, gridDenominator: state.gridDenominator, time: t)
         else { return nil }
         let k = Int(s.rounded(.down))
-        return GridCell(start: t0, end: t1, note: SpectrogramConstants.lowestNote + k)
+        return GridCell(startPos: p0, endPos: p1, start: t0, end: t1, note: SpectrogramConstants.lowestNote + k)
     }
 
     /// The cell's rectangle in view coordinates (on whole points), `shift` semitones higher.
@@ -224,6 +227,9 @@ extension WaveformNSView {
 
 /// A grid cell: from one division line to the next, one note high.
 struct GridCell: Equatable {
+    /// Beat positions (beat index + fraction).
+    var startPos: Rational, endPos: Rational
+    /// Seconds.
     var start: Double, end: Double
     /// MIDI note number.
     var note: Int

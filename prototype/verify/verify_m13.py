@@ -63,9 +63,10 @@ AUDIO_PATH = f'{AUDIO}/notes.wav'
 t = np.arange(SR * 20) / SR
 sig = 0.2 * np.sin(2 * np.pi * 440 * t) + 0.005 * rng.standard_normal(len(t))
 write_float_wav(AUDIO_PATH, sig.astype(np.float32)[:, None], SR)
-SIDE = AUDIO_PATH + '.beats.json'
+SIDE = AUDIO_PATH + '.session.json'
 # Beats every 0.5 s from 0.5 s, bar starts every 4 (4/4): 1/16 grid = 0.125 s.
-json.dump([{'sample': int(round((0.5 + 0.5 * k) * SR)), 'firstBeat': 'auto'} for k in range(38)], open(SIDE, 'w'))
+json.dump({'beats': [{'sample': int(round((0.5 + 0.5 * k) * SR)), 'firstBeat': 'auto'} for k in range(38)], 'notes': []},
+          open(SIDE, 'w'))
 
 
 def session(name, o, mode='spectrogram'):
@@ -203,9 +204,10 @@ def probe(s, o, tm, cross, d, desc, expect=None):
     check(4, f'{o}: 1/{d} at {tp:.3f} s ({desc}): cell {span and f"{span[0]:.3f}–{span[1]:.3f}"} s, MIDI {note}', ok, str(c))
 
 
-def side(sigs):
-    json.dump([dict({'sample': int(round((0.5 + 0.5 * k) * SR)), 'firstBeat': 'auto'},
-                    **({'timeSignature': sigs[k]} if k in sigs else {})) for k in range(38)], open(SIDE, 'w'))
+def side(sigs, notes=None):
+    json.dump({'beats': [dict({'sample': int(round((0.5 + 0.5 * k) * SR)), 'firstBeat': 'auto'},
+                              **({'timeSignature': sigs[k]} if k in sigs else {})) for k in range(38)],
+               'notes': notes or []}, open(SIDE, 'w'))
 
 
 if run(4):
@@ -279,11 +281,11 @@ if run(5):
             cell = s.state['waveforms']['main']['hoverCell']
             s.input(f'click {P(p)}')
             notes = s.state['waveforms']['main']['notes']
-            exp = {'midi': cell['note'], 'start': round(cell['start'] * SR), 'end': round(cell['end'] * SR)}
+            exp = {'midi': cell['note'], 'startSample': round(cell['start'] * SR), 'endSample': round(cell['end'] * SR)}
             got = notes[-1] if notes else None
             ok = got is not None and len(notes) == len(placed) + 1 and \
                 all(got[k] == exp[k] for k in exp)
-            check(5, f'{o}: click at {tm} s: note MIDI {exp["midi"]} {exp["start"] / SR:.3f}–{exp["end"] / SR:.3f} s',
+            check(5, f'{o}: click at {tm} s: note MIDI {exp["midi"]} {exp["startSample"] / SR:.3f}–{exp["endSample"] / SR:.3f} s',
                   ok, f'{got} vs {exp}')
             placed.append(exp)
         s.input(f'click {P(main_point(s, 5.1, 0.5))}')
@@ -365,6 +367,112 @@ if run(6):
         F = s.state['paneFrames']
         check(6, f'{o}: waveform mode: only the View dropdown',
               'modePicker' in F and not any(k in F for k in ('harmonicsPicker', 'gridControl', 'windowSlider')), str(sorted(F)))
+        s.quit()
+
+# 7. Note storage: the session file, beat protection, notes following the beats.
+def read_session():
+    return json.load(open(SIDE))
+
+
+def lane_point(s, tm):
+    v0, v1 = s.view()
+    return s.at('ruler', (tm - v0) / (v1 - v0))
+
+
+def notes_of(s):
+    return s.state['waveforms']['main']['notes']
+
+
+def bt(k):
+    return 0.5 + 0.5 * k
+
+
+if run(7):
+    o = 'horizontal'
+    side({})
+    s = session('storage', o)
+    s.command('grid straight 2')
+    s.input(f'move {P(main_point(s, 5.1, 0.6))}')
+    cell = s.state['waveforms']['main']['hoverCell']
+    s.input(f'click {P(main_point(s, 5.1, 0.6))}')
+    s.command('grid straight 8')
+    s.input(f'move {P(main_point(s, 7.3, 0.6))}')
+    s.input(f'click {P(main_point(s, 7.3, 0.6))}')
+    sess = read_session()
+    pitch = cell['note']
+    want = [{'points': [{'beat': 8, 'tau': '0/1', 'pre': pitch, 'post': pitch}], 'end': {'beat': 10, 'tau': '0/1', 'pitch': pitch}},
+            {'points': [{'beat': 13, 'tau': '1/2', 'pre': pitch, 'post': pitch}], 'end': {'beat': 14, 'tau': '0/1', 'pitch': pitch}}]
+    check(7, 'session file: {beats, notes}; a 1/2 note at 5.1 s = beat 8 → beat 10, a 1/8 note at 7.3 s = beat 13 + 1/2 → beat 14',
+          set(sess) == {'beats', 'notes'} and len(sess['beats']) == 38 and sess['notes'] == want, json.dumps(sess['notes']))
+    n = notes_of(s)
+    check(7, 'protected beats: 8…10 and 13…14', [x['usedBeats'] for x in n] == [[8, 10], [13, 14]], str([x['usedBeats'] for x in n]))
+    rects = [x['rect'] for x in n]
+    s.quit()
+
+    s = session('storage_reopen', o)
+    n = notes_of(s)
+    check(7, 'reopened: the notes are restored at the same place', [x['rect'] for x in n] == rects
+          and [x['points'] for x in n] == [w['points'] for w in want], str([x['rect'] for x in n]))
+    beeps = s.state['beepCount']
+    s.command('beatsel 9'); s.command('beatmenu Delete'); s.dump()
+    check(7, 'deleting a beat inside a note (beat 9): beep, nothing deleted',
+          len(s.state['beats']) == 38 and s.state['beepCount'] == beeps + 1)
+    s.command('beatsel 10,11'); s.command('beatmenu Delete'); s.dump()
+    check(7, 'deleting a selection with a note\'s end beat (10) in it: beep, nothing deleted',
+          len(s.state['beats']) == 38 and s.state['beepCount'] == beeps + 2)
+    s.command('beatsel 11'); s.command('beatmenu Delete'); s.dump()
+    n = notes_of(s)
+    check(7, 'deleting a free beat (11) works; the notes keep their times (now beats 12…13)',
+          len(s.state['beats']) == 37 and [x['usedBeats'] for x in n] == [[8, 10], [12, 13]]
+          and abs(n[1]['startTime'] - 7.25) < 1e-6 and len(read_session()['beats']) == 37,
+          str([(x['usedBeats'], x['startTime']) for x in n]))
+    s.command('beatsel none')
+    s.command('beatat 4.75'); s.dump()
+    check(7, 'B inside a note (4.75 s, between beats 8 and 9): beep, no beat',
+          len(s.state['beats']) == 37 and s.state['beepCount'] == beeps + 3)
+    s.command('beatat 6.25'); s.dump()
+    check(7, 'B where no note is (6.25 s, the deleted beat\'s gap) adds a beat', len(s.state['beats']) == 38)
+    s.command('beatsel 8,9,10'); s.command('beatmenu Subdivide…'); s.dump()
+    check(7, 'Subdivide with gaps inside a note: beep, no dialog',
+          s.state['beatDialog'] is None and s.state['beepCount'] == beeps + 4, str(s.state['beatDialog']))
+    s.command('beatsel 8'); s.dump()
+    s.input(f'drag {P(lane_point(s, 4.5))} {P(lane_point(s, 4.6))}')
+    n = notes_of(s)
+    b8 = s.state['beats'][8]['sample'] / SR
+    check(7, f'moving beat 8 moves the note\'s start with it ({n[0]["startTime"]:.3f} s)',
+          abs(n[0]['startTime'] - b8) < 1e-6 and abs(b8 - 4.6) < 0.02 and read_session()['notes'][0]['points'][0]['beat'] == 8)
+    s.quit()
+
+    # Hand-written trajectory: three points, fractional pitches, tau 1/3; saved unchanged.
+    traj = {'points': [{'beat': 2, 'tau': '1/3', 'pre': 59.5, 'post': 60},
+                       {'beat': 4, 'tau': '0/1', 'pre': 62, 'post': 64.25}],
+            'end': {'beat': 6, 'tau': '1/2', 'pitch': 64}}
+    side({}, [traj])
+    s = session('storage_traj', o)
+    n = notes_of(s)
+    ok = len(n) == 1 and n[0]['points'] == traj['points'] and n[0]['usedBeats'] == [2, 7]
+    check(7, 'a multi-point trajectory loads (protected beats 2…7)', ok and s.state['alertText'] is None, str(n))
+    s.command('beatat 15.25'); s.dump()
+    check(7, 'saving after another change keeps the trajectory exactly',
+          len(s.state['beats']) == 39 and read_session()['notes'] == [traj],
+          json.dumps(read_session()['notes']))
+    s.quit()
+
+    bad = {
+        'an old beats-only array': [{'sample': 22050, 'firstBeat': 'auto'}],
+        'a legacy firstBeat value': {'beats': [{'sample': 22050, 'firstBeat': 'placed'}], 'notes': []},
+        'tau 1': {'beats': [{'sample': 22050, 'firstBeat': 'auto'}, {'sample': 44100, 'firstBeat': 'auto'}],
+                  'notes': [{'points': [{'beat': 0, 'tau': '1/1', 'pre': 60, 'post': 60}], 'end': {'beat': 1, 'tau': '0/1', 'pitch': 60}}]},
+        'an end before the start': {'beats': [{'sample': 22050, 'firstBeat': 'auto'}, {'sample': 44100, 'firstBeat': 'auto'}],
+                                    'notes': [{'points': [{'beat': 1, 'tau': '0/1', 'pre': 60, 'post': 60}],
+                                               'end': {'beat': 0, 'tau': '0/1', 'pitch': 60}}]},
+    }
+    for desc, content in bad.items():
+        json.dump(content, open(SIDE, 'w'))
+        s = Session('storage_bad', opens=[AUDIO_PATH], orientation=o)
+        s.dump()
+        check(7, f'rejected: {desc}', s.state['alertText'] is not None and len(s.state['beats']) == 0,
+              str(s.state['alertText']))
         s.quit()
 
 print(f'{sum(results)}/{len(results)} passed')
