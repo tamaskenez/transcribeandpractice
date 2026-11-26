@@ -157,57 +157,210 @@ extension AppState {
     }
 }
 
-// MARK: Drawing
+// MARK: Drawing (milestone 14: segments, pre → post capsules, handles)
+
+/// One segment of a note as drawn: the white outline's end-circle centres (the black one is
+/// offset by (+1, +1)), their radius, and the segment's area on whole points.
+struct NoteSegmentShape {
+    var start: CGPoint, end: CGPoint
+    var radius: CGFloat
+    /// From the segment's start to its end in time, across both end pitches ± ½.
+    var area: NSRect
+    /// Length along the time axis and the cross size (one semitone).
+    var length: CGFloat, width: CGFloat
+    /// Shorter than wide: drawn as an ellipse in `ellipseBox` (no pre → post capsules next to it).
+    var isEllipse: Bool { length < width }
+    var ellipseBox: NSRect
+    /// The geometric centres of the end circles (between the white and the black outline) and the
+    /// middle: the handles.
+    var handleCentres: [CGPoint] {
+        let a = CGPoint(x: start.x + 0.5, y: start.y + 0.5), b = CGPoint(x: end.x + 0.5, y: end.y + 0.5)
+        return [a, CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2), b]
+    }
+    /// Handles shown: three, only the middle one when shorter than 3 × its width, none when an
+    /// ellipse.
+    var visibleHandles: [CGPoint] {
+        if isEllipse { return [] }
+        if length < 3 * width { return [handleCentres[1]] }
+        return handleCentres
+    }
+}
+
+/// A note as drawn: its segments and the pre → post capsules (pairs of white centres).
+struct NoteShape {
+    var note: NoteTrajectory
+    var segments: [NoteSegmentShape]
+    var transitions: [(CGPoint, CGPoint)]
+    var radius: CGFloat
+    /// The white outline (the union of all capsules and ellipses).
+    var outline: CGPath
+    var bounds: NSRect { segments.map(\.area).reduce(segments[0].area) { $0.union($1) } }
+}
+
+enum NoteDrawing {
+    /// Reach (points) around a segment's capsule within which the pointer hovers it.
+    static let hoverReach: CGFloat = 3
+
+    /// The hull of two circles of radius r (a capsule; a circle if they coincide).
+    static func capsule(_ a: CGPoint, _ b: CGPoint, _ r: CGFloat) -> CGPath {
+        let circles = CGMutablePath()
+        circles.addEllipse(in: CGRect(x: a.x - r, y: a.y - r, width: 2 * r, height: 2 * r))
+        let other = CGMutablePath()
+        other.addEllipse(in: CGRect(x: b.x - r, y: b.y - r, width: 2 * r, height: 2 * r))
+        var path: CGPath = circles.union(other)
+        let dx = b.x - a.x, dy = b.y - a.y, len = hypot(dx, dy)
+        if len > 0.01 {
+            let nx = -dy / len * r, ny = dx / len * r
+            let quad = CGMutablePath()
+            quad.addLines(between: [CGPoint(x: a.x + nx, y: a.y + ny), CGPoint(x: b.x + nx, y: b.y + ny),
+                                    CGPoint(x: b.x - nx, y: b.y - ny), CGPoint(x: a.x - nx, y: a.y - ny)])
+            quad.closeSubpath()
+            path = path.union(quad)
+        }
+        return path
+    }
+
+    /// Distance from p to the segment a–b.
+    static func distance(_ p: CGPoint, _ a: CGPoint, _ b: CGPoint) -> CGFloat {
+        let dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy
+        let t = l2 > 0 ? max(0, min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2)) : 0
+        return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+    }
+}
 
 extension WaveformNSView {
-    /// The note's area on whole points: from its start to its end in time and from pitch − ½ to
-    /// pitch + ½ (the first point's pitch; notes have a constant pitch in this milestone). The
-    /// edges are rounded, not centred, so the areas of adjacent notes touch without overlapping.
-    func rect(of n: NoteTrajectory) -> NSRect? {
-        guard let state, let audio = state.audio, let p = n.points.first else { return nil }
-        let g = state.beatGrid
-        guard let (s, e) = g.span(n) else { return nil }
-        let a0 = axis(ofTime: g.time(s, sampleRate: audio.sampleRate)).rounded()
-        let a1 = axis(ofTime: g.time(e, sampleRate: audio.sampleRate)).rounded()
-        // Semitone positions are counted from A0 − ½, so note m spans m − lowest … m − lowest + 1.
-        let k = Double(p.post) - Double(SpectrogramConstants.lowestNote)
-        let lo = CGFloat((k - state.freqBottom) * SpectrogramConstants.pointsPerSemitone).rounded()
-        let hi = CGFloat((k + 1 - state.freqBottom) * SpectrogramConstants.pointsPerSemitone).rounded()
-        return orientation == .horizontal
+    /// Cross position (from the low edge) of a pitch's lower boundary (pitch − ½) and of its upper one.
+    private func pitchEdges(_ p: Float) -> (lo: CGFloat, hi: CGFloat) {
+        guard let state else { return (0, 0) }
+        let k = Double(p) - Double(SpectrogramConstants.lowestNote)
+        let pps = SpectrogramConstants.pointsPerSemitone
+        return (CGFloat((k - state.freqBottom) * pps).rounded(), CGFloat((k + 1 - state.freqBottom) * pps).rounded())
+    }
+
+    /// A rectangle in view coordinates from an axis range and a cross range (from the low edge).
+    private func viewRect(axis a0: CGFloat, _ a1: CGFloat, cross lo: CGFloat, _ hi: CGFloat) -> NSRect {
+        orientation == .horizontal
             ? NSRect(x: a0, y: bounds.height - hi, width: a1 - a0, height: hi - lo)
             : NSRect(x: lo, y: a0, width: hi - lo, height: a1 - a0)
     }
 
-    /// The visible notes' areas.
-    func noteRects() -> [(note: NoteTrajectory, rect: NSRect)] {
+    /// The white outline's circle centre for an end circle whose square (side = the cross size)
+    /// starts at axis position `a`: the white outline fills the square minus its last point row
+    /// and column (the black one is offset by (+1, +1)).
+    private func circleCentre(axis a: CGFloat, pitch: Float) -> (CGPoint, CGFloat, CGFloat) {
+        let (lo, hi) = pitchEdges(pitch)
+        let h = hi - lo
+        let sq = viewRect(axis: a, a + h, cross: lo, hi)
+        return (CGPoint(x: sq.minX + (sq.width - 1) / 2, y: sq.minY + (sq.height - 1) / 2), (h - 1) / 2 - 0.5, h)
+    }
+
+    /// The note's shape in view coordinates (nil if its beats are gone).
+    func shape(of n: NoteTrajectory) -> NoteShape? {
+        guard let state, let audio = state.audio else { return nil }
+        let g = state.beatGrid
+        var locs: [Rational] = []
+        for p in n.points { guard let x = g.position(p.loc) else { return nil }; locs.append(x) }
+        guard let endPos = g.position(n.end) else { return nil }
+        locs.append(endPos)
+        let axes = locs.map { axis(ofTime: g.time($0, sampleRate: audio.sampleRate)).rounded() }
+        var segments: [NoteSegmentShape] = []
+        var radius: CGFloat = 0
+        for k in 0..<n.points.count {
+            let p0 = n.points[k].post, p1 = k + 1 < n.points.count ? n.points[k + 1].pre : n.endPitch
+            let a0 = axes[k], a1 = axes[k + 1]
+            let (c0, r, h) = circleCentre(axis: a0, pitch: p0)
+            let (c1, _, _) = circleCentre(axis: a1 - h, pitch: p1)
+            radius = r
+            let e0 = pitchEdges(p0), e1 = pitchEdges(p1)
+            let area = viewRect(axis: a0, a1, cross: min(e0.lo, e1.lo), max(e0.hi, e1.hi))
+            let em = pitchEdges((p0 + p1) / 2)
+            segments.append(NoteSegmentShape(start: c0, end: c1, radius: r, area: area, length: a1 - a0, width: h,
+                                             ellipseBox: viewRect(axis: a0, a1, cross: em.lo, em.hi)))
+        }
+        // Pre → post capsules: at an inner point between the neighbouring segments' circles; at
+        // the first point across it, from a circle at the pre-pitch just before it.
+        var transitions: [(CGPoint, CGPoint)] = []
+        for (k, p) in n.points.enumerated() where p.pre != p.post && !segments[k].isEllipse {
+            if k == 0 {
+                let h = segments[0].width
+                let (c, _, _) = circleCentre(axis: axes[0] - h, pitch: p.pre)
+                transitions.append((c, segments[0].start))
+            } else if !segments[k - 1].isEllipse {
+                transitions.append((segments[k - 1].end, segments[k].start))
+            }
+        }
+        var outline = CGMutablePath() as CGPath
+        var first = true
+        func add(_ path: CGPath) { outline = first ? path : outline.union(path); first = false }
+        for sg in segments {
+            if sg.isEllipse {
+                let b = sg.ellipseBox
+                let e = CGMutablePath()
+                e.addEllipse(in: NSRect(x: b.minX, y: b.minY, width: b.width - 1, height: b.height - 1).insetBy(dx: 0.5, dy: 0.5))
+                add(e)
+            } else {
+                add(NoteDrawing.capsule(sg.start, sg.end, sg.radius))
+            }
+        }
+        for (a, b) in transitions { add(NoteDrawing.capsule(a, b, radius)) }
+        return NoteShape(note: n, segments: segments, transitions: transitions, radius: radius, outline: outline)
+    }
+
+    /// The note's bounding area (all its segments).
+    func rect(of n: NoteTrajectory) -> NSRect? { shape(of: n)?.bounds }
+
+    /// The visible notes' shapes.
+    func noteShapes() -> [NoteShape] {
         guard isSpectrogram, let state else { return [] }
-        return state.notes.compactMap { n in rect(of: n).flatMap { $0.intersects(bounds) ? (n, $0) : nil } }
+        return state.notes.compactMap { n in shape(of: n).flatMap { $0.outline.boundingBoxOfPath.insetBy(dx: -2, dy: -2).intersects(bounds) ? $0 : nil } }
     }
 
-    /// Each note: a capsule along the time axis (semicircles of the note's height at both ends;
-    /// an ellipse when it is shorter than that), as a black 1-point outline and a white one
-    /// over it, offset by (−1, −1). Each is one point smaller than the note's area, so the two
-    /// together fill it exactly.
+    /// The segment under the point: the nearest one whose capsule (or ellipse) is within reach.
+    func hoveredSegment(at p: CGPoint) -> (note: NoteShape, segment: Int)? {
+        var best: (NoteShape, Int, CGFloat)?
+        for sh in noteShapes() {
+            for (k, sg) in sh.segments.enumerated() {
+                let c = sg.handleCentres
+                let d: CGFloat
+                if sg.isEllipse {
+                    let b = sg.ellipseBox.insetBy(dx: -NoteDrawing.hoverReach, dy: -NoteDrawing.hoverReach)
+                    d = b.contains(p) ? 0 : .infinity
+                } else {
+                    d = max(NoteDrawing.distance(p, c[0], c[2]) - sg.radius - 0.5, 0)
+                }
+                if d <= NoteDrawing.hoverReach, best == nil || d < best!.2 { best = (sh, k, d) }
+            }
+        }
+        return best.map { ($0.0, $0.1) }
+    }
+
+    /// The handle under the point (of the hovered segment), as its centre.
+    func handle(at p: CGPoint) -> CGPoint? {
+        guard let (sh, k) = hoveredSegment(at: p) else { return nil }
+        let r = sh.segments[k].width / 4
+        return sh.segments[k].visibleHandles.first { hypot($0.x - p.x, $0.y - p.y) <= r + 1 }
+    }
+
+    /// Each note: the union of its capsules as a black 1-point outline and a white one over it,
+    /// offset by (−1, −1); no fill. Then the hovered segment's handles (moving dashes circles,
+    /// half the capsule's diameter).
     func drawNotes() {
-        let horizontal = orientation == .horizontal
-        let white = NSBezierPath(), black = NSBezierPath()
-        for (_, r) in noteRects() where r.width >= 2 && r.height >= 2 {
-            let box = NSRect(x: r.minX, y: r.minY, width: r.width - 1, height: r.height - 1)
-            black.append(Self.capsule(box.offsetBy(dx: 1, dy: 1), horizontal: horizontal))
-            white.append(Self.capsule(box, horizontal: horizontal))
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        ctx.saveGState()
+        ctx.setLineWidth(1)
+        for sh in noteShapes() {
+            var shift = CGAffineTransform(translationX: 1, y: 1)
+            if let black = sh.outline.copy(using: &shift) {
+                ctx.addPath(black); ctx.setStrokeColor(NSColor.black.cgColor); ctx.strokePath()
+            }
+            ctx.addPath(sh.outline); ctx.setStrokeColor(NSColor.white.cgColor); ctx.strokePath()
         }
-        for (path, color) in [(black, NSColor.black), (white, NSColor.white)] {
-            path.lineWidth = 1
-            color.setStroke()
-            path.stroke()
+        ctx.restoreGState()
+        if let p = hoverPoint, let (sh, k) = hoveredSegment(at: p) {
+            let sg = sh.segments[k], d = sg.width / 2
+            let path = NSBezierPath()
+            for c in sg.visibleHandles { path.appendOval(in: NSRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)) }
+            strokeAlternating(path)
         }
-    }
-
-    /// A capsule filling `box` (the 1-point line inside it), rounded at the ends of the time axis.
-    static func capsule(_ box: NSRect, horizontal: Bool) -> NSBezierPath {
-        let q = box.insetBy(dx: 0.5, dy: 0.5)
-        let length = horizontal ? q.width : q.height, d = horizontal ? q.height : q.width
-        if length < d { return NSBezierPath(ovalIn: q) }
-        return NSBezierPath(roundedRect: q, xRadius: d / 2, yRadius: d / 2)
     }
 }

@@ -1092,6 +1092,8 @@ Screenshots for the human check: `*_grid_open.png`, `*_hover_cell16.png`, `*_hov
 `*_harmonics_harmonics5.png`, `*_hover34_pickup_lines.png`, `*_notes_placed.png`,
 `*_notes_closeup.png`, `*_harmonics_controls.png`.
 
+## 14. Advanced note editing
+
 ## Fine-tuning (to do later)
 
 - Don't drag playhead/last-playback-start when dragging selection edge

@@ -661,6 +661,9 @@ final class WaveformNSView: NSView {
             (cursor, name) = orientation == .horizontal ? (.columnResize, "columnResize") : (.rowResize, "rowResize")
         } else if drag != nil || !flags.intersection([.option, .shift, .command]).isEmpty {
             (cursor, name) = (.arrow, "arrow")
+        } else if isSpectrogram, !underSpectrum(p), handle(at: p) != nil {
+            // Milestone 14: a note handle.
+            (cursor, name) = (.openHand, "openHand")
         } else {
             switch hover(at: p) {
             case .lines:

@@ -357,8 +357,17 @@ enum VerificationHooks {
         var out: [[String: Any]] = []
         for n in state.notes {
             guard let (a, b) = g.span(n), let used = g.usedBeats(n) else { continue }
-            let r = w.rect(of: n) ?? .zero
+            let sh = w.shape(of: n)
+            let r = sh?.bounds ?? .zero
             let rect: [Double] = [r.minX, r.minY, r.width, r.height].map { Double($0) }
+            func xy(_ p: CGPoint) -> [Double] { [Double(p.x), Double(p.y)] }
+            let segments: [[String: Any]] = (sh?.segments ?? []).map { sg in
+                ["start": xy(sg.start), "end": xy(sg.end), "radius": Double(sg.radius), "length": Double(sg.length),
+                 "width": Double(sg.width), "ellipse": sg.isEllipse, "handles": sg.visibleHandles.map(xy)]
+            }
+            let transitions: [[[Double]]] = (sh?.transitions ?? []).map { [xy($0.0), xy($0.1)] }
+            var hovered: Any = NSNull()
+            if let p = w.hoverPoint, let (hs, k) = w.hoveredSegment(at: p), hs.note.id == n.id { hovered = k }
             let points: [[String: Any]] = n.points.map { p in
                 ["beat": g.index[p.loc.beat] ?? -1, "tau": p.loc.tau.description, "pre": Double(p.pre), "post": Double(p.post)]
             }
@@ -367,7 +376,8 @@ enum VerificationHooks {
                         "end": ["beat": g.index[n.end.beat] ?? -1, "tau": n.end.tau.description, "pitch": Double(n.endPitch)],
                         "midi": Double(n.points[0].post), "startTime": ta, "endTime": tb,
                         "startSample": roundSample(ta * audio.sampleRate), "endSample": roundSample(tb * audio.sampleRate),
-                        "usedBeats": [used.lowerBound, used.upperBound], "rect": rect])
+                        "usedBeats": [used.lowerBound, used.upperBound], "rect": rect,
+                        "segments": segments, "transitions": transitions, "hoveredSegment": hovered])
         }
         return out
     }
