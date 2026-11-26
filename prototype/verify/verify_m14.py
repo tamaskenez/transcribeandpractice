@@ -223,6 +223,35 @@ for o in ORIENTATIONS:
         s.command('view 4.5,8.5'); s.dump()
         s.input(f'move {P(view_to_screen(s, notes_of(s)[1]["segments"][0]["handles"][1]))}')
         s.snapshot('closeup_b')
+    # 4. Over a note: no hover cell; the note's harmonic copies instead; a click places nothing.
+    if run(4):
+        s.command('view 2,10' if hz else 'view 2,12'); s.dump()
+        A = notes_of(s)[0]
+        h = A['segments'][0]['handles'][1]
+        q = (h[0] + 20, h[1]) if hz else (h[0], h[1] + 20)  # on the capsule, off the handle
+        s.command('harmonics 3')
+        s.input(f'move {P(view_to_screen(s, q))}')
+        main = s.state['waveforms']['main']
+        cp = main['noteHarmonics']
+        r = A['rect']
+        ok = main['hoverCell'] is None and len(cp) == 2
+        if ok:
+            for c, i in zip(cp, (2, 3)):
+                d = 12 * math.log2(i) * 14
+                ok = ok and (abs((r[1] + 0.5 - d) - c[1]) <= 2 and abs(c[0] - (r[0] + 0.5)) <= 2 if hz
+                             else abs((r[0] + 0.5 + d) - c[0]) <= 2 and abs(c[1] - (r[1] + 0.5)) <= 2)
+        check(4, f'{o}: over a note with harmonics 3: no hover cell, 2 copies of the note 12 and 19.02 semitones higher',
+              ok, f'{main["hoverCell"]} {cp} rect {r}')
+        s.snapshot('note_harmonics')
+        before = len(notes_of(s))
+        s.input(f'click {P(view_to_screen(s, q))}')
+        check(4, f'{o}: a click on a note places nothing', len(notes_of(s)) == before)
+        far = (q[0], q[1] - 60) if hz else (q[0] - 60, q[1])
+        s.input(f'move {P(view_to_screen(s, far))}')
+        main = s.state['waveforms']['main']
+        check(4, f'{o}: away from the notes: the hover cell again, no note copies',
+              main['hoverCell'] is not None and main['noteHarmonics'] == [] and len(main['hoverCell']['harmonicRects']) == 2)
+        s.command('harmonics 1')
     s.quit()
 
 print(f'{sum(results)}/{len(results)} passed')

@@ -378,4 +378,22 @@ extension WaveformNSView {
             NSColor.white.setFill(); white.fill()
         }
     }
+
+    /// The hovered note's outline moved 12 · log2(i) semitones higher for i = 2 … harmonics (the
+    /// white outline's path; up in horizontal mode, right in vertical mode).
+    func noteHarmonicOutlines() -> [CGPath] {
+        guard let p = hoverPoint, let (sh, _) = hoveredSegment(at: p) else { return [] }
+        return harmonicShifts().compactMap { semis in
+            let d = CGFloat(semis * SpectrogramConstants.pointsPerSemitone)
+            var t = orientation == .horizontal ? CGAffineTransform(translationX: 0, y: -d) : CGAffineTransform(translationX: d, y: 0)
+            return sh.outline.copy(using: &t)
+        }
+    }
+
+    /// Over a note (instead of the hover cell): its harmonic copies in the moving dashes style.
+    func drawNoteHarmonics() {
+        let path = NSBezierPath()
+        for o in noteHarmonicOutlines() { path.append(NSBezierPath(cgPath: o)) }
+        strokeAlternating(path)
+    }
 }

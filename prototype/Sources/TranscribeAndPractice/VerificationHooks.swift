@@ -408,7 +408,10 @@ enum VerificationHooks {
                     "editorLines": w.visibleEditorLines().map { ["kind": $0.line.kind.rawValue, "time": $0.line.time, "axis": $0.axis] },
                     "notes": notes,
                     "dashPhase": w.dashPhase, "dashesMoving": w.dashesMoving,
-                    "hoverCell": w.hoverPoint.flatMap(w.gridCell(at:)).map { c -> Any in
+                    "noteHarmonics": w.noteHarmonicOutlines().map { r -> [Double] in
+                        let b = r.boundingBoxOfPath
+                        return [b.minX, b.minY, b.width, b.height].map { Double($0) } },
+                    "hoverCell": w.hoverPoint.flatMap(w.visibleGridCell(at:)).map { c -> Any in
                         let r = w.rect(of: c)
                         return ["start": c.start, "end": c.end, "note": c.note,
                                 "rect": [r.minX, r.minY, r.width, r.height],

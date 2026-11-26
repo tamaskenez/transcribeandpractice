@@ -198,6 +198,11 @@ extension WaveformNSView {
         return GridCell(startPos: p0, endPos: p1, start: t0, end: t1, note: SpectrogramConstants.lowestNote + k)
     }
 
+    /// The hover cell, unless the pointer is over a note (milestone 14).
+    func visibleGridCell(at p: CGPoint) -> GridCell? {
+        hoveredSegment(at: p) == nil ? gridCell(at: p) : nil
+    }
+
     /// The cell's rectangle in view coordinates (on whole points), `shift` semitones higher.
     func rect(of c: GridCell, shift: Double = 0) -> NSRect {
         guard let state else { return .zero }
@@ -218,8 +223,11 @@ extension WaveformNSView {
 
     /// The hover cell and, with the harmonics setting, its copies 12·log2(i) semitones higher
     /// (only drawn; placing a note is not affected).
+    /// Milestone 14: over a note, the note's harmonic copies instead (see `drawNoteHarmonics`).
     func drawHoverCell() {
-        guard let p = hoverPoint, let c = gridCell(at: p) else { return }
+        guard let p = hoverPoint else { return }
+        if hoveredSegment(at: p) != nil { drawNoteHarmonics(); return }
+        guard let c = gridCell(at: p) else { return }
         let path = NSBezierPath(rect: rect(of: c))
         for s in harmonicShifts() { path.append(NSBezierPath(rect: rect(of: c, shift: s))) }
         strokeAlternating(path)

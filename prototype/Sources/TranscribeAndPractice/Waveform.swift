@@ -738,7 +738,7 @@ final class WaveformNSView: NSView {
             // Milestone 13: plain presses on the spectrogram leave the playhead, the last start
             // and the selection alone; a click places a note in the hovered grid cell.
             drag = event.modifierFlags.intersection([.shift, .command, .control]).isEmpty && !underSpectrum(p)
-                ? gridCell(at: p).map { .note($0) } : nil
+                ? visibleGridCell(at: p).map { .note($0) } : nil
         } else if isRuler, beatsInteractive, !event.modifierFlags.intersection([.command, .shift]).isEmpty {
             // Command+click toggles a beat, Shift+click adds the range from the anchor.
             if let m = beatMark(at: p) {
