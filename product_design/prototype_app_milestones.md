@@ -1110,7 +1110,7 @@ handles come later. Details: the spec, "Notes".
 4. Backspace deletes the selected segments (splitting or trimming notes); Escape clears the note
    selection.
 
-Status: `verified`
+Status: `done`
 
 Acceptance criteria:
 
