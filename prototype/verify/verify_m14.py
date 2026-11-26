@@ -252,7 +252,8 @@ for o in ORIENTATIONS:
         check(4, f'{o}: away from the notes: the hover cell again, no note copies',
               main['hoverCell'] is not None and main['noteHarmonics'] == [] and len(main['hoverCell']['harmonicRects']) == 2)
         s.command('harmonics 1')
-    # 5. Selection: click selects only, ⌘-click toggles, a click elsewhere clears (and places), ⇧-drag adds.
+    # 5. Selection by segment: click selects one segment, double-click the whole note, ⌘-click
+    #    toggles a segment, a click elsewhere clears (and places), ⇧-drag adds segments live.
     if run(5):
         s.command('view 2,10' if hz else 'view 2,12'); s.command('notesel none'); s.dump()
         n = notes_of(s)
@@ -266,60 +267,91 @@ for o in ORIENTATIONS:
             return view_to_screen(s, (h[0] + 6, h[1]) if hz else (h[0], h[1] + 6))
 
         def sel():
-            return s.state['waveforms']['main']['selectedNotes']
+            return s.state['waveforms']['main']['selectedSegments']
 
         s.input(f'click {P(on(n[0]))}')
-        check(5, f'{o}: click on A selects it', sel() == [0], str(sel()))
+        check(5, f'{o}: click on A selects its segment', sel() == [[0, 0]], str(sel()))
         s.input(f'click {P(on(n[1], 1))}')
-        check(5, f'{o}: click on B selects only B', sel() == [1], str(sel()))
-        s.input(f'click {P(on(n[0]))} cmd')
-        check(5, f'{o}: ⌘-click on A adds it', sel() == [0, 1], str(sel()))
-        s.input(f'click {P(on(n[1]))} cmd')
-        check(5, f'{o}: ⌘-click on B removes it', sel() == [0], str(sel()))
-        s.input(f'click {P(on(n[2]))} cmd')
-        check(5, f'{o}: ⌘-click on the ellipse C adds it', sel() == [0, 2], str(sel()))
-        s.snapshot('selected')
+        check(5, f'{o}: click on B\'s middle segment selects only that segment', sel() == [[1, 1]], str(sel()))
+        s.snapshot('segment')
+        s.input(f'dclick {P(on(n[1], 1))}')
+        check(5, f'{o}: double-click on B selects the whole note', sel() == [[1, 0], [1, 1], [1, 2]], str(sel()))
+        s.snapshot('whole')
+        s.input(f'click {P(on(n[1], 2))} cmd')
+        check(5, f'{o}: ⌘-click on B\'s last segment removes it', sel() == [[1, 0], [1, 1]], str(sel()))
+        s.input(f'click {P(on(n[0]))} cmd', f'click {P(on(n[2], 1))} cmd')
+        check(5, f'{o}: ⌘-click adds A and C\'s second segment', sel() == [[0, 0], [1, 0], [1, 1], [2, 1]], str(sel()))
         count = len(notes_of(s))
-        empty = main_point(s, 4.0, 0.15 if hz else 0.15)
+        empty = main_point(s, 4.0, 0.15)
         s.input(f'click {P(empty)} cmd')
-        check(5, f'{o}: ⌘-click on empty spectrogram changes nothing', sel() == [0, 2] and len(notes_of(s)) == count)
-        # ⇧-drag, live: start with only C selected; the rectangle grows over A and D, shrinks to A,
-        # to nothing, grows again; C (selected at the press) stays selected throughout.
-        s.input(f'click {P(on(n[0]))} cmd')
-        check(5, f'{o}: ⌘-click on A again removes it', sel() == [2], str(sel()))
+        check(5, f'{o}: ⌘-click on empty spectrogram changes nothing', len(sel()) == 4 and len(notes_of(s)) == count)
+        s.input(f'click {P(empty)}')
+        check(5, f'{o}: a click on empty spectrogram clears the selection and places a note',
+              sel() == [] and len(notes_of(s)) == count + 1, f'{sel()} {len(notes_of(s))}')
+        count += 1
+        # ⇧-drag, live, from the selection at the press (C's first segment).
+        s.input(f'click {P(on(n[2], 0))} cmd')
+        check(5, f'{o}: ⌘-click selects C\'s first segment', sel() == [[2, 0]], str(sel()))
         a, d = n[0]['rect'], n[3]['rect']
         x0, y0 = min(a[0], d[0]) - 6, min(a[1], d[1]) - 6
         x1, y1 = max(a[0] + a[2], d[0] + d[2]) + 6, max(a[1] + a[3], d[1] + d[3]) + 6
         ax1, ay1 = a[0] + a[2] + 6, a[1] + a[3] + 6
-        b = n[1]['rect']
-        p0 = view_to_screen(s, (x0, y0))
-        steps = [((x1, y1), [0, 2, 3], 'over A and D: both selected live'),
-                 ((ax1, ay1), [0, 2], 'shrunk to A: D unselected again'),
-                 ((x0 + 3, y0 + 3), [2], 'shrunk to nothing: back to the selection at the press (C)'),
-                 ((x1, y1), [0, 2, 3], 'grown again: A and D selected')]
         s.command('harmonics 3')
-        s.input(f'down {P(p0)} shift')
+        s.input(f'down {P(view_to_screen(s, (x0, y0)))} shift')
+        steps = [((x1, y1), [[0, 0], [2, 0], [3, 0]], 'over A and D: their segments selected live'),
+                 ((ax1, ay1), [[0, 0], [2, 0]], 'shrunk to A: D unselected again'),
+                 ((x0 + 3, y0 + 3), [[2, 0]], 'shrunk to nothing: back to the selection at the press'),
+                 ((x1, y1), [[0, 0], [2, 0], [3, 0]], 'grown again')]
         for (q, want, desc) in steps:
             s.input(f'dragto {P(view_to_screen(s, q))}')
             main = s.state['waveforms']['main']
-            band = main['noteBand']
             quiet = all(x['hoveredSegment'] is None for x in notes_of(s)) and main['hoverCell'] is None \
                 and main['noteHarmonics'] == []
             check(5, f'{o}: ⇧-drag {desc}; the rectangle shown; no hover feedback',
-                  sel() == want and band is not None and quiet, f'{sel()} {band} quiet {quiet}')
-            if want == [0, 2, 3] and desc.startswith('over'):
+                  sel() == want and main['noteBand'] is not None and quiet, f'{sel()} quiet {quiet}')
+            if desc.startswith('over'):
                 s.snapshot('band')
-        p1 = view_to_screen(s, (x1, y1))
-        s.input(f'up {P(p1)}')
+        s.input(f'up {P(view_to_screen(s, (x1, y1)))}')
         s.command('harmonics 1')
-        partly_b = x0 < b[0] + b[2] and b[0] < x1 and y0 < b[1] + b[3] and b[1] < y1
-        check(5, f'{o}: on release the selection stays (A, C, D; B partly inside: {partly_b}, not added); the rectangle is gone',
-              sel() == [0, 2, 3] and s.state['waveforms']['main']['noteBand'] is None and len(notes_of(s)) == count, str(sel()))
-        s.input(f'click {P(empty)}')
-        check(5, f'{o}: a click on empty spectrogram clears the selection and places a note',
-              sel() == [] and len(notes_of(s)) == count + 1, f'{sel()} {len(notes_of(s))}')
-        s.input(f'click {P(on(n[0]))}', f'click {P(on(n[0]))} shift')
-        check(5, f'{o}: a ⇧-click without a drag changes nothing', sel() == [0], str(sel()))
+        check(5, f'{o}: on release the selection stays; the rectangle is gone',
+              sel() == [[0, 0], [2, 0], [3, 0]] and s.state['waveforms']['main']['noteBand'] is None, str(sel()))
+        # Segment granularity: a rectangle around B's last segment only.
+        s.command('notesel none'); s.dump()
+        ar = notes_of(s)[1]['segments'][2]['area']
+        q0, q1 = (ar[0] - 4, ar[1] - 4), (ar[0] + ar[2] + 4, ar[1] + ar[3] + 4)
+        s.input(f'down {P(view_to_screen(s, q0))} shift', f'dragto {P(view_to_screen(s, q1))}', f'up {P(view_to_screen(s, q1))}')
+        check(5, f'{o}: a rectangle around B\'s last segment selects just that segment', sel() == [[1, 2]], str(sel()))
+        s.input('key escape')
+        check(5, f'{o}: Escape clears the note selection', sel() == [], str(sel()))
+
+    # 6. Backspace deletes the selected segments (splitting notes); freed beats can be deleted.
+    if run(6):
+        s.quit()
+        write_session(NOTES)
+        s = session(f'{o}_delete', o)
+        s.command('view 2,10' if hz else 'view 2,12'); s.dump()
+        s.command('notesel 1:1'); s.dump()
+        s.input('key backspace')
+        sess = json.load(open(SIDE))['notes']
+        want_b0 = {'points': [pt(9, 60, 62)], 'end': dict(loc(11), pitch=64)}
+        want_b2 = {'points': [pt(13, 63, 63)], 'end': dict(loc(15), pitch=63)}
+        check(6, f'{o}: deleting B\'s middle segment splits B into its first and last segment (saved; the new start has pre = post)',
+              len(sess) == 5 and want_b0 in sess and want_b2 in sess and s.state['waveforms']['main']['selectedSegments'] == [],
+              json.dumps(sess))
+        s.command('notesel 0'); s.dump()
+        s.input('key backspace')
+        sess = json.load(open(SIDE))['notes']
+        check(6, f'{o}: deleting all of A removes it', len(sess) == 4 and NOTES[0] not in sess, json.dumps(sess))
+        beeps = s.state['beepCount']
+        s.command('beatsel 7'); s.command('beatmenu Delete'); s.dump()
+        check(6, f'{o}: A\'s beat 7 is free now and can be deleted', len(s.state['beats']) == 37 and s.state['beepCount'] == beeps)
+        s.command('beatsel none')
+        s.command('notesel 2:1'); s.dump()
+        s.input('key backspace')
+        sess = json.load(open(SIDE))['notes']
+        check(6, f'{o}: deleting C\'s second segment trims C to its first', len(sess) == 4 and
+              {'points': [pt(15, 57, 58)], 'end': dict(loc(15, '1/8'), pitch=60)} in sess, json.dumps(sess))
+        s.snapshot('after_delete')
     s.quit()
 
 print(f'{sum(results)}/{len(results)} passed')

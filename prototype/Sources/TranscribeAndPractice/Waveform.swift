@@ -29,11 +29,12 @@ final class WaveformNSView: NSView {
         /// Spectrogram: a plain press away from the notes; a release without a drag clears the note
         /// selection and places a note in the grid cell (if there is one).
         case note(GridCell?)
-        /// Spectrogram: a plain press on a note; a release without a drag selects only it.
-        case noteClick(id: Int)
+        /// Spectrogram: a plain press on a note segment; a release without a drag selects only it
+        /// (a double-click: the whole note).
+        case noteClick(SegmentRef, clicks: Int)
         /// Spectrogram: Shift-drag from `anchor` (view coordinates): a selection rectangle. The
         /// selection is the one at the press (`base`) plus the notes inside the rectangle, live.
-        case noteBand(anchor: CGPoint, base: Set<Int>)
+        case noteBand(anchor: CGPoint, base: Set<SegmentRef>)
         /// Ruler, beats mode: a press on a beat (`pressed`) or, with selected beats, anywhere.
         /// Once it moves, `original` holds the moving beats (the selection, else the pressed
         /// beat) by id with their samples at the press.
@@ -757,12 +758,13 @@ final class WaveformNSView: NSView {
             let mods = event.modifierFlags.intersection([.shift, .command, .control])
             let onNote = underSpectrum(p) ? nil : hoveredSegment(at: p)
             if mods == .shift {
-                drag = .noteBand(anchor: p, base: state.selectedNotes)
+                drag = .noteBand(anchor: p, base: state.selectedSegments)
             } else if mods == .command {
-                if let (sh, _) = onNote { state.toggleNote(id: sh.note.id) }
+                if let (sh, k) = onNote { state.toggleSegment(SegmentRef(note: sh.note.id, segment: k)) }
                 drag = nil
             } else if mods.isEmpty, !underSpectrum(p) {
-                drag = onNote.map { .noteClick(id: $0.note.note.id) } ?? .note(visibleGridCell(at: p))
+                drag = onNote.map { .noteClick(SegmentRef(note: $0.note.note.id, segment: $0.segment), clicks: event.clickCount) }
+                    ?? .note(visibleGridCell(at: p))
             } else {
                 drag = nil
             }
@@ -899,8 +901,8 @@ final class WaveformNSView: NSView {
                                         width: abs(p.x - anchor.x), height: abs(p.y - anchor.y)) : nil
             // Live: notes entering the rectangle are selected; leaving it, they go back to their
             // state at the press.
-            let now = base.union(noteBand.map { notes(inside: $0) } ?? [])
-            if now != state.selectedNotes { state.selectedNotes = now }
+            let now = base.union(noteBand.map { segments(inside: $0) } ?? [])
+            if now != state.selectedSegments { state.selectedSegments = now }
         case let .seek(playing):
             if !playing { state.dragPlayhead(to: time(atAxis: clampedAxis(p))) }
         case let .beats(_, original, pressTime):
@@ -927,7 +929,8 @@ final class WaveformNSView: NSView {
                 state.clearNoteSelection()
                 if let cell { state.placeNote(in: cell) }
             }
-        case let .noteClick(id): if !dragged { state.selectOnlyNote(id: id) }
+        case let .noteClick(ref, clicks):
+            if !dragged { if clicks >= 2 { state.selectOnlyNote(id: ref.note) } else { state.selectOnlySegment(ref) } }
         case .noteBand:
             // The selection was updated while dragging; it stays as it is.
             noteBand = nil
@@ -1017,7 +1020,7 @@ struct WaveformView: NSViewRepresentable {
             _ = (state.mainMode, state.windowLengthMs, state.freqLow, state.spectrogramVersion,
                  state.mainCrossLength, state.mainAxisLength, state.loadID)
             view.reportSize()
-            _ = (state.beats, state.gridDenominator, state.gridPanelOpen, state.notes, state.harmonics, state.selectedNotes)
+            _ = (state.beats, state.gridDenominator, state.gridPanelOpen, state.notes, state.harmonics, state.selectedSegments)
         }
         if name == "navigator" { _ = (state.mainMode, state.windowLengthMs) }
         if isRuler { _ = (state.beats, state.selectedBeats, state.showBeats, state.pointer?.fraction, state.pointer?.pane) }

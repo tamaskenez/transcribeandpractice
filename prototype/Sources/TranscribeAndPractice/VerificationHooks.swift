@@ -118,8 +118,17 @@ enum VerificationHooks {
                         }
                     case "notes": if arg == "clear" { state.notes = []; state.saveSession() }
                     case "notesel":
-                        state.selectedNotes = arg == "none" ? [] : Set(arg.split(separator: ",").compactMap { Int($0) }
-                            .filter { state.notes.indices.contains($0) }.map { state.notes[$0].id })
+                        // "i:k,…" (note i, segment k) or "i" (all of note i), or "none".
+                        var sel: Set<SegmentRef> = []
+                        for item in arg.split(separator: ",") where arg != "none" {
+                            let p = item.split(separator: ":").compactMap { Int($0) }
+                            guard let i = p.first, state.notes.indices.contains(i) else { continue }
+                            let n = state.notes[i]
+                            for k in p.count > 1 ? [p[1]] : Array(n.points.indices) where n.points.indices.contains(k) {
+                                sel.insert(SegmentRef(note: n.id, segment: k))
+                            }
+                        }
+                        state.selectedSegments = sel
                     case "harmonics": if let n = Int(arg), (1...AppState.maxHarmonics).contains(n) { state.harmonics = n }
                     case "gridpanel": state.gridPanelOpen = arg == "open"
                     case "grid":
@@ -367,6 +376,7 @@ enum VerificationHooks {
             let segments: [[String: Any]] = (sh?.segments ?? []).map { sg in
                 ["start": xy(sg.start), "end": xy(sg.end), "radius": Double(sg.radius), "length": Double(sg.length),
                  "width": Double(sg.width), "ellipse": sg.isEllipse,
+                 "area": [sg.area.minX, sg.area.minY, sg.area.width, sg.area.height].map { Double($0) },
                  "ellipseBox": [sg.ellipseBox.minX, sg.ellipseBox.minY, sg.ellipseBox.width, sg.ellipseBox.height].map { Double($0) }, "handles": sg.visibleHandles.map(xy)]
             }
             let transitions: [[[Double]]] = (sh?.transitions ?? []).map { [xy($0.0), xy($0.1)] }
@@ -382,7 +392,7 @@ enum VerificationHooks {
                         "startSample": roundSample(ta * audio.sampleRate), "endSample": roundSample(tb * audio.sampleRate),
                         "usedBeats": [used.lowerBound, used.upperBound], "rect": rect,
                         "segments": segments, "transitions": transitions, "hoveredSegment": hovered,
-                        "selected": state.selectedNotes.contains(n.id)])
+                        "selected": n.points.indices.filter { state.selectedSegments.contains(SegmentRef(note: n.id, segment: $0)) }])
         }
         return out
     }
@@ -413,7 +423,7 @@ enum VerificationHooks {
                     "notes": notes,
                     "dashPhase": w.dashPhase, "dashesMoving": w.dashesMoving,
                     "noteBand": w.noteBand.map { [$0.minX, $0.minY, $0.width, $0.height].map { Double($0) } } ?? NSNull(),
-                    "selectedNotes": w.state?.selectedNoteIndices ?? [],
+                    "selectedSegments": (w.state?.selectedSegmentList ?? []).map { [$0.0, $0.1] },
                     "noteHarmonics": w.noteHarmonicOutlines().map { r -> [Double] in
                         let b = r.boundingBoxOfPath
                         return [b.minX, b.minY, b.width, b.height].map { Double($0) } },

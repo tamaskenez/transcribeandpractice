@@ -48,9 +48,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if event.keyCode == 11 { state.beatKey(downbeat: event.modifierFlags.contains(.shift)); return nil }
             guard !event.modifierFlags.contains(.shift) else { return event }
             switch event.keyCode {
+            case 51 where !state.selectedSegments.isEmpty: state.deleteSelectedSegments() // Backspace: notes first
             case 51 where !state.isPlaying && (state.hoveredBeatSample != nil || !state.selectedBeats.isEmpty):
                 state.deleteHoveredBeat()                                        // Backspace
-            case 53 where !state.selectedBeats.isEmpty: state.clearBeatSelection() // Escape: beats first
+            case 53 where !state.selectedSegments.isEmpty: state.clearNoteSelection() // Escape: notes first
+            case 53 where !state.selectedBeats.isEmpty: state.clearBeatSelection() // then beats
             case 53 where state.selection != nil: state.clearSelectionWithKey()  // Escape
             case 49: state.playOrStop()                                          // Space
             case 123: state.rewindAndPlay()                                      // Left Arrow

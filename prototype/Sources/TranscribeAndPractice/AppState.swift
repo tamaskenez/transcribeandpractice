@@ -34,9 +34,9 @@ final class AppState {
     /// Selected beats (by id) and the last one selected individually (the Shift+click anchor).
     var selectedBeats: Set<Int> = []
     /// Note trajectories (milestone 13; see Notes.swift), saved in the session file with the beats.
-    var notes: [NoteTrajectory] = [] { didSet { selectedNotes.formIntersection(notes.map(\.id)) } }
-    /// Selected notes by id (milestone 14), cleared when another file is opened.
-    var selectedNotes: Set<Int> = []
+    var notes: [NoteTrajectory] = [] { didSet { pruneSegmentSelection() } }
+    /// Selected note segments (milestone 14), cleared when another file is opened.
+    var selectedSegments: Set<SegmentRef> = []
     var beatAnchor: Int?
     /// Beeps so far (for the state dump).
     var beepCount = 0
@@ -396,7 +396,7 @@ final class AppState {
             lastStart = 0
             beatDialog = nil
             selectedBeats = []
-            selectedNotes = []
+            selectedSegments = []
             beatAnchor = nil
             hoveredBeatSample = nil
             loadSession(for: loaded)

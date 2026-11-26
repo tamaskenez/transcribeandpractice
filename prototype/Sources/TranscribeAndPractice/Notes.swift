@@ -55,6 +55,9 @@ enum NoteConstants {
     static let maxTransitionBeats = Rational(1, 8)
 }
 
+/// A note segment: segment k of a note runs from point k to point k + 1 (or the end).
+struct SegmentRef: Hashable { var note: Int; var segment: Int }
+
 /// Beat positions: beat index + tau (exact).
 struct BeatGrid {
     let beats: [Beat]
@@ -146,14 +149,61 @@ extension AppState {
         noteBeatRanges.contains { $0.lowerBound <= i && i + 1 <= $0.upperBound }
     }
 
-    // Selection (milestone 14)
+    // Selection (milestone 14): by note segment.
 
-    func selectOnlyNote(id: Int) { selectedNotes = [id] }
-    func toggleNote(id: Int) { if selectedNotes.remove(id) == nil { selectedNotes.insert(id) } }
-    func addNotesToSelection(_ ids: [Int]) { selectedNotes.formUnion(ids) }
-    func clearNoteSelection() { if !selectedNotes.isEmpty { selectedNotes = [] } }
-    /// Indices of the selected notes, ascending.
-    var selectedNoteIndices: [Int] { notes.indices.filter { selectedNotes.contains(notes[$0].id) } }
+    /// Click: only this segment.
+    func selectOnlySegment(_ r: SegmentRef) { selectedSegments = [r] }
+    /// ⌘-click: toggles the segment.
+    func toggleSegment(_ r: SegmentRef) { if selectedSegments.remove(r) == nil { selectedSegments.insert(r) } }
+    /// Double-click: only the whole note (all its segments).
+    func selectOnlyNote(id: Int) {
+        guard let n = notes.first(where: { $0.id == id }) else { return }
+        selectedSegments = Set(n.points.indices.map { SegmentRef(note: id, segment: $0) })
+    }
+    func clearNoteSelection() { if !selectedSegments.isEmpty { selectedSegments = [] } }
+
+    /// Drops selected segments whose note or segment is gone.
+    func pruneSegmentSelection() {
+        let counts = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0.points.count) })
+        let kept = selectedSegments.filter { (counts[$0.note] ?? 0) > $0.segment }
+        if kept != selectedSegments { selectedSegments = kept }
+    }
+
+    /// The selected segments as (note index, segment index), sorted.
+    var selectedSegmentList: [(Int, Int)] {
+        notes.enumerated().flatMap { i, n in
+            n.points.indices.filter { selectedSegments.contains(SegmentRef(note: n.id, segment: $0)) }.map { (i, $0) }
+        }
+    }
+
+    /// Backspace: deletes the selected segments. Each remaining run of consecutive segments of a
+    /// note becomes a note of its own: it ends at the location of the point after the run (with
+    /// that point's pre-pitch; the note's end for the last run); a run that started at an inner
+    /// point gets pre = post there (no pre → post capsule at its new start).
+    func deleteSelectedSegments() {
+        guard !selectedSegments.isEmpty else { return }
+        var out: [NoteTrajectory] = []
+        for n in notes {
+            let gone = Set(n.points.indices.filter { selectedSegments.contains(SegmentRef(note: n.id, segment: $0)) })
+            if gone.isEmpty { out.append(n); continue }
+            var k = 0
+            while k < n.points.count {
+                if gone.contains(k) { k += 1; continue }
+                var m = k
+                while m + 1 < n.points.count, !gone.contains(m + 1) { m += 1 }
+                var pts = Array(n.points[k...m])
+                if k > 0, gone.contains(k - 1) { pts[0].pre = pts[0].post }
+                let last = m + 1 < n.points.count
+                let end = last ? n.points[m + 1].loc : n.end
+                let endPitch = last ? n.points[m + 1].pre : n.endPitch
+                out.append(k == 0 && m == n.points.count - 1 ? n : NoteTrajectory(points: pts, endPitch: endPitch, end: end))
+                k = m + 1
+            }
+        }
+        selectedSegments = []
+        notes = out
+        saveSession()
+    }
 
     /// Click on the spectrogram: a single-segment note in the grid cell (none if the same note
     /// is already there).
@@ -319,6 +369,17 @@ extension WaveformNSView {
         return NoteShape(note: n, segments: segments, transitions: transitions, radius: radius, outline: outline)
     }
 
+    /// A segment's own capsule (or ellipse), as the white outline's path.
+    func segmentPath(_ sg: NoteSegmentShape) -> CGPath {
+        if sg.isEllipse {
+            let b = sg.ellipseBox
+            let e = CGMutablePath()
+            e.addEllipse(in: NSRect(x: b.minX, y: b.minY, width: b.width - 1, height: b.height - 1).insetBy(dx: 0.5, dy: 0.5))
+            return e
+        }
+        return NoteDrawing.capsule(sg.start, sg.end, sg.radius)
+    }
+
     /// The note's bounding area (all its segments).
     func rect(of n: NoteTrajectory) -> NSRect? { shape(of: n)?.bounds }
 
@@ -362,23 +423,23 @@ extension WaveformNSView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.saveGState()
         ctx.setLineWidth(1)
-        let selected = state?.selectedNotes ?? []
+        let selected = state?.selectedSegments ?? []
         let accent = NSColor.controlAccentColor
         for sh in noteShapes() {
-            let isSelected = selected.contains(sh.note.id)
-            if isSelected {
-                // Selected: a translucent accent fill inside the outline.
-                ctx.addPath(sh.outline); ctx.setFillColor(accent.withAlphaComponent(NoteDrawing.selectedFillOpacity).cgColor); ctx.fillPath()
-            }
+            let sel = sh.segments.indices.filter { selected.contains(SegmentRef(note: sh.note.id, segment: $0)) }
+            let whole = sel.count == sh.segments.count
             var shift = CGAffineTransform(translationX: 1, y: 1)
             if let black = sh.outline.copy(using: &shift) {
                 ctx.addPath(black); ctx.setStrokeColor(NSColor.black.cgColor); ctx.setLineWidth(1); ctx.strokePath()
             }
-            // Selected: the white outline becomes a 2-point accent outline.
-            ctx.addPath(sh.outline)
-            ctx.setStrokeColor((isSelected ? accent : NSColor.white).cgColor)
-            ctx.setLineWidth(isSelected ? 2 : 1)
-            ctx.strokePath()
+            ctx.addPath(sh.outline); ctx.setStrokeColor(NSColor.white.cgColor); ctx.setLineWidth(1); ctx.strokePath()
+            // Selected: a translucent accent fill and a 2-point accent outline: around the whole
+            // note when all its segments are selected, else around each selected segment.
+            let paths = whole ? [sh.outline] : sel.map { segmentPath(sh.segments[$0]) }
+            for p in paths {
+                ctx.addPath(p); ctx.setFillColor(accent.withAlphaComponent(NoteDrawing.selectedFillOpacity).cgColor); ctx.fillPath()
+                ctx.addPath(p); ctx.setStrokeColor(accent.cgColor); ctx.setLineWidth(2); ctx.strokePath()
+            }
         }
         ctx.restoreGState()
         if let p = hoverPoint, let (sh, k) = hoveredSegment(at: p) {
@@ -422,12 +483,14 @@ extension WaveformNSView {
         strokeAlternating(path)
     }
 
-    /// Notes whose whole drawn shape (both outlines) lies inside the rectangle (view coordinates).
-    func notes(inside r: NSRect) -> [Int] {
-        noteShapes().filter { sh in
-            // The white outline's 1-point line and the black one offset by (+1, +1).
-            let white = sh.outline.boundingBoxOfPath.insetBy(dx: -0.5, dy: -0.5)
-            return r.contains(white.union(white.offsetBy(dx: 1, dy: 1)))
-        }.map(\.note.id)
+    /// Segments whose drawn capsule (or ellipse; both outlines) lies inside the rectangle (view
+    /// coordinates). Pre → post capsules don't count.
+    func segments(inside r: NSRect) -> [SegmentRef] {
+        noteShapes().flatMap { sh in
+            sh.segments.indices.filter { k in
+                let white = segmentPath(sh.segments[k]).boundingBoxOfPath.insetBy(dx: -0.5, dy: -0.5)
+                return r.contains(white.union(white.offsetBy(dx: 1, dy: 1)))
+            }.map { SegmentRef(note: sh.note.id, segment: $0) }
+        }
     }
 }
