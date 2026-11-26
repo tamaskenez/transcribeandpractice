@@ -217,8 +217,10 @@ if run(4):
         probe(s, o, 5.06, 0.5, 16, '4/4', (5.0, 5.125))
         probe(s, o, 7.49, 0.7, 16, '4/4', (7.375, 7.5))
         s.snapshot('cell16')
+        # The phase wraps every 8 points (1 s): read it right before a short wait.
+        s.dump()
         ph0 = s.state['waveforms']['main']['dashPhase']
-        import time as _t; _t.sleep(0.4); s.dump()
+        import time as _t; _t.sleep(0.2); s.dump()
         ph1 = s.state['waveforms']['main']['dashPhase']
         check(4, f'{o}: the dashes move while a cell is shown ({ph0} → {ph1})',
               s.state['waveforms']['main']['dashesMoving'] and ph0 != ph1)

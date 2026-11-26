@@ -1027,7 +1027,7 @@ Iterative; the requirements were worked out step by step (details: the spec, "Sp
    backward compatibility). Beats a note uses can't be deleted, and no beat can be inserted
    between them.
 
-Status: `criteria approved`
+Status: `verified`
 
 Acceptance criteria:
 
@@ -1077,6 +1077,20 @@ implementation of the spec's cell rule.
 8. Appearance (dark mode): the grid lines in the new style with the panel open; the hover cell
    (1/16 and 1/2); the harmonic copies; placed notes (capsules, the ellipse, a close-up); the
    spectrogram controls; both orientations. (screenshots, checked by the human)
+
+Verification results (`python3 verify/verify_m13.py`, run from `prototype/`; screenshots in
+`verify/out/m13/`): one full run, 104/105 checks passed (criteria 1–7; criterion 8 is the human
+check). The failure was test-side: "the dashes move" read the dash phase before a screenshot and
+again after 0.4 s; the phase wraps every 8 points (1 s), and with the screenshot's time the two
+readings landed one full cycle apart. Fixed by reading it right before a 0.2 s wait; criterion 4
+was rerun (`ONLY=4`): 34/34 passed. Fixes during the experiments' testing: harmonic copies above
+the pane were drawn over the scrollbar (the main pane now clips to its bounds); test-side: probe
+points under the spectrum pane, a pitch neighbour offset from a wrong pane size, a pickup layout
+with a full pickup bar, invalid session files checked without input events (the error alert
+keeps the window from becoming key; `ONLY=7b`), exact beat times with the `beatat` hook.
+Screenshots for the human check: `*_grid_open.png`, `*_hover_cell16.png`, `*_hover_cell2.png`,
+`*_harmonics_harmonics5.png`, `*_hover34_pickup_lines.png`, `*_notes_placed.png`,
+`*_notes_closeup.png`, `*_harmonics_controls.png`.
 
 ## Fine-tuning (to do later)
 
