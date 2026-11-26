@@ -146,6 +146,15 @@ extension AppState {
         noteBeatRanges.contains { $0.lowerBound <= i && i + 1 <= $0.upperBound }
     }
 
+    // Selection (milestone 14)
+
+    func selectOnlyNote(id: Int) { selectedNotes = [id] }
+    func toggleNote(id: Int) { if selectedNotes.remove(id) == nil { selectedNotes.insert(id) } }
+    func addNotesToSelection(_ ids: [Int]) { selectedNotes.formUnion(ids) }
+    func clearNoteSelection() { if !selectedNotes.isEmpty { selectedNotes = [] } }
+    /// Indices of the selected notes, ascending.
+    var selectedNoteIndices: [Int] { notes.indices.filter { selectedNotes.contains(notes[$0].id) } }
+
     /// Click on the spectrogram: a single-segment note in the grid cell (none if the same note
     /// is already there).
     func placeNote(in cell: GridCell) {
@@ -200,6 +209,8 @@ struct NoteShape {
 enum NoteDrawing {
     /// Reach (points) around a segment's capsule within which the pointer hovers it.
     static let hoverReach: CGFloat = 3
+    /// Opacity of a selected note's accent fill.
+    static let selectedFillOpacity: CGFloat = 0.35
 
     /// The hull of two circles of radius r (a capsule; a circle if they coincide).
     static func capsule(_ a: CGPoint, _ b: CGPoint, _ r: CGFloat) -> CGPath {
@@ -348,12 +359,23 @@ extension WaveformNSView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.saveGState()
         ctx.setLineWidth(1)
+        let selected = state?.selectedNotes ?? []
+        let accent = NSColor.controlAccentColor
         for sh in noteShapes() {
+            let isSelected = selected.contains(sh.note.id)
+            if isSelected {
+                // Selected: a translucent accent fill inside the outline.
+                ctx.addPath(sh.outline); ctx.setFillColor(accent.withAlphaComponent(NoteDrawing.selectedFillOpacity).cgColor); ctx.fillPath()
+            }
             var shift = CGAffineTransform(translationX: 1, y: 1)
             if let black = sh.outline.copy(using: &shift) {
-                ctx.addPath(black); ctx.setStrokeColor(NSColor.black.cgColor); ctx.strokePath()
+                ctx.addPath(black); ctx.setStrokeColor(NSColor.black.cgColor); ctx.setLineWidth(1); ctx.strokePath()
             }
-            ctx.addPath(sh.outline); ctx.setStrokeColor(NSColor.white.cgColor); ctx.strokePath()
+            // Selected: the white outline becomes a 2-point accent outline.
+            ctx.addPath(sh.outline)
+            ctx.setStrokeColor((isSelected ? accent : NSColor.white).cgColor)
+            ctx.setLineWidth(isSelected ? 2 : 1)
+            ctx.strokePath()
         }
         ctx.restoreGState()
         if let p = hoverPoint, let (sh, k) = hoveredSegment(at: p) {
@@ -395,5 +417,14 @@ extension WaveformNSView {
         let path = NSBezierPath()
         for o in noteHarmonicOutlines() { path.append(NSBezierPath(cgPath: o)) }
         strokeAlternating(path)
+    }
+
+    /// Notes whose whole drawn shape (both outlines) lies inside the rectangle (view coordinates).
+    func notes(inside r: NSRect) -> [Int] {
+        noteShapes().filter { sh in
+            // The white outline's 1-point line and the black one offset by (+1, +1).
+            let white = sh.outline.boundingBoxOfPath.insetBy(dx: -0.5, dy: -0.5)
+            return r.contains(white.union(white.offsetBy(dx: 1, dy: 1)))
+        }.map(\.note.id)
     }
 }

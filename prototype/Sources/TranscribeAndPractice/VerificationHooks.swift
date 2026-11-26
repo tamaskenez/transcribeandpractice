@@ -117,6 +117,9 @@ enum VerificationHooks {
                             state.beatKey(downbeat: false)
                         }
                     case "notes": if arg == "clear" { state.notes = []; state.saveSession() }
+                    case "notesel":
+                        state.selectedNotes = arg == "none" ? [] : Set(arg.split(separator: ",").compactMap { Int($0) }
+                            .filter { state.notes.indices.contains($0) }.map { state.notes[$0].id })
                     case "harmonics": if let n = Int(arg), (1...AppState.maxHarmonics).contains(n) { state.harmonics = n }
                     case "gridpanel": state.gridPanelOpen = arg == "open"
                     case "grid":
@@ -378,7 +381,8 @@ enum VerificationHooks {
                         "midi": Double(n.points[0].post), "startTime": ta, "endTime": tb,
                         "startSample": roundSample(ta * audio.sampleRate), "endSample": roundSample(tb * audio.sampleRate),
                         "usedBeats": [used.lowerBound, used.upperBound], "rect": rect,
-                        "segments": segments, "transitions": transitions, "hoveredSegment": hovered])
+                        "segments": segments, "transitions": transitions, "hoveredSegment": hovered,
+                        "selected": state.selectedNotes.contains(n.id)])
         }
         return out
     }
@@ -408,6 +412,8 @@ enum VerificationHooks {
                     "editorLines": w.visibleEditorLines().map { ["kind": $0.line.kind.rawValue, "time": $0.line.time, "axis": $0.axis] },
                     "notes": notes,
                     "dashPhase": w.dashPhase, "dashesMoving": w.dashesMoving,
+                    "noteBand": w.noteBand.map { [$0.minX, $0.minY, $0.width, $0.height].map { Double($0) } } ?? NSNull(),
+                    "selectedNotes": w.state?.selectedNoteIndices ?? [],
                     "noteHarmonics": w.noteHarmonicOutlines().map { r -> [Double] in
                         let b = r.boundingBoxOfPath
                         return [b.minX, b.minY, b.width, b.height].map { Double($0) } },

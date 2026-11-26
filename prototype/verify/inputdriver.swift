@@ -13,7 +13,7 @@
 //   front <pid>                           make the app frontmost via Accessibility
 //   focus <pid> <title>                   focus a text field via Accessibility
 //   type <text>                           type the text (unicode key events)
-//   down x y / dragto x y / up x y        a left-button drag in separate steps (dragto: 10 drag events
+//   down x y [mods] / dragto x y / up x y a left-button drag in separate steps (dragto: 10 drag events
 //                                         from the last position)
 //   rclick x y                            right-click (a context menu opens and stays open)
 //   sleep ms
@@ -212,7 +212,7 @@ while let line = readLine() {
     case "down":
         let p = CGPoint(x: d(1), y: d(2))
         post(.mouseMoved, p); pause(30)
-        post(.leftMouseDown, p); pause(30)
+        post(.leftMouseDown, p, flags(a.count > 3 ? a[3] : nil)); pause(30)
         last = p
     case "dragto":
         let p = CGPoint(x: d(1), y: d(2))
