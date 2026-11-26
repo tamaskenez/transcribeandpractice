@@ -26,6 +26,8 @@ extension AppState {
         let s = roundSample(t * audio.sampleRate)
         guard t >= 0, s >= 0, s < audio.frameCount else { beep(); return }
         if beats.contains(where: { abs($0.sample - s) < minDistanceSamples }) { beep(); return }
+        // Not inside the beats a note uses.
+        if insertionCutsNote(at: s) { beep(); return }
         var list = beats
         list.append(Beat(sample: s, bar: downbeat ? .start : .auto))
         list.sort { $0.sample < $1.sample }
@@ -88,13 +90,15 @@ extension AppState {
         setBeats(list, save: false)
     }
 
-    func endBeatMove() { saveBeats() }
+    func endBeatMove() { saveSession() }
 
     // MARK: Context menu actions
 
     /// Deletes the selected beats (Backspace: the selection, else the beat under the pointer).
     func deleteSelectedBeats() {
         guard !selectedBeats.isEmpty else { return }
+        // Beats a note uses can't be deleted: then nothing is deleted.
+        if beatsUsedByNotes(selectedBeatIndices) { beep(); return }
         let gone = selectedBeats
         clearBeatSelection()
         hoveredBeatSample = nil
@@ -103,7 +107,8 @@ extension AppState {
 
     func deleteHoveredBeat() {
         if !selectedBeats.isEmpty { deleteSelectedBeats(); return }
-        guard let s = hoveredBeatSample else { return }
+        guard let s = hoveredBeatSample, let i = beats.firstIndex(where: { $0.sample == s }) else { return }
+        if beatsUsedByNotes([i]) { beep(); return }
         hoveredBeatSample = nil
         setBeats(beats.filter { $0.sample != s }, save: true)
     }
@@ -183,6 +188,8 @@ extension AppState {
 
     func openSubdivideDialog() {
         guard canSubdivide else { beep(); return }
+        // No new beats inside the beats a note uses.
+        if selectedGaps.contains(where: { gapUsedByNotes(after: $0.0) }) { beep(); return }
         subdivideText = "2"
         beatDialog = .subdivide
     }
@@ -225,13 +232,14 @@ extension AppState {
 
     // MARK: Saving
 
-    func saveBeats() {
+    /// Writes the beats and notes to the session file.
+    func saveSession() {
         guard let audio else { return }
-        let url = BeatFile.sidecarURL(for: audio.url)
+        let url = SessionFile.url(for: audio.url)
         do {
-            try BeatFile.encode(beats).write(to: url, options: .atomic)
+            try SessionFile.encode(beats: beats, notes: notes).write(to: url, options: .atomic)
         } catch {
-            errorTitle = "Could not save beats"
+            errorTitle = "Could not save the session"
             errorMessage = "“\(url.lastPathComponent)”: \(error.localizedDescription)"
         }
     }

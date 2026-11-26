@@ -27,76 +27,6 @@ struct Beat: Equatable {
     private static func makeID() -> Int { lastID += 1; return lastID }
 }
 
-struct BeatFileError: LocalizedError {
-    let message: String
-    var errorDescription: String? { message }
-}
-
-enum BeatFile {
-    /// `song.mp3` → `song.mp3.beats.json`, next to the audio file.
-    static func sidecarURL(for audio: URL) -> URL {
-        audio.deletingLastPathComponent().appendingPathComponent(audio.lastPathComponent + ".beats.json")
-    }
-
-    /// The beats of the sidecar file, sorted; nil if there is no sidecar file.
-    static func load(for audio: URL, frameCount: Int) throws -> [Beat]? {
-        let url = sidecarURL(for: audio)
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        let data: Data
-        do { data = try Data(contentsOf: url) } catch { throw BeatFileError(message: error.localizedDescription) }
-        return try parse(data, frameCount: frameCount)
-    }
-
-    static func parse(_ data: Data, frameCount: Int) throws -> [Beat] {
-        guard let json = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
-            throw BeatFileError(message: "It is not valid JSON.")
-        }
-        guard let array = json as? [Any], let entries = array as? [[String: Any]] else {
-            throw BeatFileError(message: "It is not a JSON array of beat objects.")
-        }
-        var beats: [Beat] = []
-        for (i, e) in entries.enumerated() {
-            let n = "Beat \(i + 1)"
-            guard let rawSample = e["sample"] else { throw BeatFileError(message: "\(n): “sample” is missing.") }
-            guard let num = rawSample as? NSNumber, CFGetTypeID(num) != CFBooleanGetTypeID(),
-                  num.doubleValue == num.doubleValue.rounded(), abs(num.doubleValue) < 1e15
-            else { throw BeatFileError(message: "\(n): “sample” must be a whole number.") }
-            let sample = num.intValue
-            guard sample >= 0, sample < frameCount else {
-                throw BeatFileError(message: "\(n): sample \(sample) is outside the file (0 … \(frameCount - 1)).")
-            }
-            // Older files: "placed" was a forced bar start; "no" and "computed" count automatically.
-            guard let rawFirst = e["firstBeat"] else { throw BeatFileError(message: "\(n): “firstBeat” is missing.") }
-            let bar: Beat.Bar
-            switch rawFirst as? String {
-            case "auto", "no", "computed": bar = .auto
-            case "start", "placed": bar = .start
-            default: throw BeatFileError(message: "\(n): “firstBeat” must be “auto” or “start”.")
-            }
-            var timeSignature: String?
-            if let rawTS = e["timeSignature"], !(rawTS is NSNull) {
-                guard let ts = rawTS as? String, isValidTimeSignature(ts) else {
-                    throw BeatFileError(message: "\(n): “timeSignature” must look like “4/4” (denominator 1, 2, 4 … 128).")
-                }
-                timeSignature = ts
-            }
-            beats.append(Beat(sample: sample, timeSignature: timeSignature, bar: bar))
-        }
-        beats.sort { $0.sample < $1.sample }
-        for (a, b) in zip(beats, beats.dropFirst()) where a.sample == b.sample {
-            throw BeatFileError(message: "Two beats are at sample \(a.sample).")
-        }
-        return beats
-    }
-
-    static func isValidTimeSignature(_ s: String) -> Bool {
-        let parts = s.split(separator: "/", omittingEmptySubsequences: false)
-        guard parts.count == 2, parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isASCII) && $0.allSatisfy(\.isNumber) }),
-              let n = Int(parts[0]), let d = Int(parts[1]) else { return false }
-        return n >= 1 && timeSignatureDenominators.contains(d)
-    }
-}
-
 /// An exact fraction, kept reduced with a positive denominator.
 struct Rational: Equatable, Comparable, CustomStringConvertible {
     let num: Int
@@ -125,6 +55,8 @@ struct Rational: Equatable, Comparable, CustomStringConvertible {
     static func / (a: Rational, b: Rational) -> Rational { Rational(a.num * b.den, a.den * b.num) }
     static func < (a: Rational, b: Rational) -> Bool { a.num * b.den < b.num * a.den }
 
+    /// Largest integer ≤ the value.
+    var floor: Int { num >= 0 ? num / den : -((-num + den - 1) / den) }
     /// Smallest integer ≥ the value.
     var ceil: Int { num >= 0 ? (num + den - 1) / den : -((-num) / den) }
     var doubleValue: Double { Double(num) / Double(den) }
@@ -152,7 +84,7 @@ struct TimeSignature: Equatable, CustomStringConvertible {
 
     init(num: Int, den: Int) { self.num = num; self.den = den }
     init?(_ s: String?) {
-        guard let s, BeatFile.isValidTimeSignature(s) else { return nil }
+        guard let s, SessionFile.isValidTimeSignature(s) else { return nil }
         let p = s.split(separator: "/")
         num = Int(p[0])!; den = Int(p[1])!
     }
@@ -227,17 +159,3 @@ func ordinal(_ n: Int) -> String {
     let suffix = (11...13).contains(n % 100) ? "th" : [1: "st", 2: "nd", 3: "rd"][n % 10] ?? "th"
     return "\(n)\(suffix)"
 }
-
-extension BeatFile {
-    /// The sidecar's JSON for `beats` (`timeSignature` left out when absent).
-    static func encode(_ beats: [Beat]) throws -> Data {
-        let array: [[String: Any]] = beats.map { b in
-            var d: [String: Any] = ["sample": b.sample, "firstBeat": b.bar.rawValue]
-            if let ts = b.timeSignature { d["timeSignature"] = ts }
-            return d
-        }
-        return try JSONSerialization.data(withJSONObject: array, options: [.prettyPrinted, .sortedKeys])
-    }
-}
-
-let timeSignatureDenominators = [1, 2, 4, 8, 16, 32, 64, 128]

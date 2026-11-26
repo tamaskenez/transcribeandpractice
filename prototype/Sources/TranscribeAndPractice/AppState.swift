@@ -29,10 +29,12 @@ final class AppState {
         let ids = Set(list.map(\.id))
         if !selectedBeats.isSubset(of: ids) { selectedBeats.formIntersection(ids) }
         if let a = beatAnchor, !ids.contains(a) { beatAnchor = nil }
-        if save { saveBeats() }
+        if save { saveSession() }
     }
     /// Selected beats (by id) and the last one selected individually (the Shift+click anchor).
     var selectedBeats: Set<Int> = []
+    /// Note trajectories (milestone 13; see Notes.swift), saved in the session file with the beats.
+    var notes: [NoteTrajectory] = []
     var beatAnchor: Int?
     /// Beeps so far (for the state dump).
     var beepCount = 0
@@ -177,7 +179,8 @@ final class AppState {
     static let minWindowMs = 10.0, maxWindowMs = 500.0
 
     // Editor grid (milestone 11; see EditorGrid.swift). Remembered across launches.
-    var gridLinesShown: Bool { didSet { UserDefaults.standard.set(gridLinesShown, forKey: "gridLinesShown") } }
+    /// The Grid panel is open: the only time grid lines are drawn (milestone 13).
+    var gridPanelOpen = false
     var gridKind: GridKind { didSet { UserDefaults.standard.set(gridKind.rawValue, forKey: "gridKind") } }
     var gridStraight: Int { didSet { UserDefaults.standard.set(gridStraight, forKey: "gridStraight") } }
     var gridTriplet: Int { didSet { UserDefaults.standard.set(gridTriplet, forKey: "gridTriplet") } }
@@ -190,6 +193,9 @@ final class AppState {
         case .tuplet: gridTuplet
         }
     }
+    /// Hover cell copies at the harmonics 2…n (1: none) (milestone 13). Remembered across launches.
+    var harmonics: Int { didSet { UserDefaults.standard.set(harmonics, forKey: "harmonics") } }
+    static let maxHarmonics = 5
     var gridLabel: String { "1/\(gridDenominator)" }
     private static let mainModeKey = "mainPaneMode", windowKey = "spectrogramWindowMs"
 
@@ -202,7 +208,7 @@ final class AppState {
         mainMode = UserDefaults.standard.string(forKey: Self.mainModeKey).flatMap(MainPaneMode.init(rawValue:)) ?? .waveform
         windowLengthMs = min(max(UserDefaults.standard.object(forKey: Self.windowKey) as? Double ?? 50, Self.minWindowMs), Self.maxWindowMs)
         let d = UserDefaults.standard
-        gridLinesShown = d.object(forKey: "gridLinesShown") as? Bool ?? true
+        harmonics = (d.object(forKey: "harmonics") as? Int).flatMap { (1...Self.maxHarmonics).contains($0) ? $0 : nil } ?? 1
         gridKind = d.string(forKey: "gridKind").flatMap(GridKind.init(rawValue:)) ?? .straight
         gridStraight = (d.object(forKey: "gridStraight") as? Int).flatMap { GridConstants.straight.contains($0) ? $0 : nil } ?? 16
         gridTriplet = (d.object(forKey: "gridTriplet") as? Int).flatMap { GridConstants.triplet.contains($0) ? $0 : nil } ?? 12
@@ -390,7 +396,7 @@ final class AppState {
             selectedBeats = []
             beatAnchor = nil
             hoveredBeatSample = nil
-            loadBeats(for: loaded)
+            loadSession(for: loaded)
             loadID += 1
         } catch {
             errorTitle = "Could not open file"
@@ -399,14 +405,17 @@ final class AppState {
     }
 
     /// Beats from the sidecar file; an invalid file shows an alert and leaves no beats.
-    private func loadBeats(for audio: LoadedAudio) {
+    private func loadSession(for audio: LoadedAudio) {
         do {
-            setBeats(try BeatFile.load(for: audio.url, frameCount: audio.frameCount) ?? [], save: false)
+            let s = try SessionFile.load(for: audio.url, frameCount: audio.frameCount)
+            notes = s?.notes ?? []
+            setBeats(s?.beats ?? [], save: false)
         } catch {
+            notes = []
             setBeats([], save: false)
-            errorTitle = "Could not read beats"
-            errorMessage = "“\(BeatFile.sidecarURL(for: audio.url).lastPathComponent)”: \(error.localizedDescription) "
-                + "The audio file is loaded without beats."
+            errorTitle = "Could not read the session"
+            errorMessage = "“\(SessionFile.url(for: audio.url).lastPathComponent)”: \(error.localizedDescription) "
+                + "The audio file is loaded without beats and notes."
         }
     }
 }

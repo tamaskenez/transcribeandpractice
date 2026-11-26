@@ -110,7 +110,15 @@ enum VerificationHooks {
                     case "follow": state.followPlayhead = arg == "on"
                     case "beats": state.showBeats = arg == "on"
                     case "beatkey": state.beatKey(downbeat: arg == "shift")
-                    case "gridlines": state.gridLinesShown = arg == "on"
+                    case "beatat":
+                        // B with the pointer exactly at this time over the main pane.
+                        if let v = Double(arg), state.viewLength > 0 {
+                            state.pointer = ("main", (v - state.viewStart) / state.viewLength)
+                            state.beatKey(downbeat: false)
+                        }
+                    case "notes": if arg == "clear" { state.notes = []; state.saveSession() }
+                    case "harmonics": if let n = Int(arg), (1...AppState.maxHarmonics).contains(n) { state.harmonics = n }
+                    case "gridpanel": state.gridPanelOpen = arg == "open"
                     case "grid":
                         let a = arg.split(separator: " ").map(String.init)
                         if let k = a.first.flatMap(GridKind.init(rawValue:)) {
@@ -251,7 +259,7 @@ enum VerificationHooks {
             "screenFrames": screenFrames(state: state),
             "spectrogram": spectrogramDump(state: state),
             "spectrum": spectrumDump(),
-            "grid": ["linesShown": state.gridLinesShown, "kind": state.gridKind.rawValue, "straight": state.gridStraight,
+            "grid": ["panelOpen": state.gridPanelOpen, "harmonics": state.harmonics, "kind": state.gridKind.rawValue, "straight": state.gridStraight,
                      "triplet": state.gridTriplet, "tuplet": state.gridTuplet, "n": state.gridDenominator],
         ]
         if let audio = state.audio {
@@ -341,11 +349,35 @@ enum VerificationHooks {
     }
 
     /// The waveform views actually in the window, with the polyline each one draws.
+    /// Notes as stored (beat indices, tau) with their times, the derived first pitch, start/end
+    /// samples, the protected beat indices and the drawn rectangle.
+    private static func noteDump(_ w: WaveformNSView) -> [[String: Any]] {
+        guard let state = w.state, let audio = state.audio else { return [] }
+        let g = state.beatGrid
+        var out: [[String: Any]] = []
+        for n in state.notes {
+            guard let (a, b) = g.span(n), let used = g.usedBeats(n) else { continue }
+            let r = w.rect(of: n) ?? .zero
+            let rect: [Double] = [r.minX, r.minY, r.width, r.height].map { Double($0) }
+            let points: [[String: Any]] = n.points.map { p in
+                ["beat": g.index[p.loc.beat] ?? -1, "tau": p.loc.tau.description, "pre": Double(p.pre), "post": Double(p.post)]
+            }
+            let ta = g.time(a, sampleRate: audio.sampleRate), tb = g.time(b, sampleRate: audio.sampleRate)
+            out.append(["points": points,
+                        "end": ["beat": g.index[n.end.beat] ?? -1, "tau": n.end.tau.description, "pitch": Double(n.endPitch)],
+                        "midi": Double(n.points[0].post), "startTime": ta, "endTime": tb,
+                        "startSample": roundSample(ta * audio.sampleRate), "endSample": roundSample(tb * audio.sampleRate),
+                        "usedBeats": [used.lowerBound, used.upperBound], "rect": rect])
+        }
+        return out
+    }
+
     private static func waveformDump() -> [String: Any] {
         var result: [String: Any] = [:]
         func visit(_ view: NSView) {
             if let w = view as? WaveformNSView, !w.isRuler {
                 let bars = w.columnBars()
+                let notes = w.isSpectrogram ? noteDump(w) : []
                 result[w.name] = [
                     "size": size(w.bounds.size),
                     "orientation": w.orientation.rawValue,
@@ -363,6 +395,15 @@ enum VerificationHooks {
                     "lastColumnsMs": w.lastColumnsMs ?? NSNull(),
                     "analysisWindow": w.analysisWindowPolylines().map { $0.map { $0.map { [$0.x, $0.y] } } } ?? NSNull(),
                     "editorLines": w.visibleEditorLines().map { ["kind": $0.line.kind.rawValue, "time": $0.line.time, "axis": $0.axis] },
+                    "notes": notes,
+                    "dashPhase": w.dashPhase, "dashesMoving": w.dashesMoving,
+                    "hoverCell": w.hoverPoint.flatMap(w.gridCell(at:)).map { c -> Any in
+                        let r = w.rect(of: c)
+                        return ["start": c.start, "end": c.end, "note": c.note,
+                                "rect": [r.minX, r.minY, r.width, r.height],
+                                "harmonicRects": w.harmonicShifts().map { s -> [Double] in
+                                    let h = w.rect(of: c, shift: s)
+                                    return [h.minX, h.minY, h.width, h.height].map { Double($0) } }] } ?? NSNull(),
                     "zoomAxis": w.zoomTimeAxis.map { $0 ? "time" : "amplitude" } ?? NSNull(),
                 ] as [String: Any]
             }
