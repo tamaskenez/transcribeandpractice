@@ -1158,6 +1158,77 @@ and under the spectrum pane in vertical mode (the vertical view now ends at 12 s
 `*_render_note_harmonics.png`, `*_render_segment.png`, `*_render_whole.png`,
 `*_render_band.png`, `*_delete_after_delete.png`.
 
+## 15. Single-segment notes: creating by dragging, editing pitches
+
+Started as "creating and editing multi-segment notes" (press-drag with a 1-second hold timer on
+the handles to add segments; implemented, tried, then dropped): note trajectories don't work in
+practice. Notes become single segments, the only building block: a start and an end, each a grid
+location and a pitch. Details: the spec, "Notes" and "Session file".
+
+1. Remove note trajectories (points with pre- and post-pitches, pre → post transitions, the
+   multi-segment model, rendering, selection by segment, splitting on delete, the hold timer and
+   its pie) from the code, the session file and the UI.
+2. Session file notes: `{"start": {beat, tau, pitch}, "end": {beat, tau, pitch}}` (no backward
+   compatibility).
+3. Drawing: one capsule from the start pitch to the end pitch (an ellipse when short).
+4. Selection and deletion by note (click, ⌘-click, ⇧-drag rectangle; a double-click is a click).
+5. Creating by dragging: a press in the hover cell starts a note; dragging over later cells
+   extends it to the pointer cell's end, with the end pitch at the pointer's note (a glide);
+   invalid places (before the start, no cell, under the spectrum pane) keep the last note and a
+   release there adds nothing; Escape cancels; a click places the one-cell note.
+6. Editing pitches with the handles: start handle the start pitch, end handle the end pitch,
+   middle handle both; whole semitones; selects that note; Escape restores; no time movement.
+
+Status: `done`
+
+Acceptance criteria:
+
+Only the milestone 15 checks are run (`verify_m15.py`, run from `prototype/`). Test audio: the
+milestone 13 WAV with its 38 beats 0.5 s apart (the last at 19 s); Grid 1/8 (two cells per beat).
+Mouse input uses the synthetic-event driver; the dump has the notes (start, end, shape, hovered,
+selected), the creation state and the handle-drag state. Everything runs in both orientations.
+
+1. Builds; no note-trajectory types or code are left (no points, pre/post pitches, transitions,
+   segment references, hold timer). (CLI: build + source search)
+2. Session file: a file with notes in the new format loads (start and end locations and
+   pitches as written); a change writes them back in the same format; a file in the old
+   `points` format is rejected with the "Could not read the session" alert. (session files +
+   dump, without input events)
+3. Drawing and hover: a flat note, a glide (its end circle the pitch difference × 14 points
+   higher, ± 1) and a short note (an ellipse) as written; hovering shows the handles (three,
+   one or none by length) with the open hand over them, and the note's harmonic copies.
+   (synthetic events + dump)
+4. Selection and deletion: a click selects one note (a double-click too); ⌘-click adds and
+   removes; a ⇧-drag rectangle selects the notes fully inside it, live; Escape clears; Backspace
+   deletes the selected notes, saved, and their beats can be deleted then. (synthetic events +
+   key events + dump + the session file)
+5. Creating by dragging: a press in an empty cell, then three cells later and two semitones up:
+   the note being created runs from the press cell's start to the pointer cell's end, ending two
+   semitones higher, its end handle drawn, no hover cell; on release it is added (start pitch =
+   the press note, end pitch +2), saved, nothing selected. A click without moving places the
+   one-cell note. (synthetic events + dump + the session file)
+6. Invalid places and Escape: the pointer before the start cell, under the spectrum pane and
+   after the last beat leave the note as it was, marked invalid; back over a valid cell it
+   follows again; a release while invalid adds nothing; Escape mid-drag adds nothing; a drag may
+   end overlapping an existing note. (synthetic events + key events + dump)
+7. Editing: dragging a glide's start handle 2 semitones up changes only its start pitch, the end
+   handle only the end pitch, the middle handle both; a short note's only handle moves both;
+   each drag selects only that note, shows the closed hand while dragging and saves on release;
+   Escape mid-drag restores; locations never change. (synthetic events + key events + dump + the
+   session file)
+8. Appearance (dark mode): flat, gliding and short notes, a hovered note with handles, a glide
+   being dragged out, a handle drag in progress, selected notes; both orientations.
+   (screenshots, checked by the human)
+
+Verification results (`python3 verify/verify_m15.py`; screenshots in `verify/out/m15/`): full run
+67/74; the 7 failures were all in criterion 6 and test-side (the driver's drags pass
+intermediate points over valid cells, which the note rightly followed, before reaching the
+invalid place; the checks now compare within the invalid area). Rerun of criterion 6 (`ONLY=6`):
+20/20. So all 74 checks pass (criteria 1–7; criterion 8 is the human check). Screenshots:
+`*_notes_notes.png`, `*_notes_hover_glide.png`, `*_notes_selected.png`, `*_notes_band.png`,
+`*_drag_glide_drag.png`, `*_edit_handle_drag.png`. The milestone 13 and 14 scripts use the old
+session format and no longer run (earlier milestones are not re-verified).
+
 ## Fine-tuning (to do later)
 
 - Don't drag playhead/last-playback-start when dragging selection edge

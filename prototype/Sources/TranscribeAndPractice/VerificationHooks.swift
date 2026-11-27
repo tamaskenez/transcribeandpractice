@@ -118,17 +118,9 @@ enum VerificationHooks {
                         }
                     case "notes": if arg == "clear" { state.notes = []; state.saveSession() }
                     case "notesel":
-                        // "i:k,…" (note i, segment k) or "i" (all of note i), or "none".
-                        var sel: Set<SegmentRef> = []
-                        for item in arg.split(separator: ",") where arg != "none" {
-                            let p = item.split(separator: ":").compactMap { Int($0) }
-                            guard let i = p.first, state.notes.indices.contains(i) else { continue }
-                            let n = state.notes[i]
-                            for k in p.count > 1 ? [p[1]] : Array(n.points.indices) where n.points.indices.contains(k) {
-                                sel.insert(SegmentRef(note: n.id, segment: k))
-                            }
-                        }
-                        state.selectedSegments = sel
+                        // "i,…" (note indices) or "none".
+                        state.selectedNotes = Set(arg.split(separator: ",").compactMap { Int($0) }
+                            .filter { state.notes.indices.contains($0) }.map { state.notes[$0].id })
                     case "harmonics": if let n = Int(arg), (1...AppState.maxHarmonics).contains(n) { state.harmonics = n }
                     case "gridpanel": state.gridPanelOpen = arg == "open"
                     case "grid":
@@ -363,38 +355,45 @@ enum VerificationHooks {
     /// The waveform views actually in the window, with the polyline each one draws.
     /// Notes as stored (beat indices, tau) with their times, the derived first pitch, start/end
     /// samples, the protected beat indices and the drawn rectangle.
+    /// A note's shape in the dump.
+    private static func shapeDump(_ sh: NoteShape?) -> Any {
+        guard let sh else { return NSNull() }
+        func xy(_ p: CGPoint) -> [Double] { [Double(p.x), Double(p.y)] }
+        func r(_ r: NSRect) -> [Double] { [r.minX, r.minY, r.width, r.height].map { Double($0) } }
+        return ["start": xy(sh.start), "end": xy(sh.end), "radius": Double(sh.radius), "length": Double(sh.length),
+                "width": Double(sh.width), "ellipse": sh.isEllipse, "area": r(sh.area), "ellipseBox": r(sh.ellipseBox),
+                "handles": sh.visibleHandles.map(xy)]
+    }
+
     private static func noteDump(_ w: WaveformNSView) -> [[String: Any]] {
         guard let state = w.state, let audio = state.audio else { return [] }
         let g = state.beatGrid
+        let hovered = w.hoverPoint.flatMap { w.hoveredNote(at: $0) }?.note.id
         var out: [[String: Any]] = []
         for n in state.notes {
             guard let (a, b) = g.span(n), let used = g.usedBeats(n) else { continue }
             let sh = w.shape(of: n)
-            let r = sh?.bounds ?? .zero
-            let rect: [Double] = [r.minX, r.minY, r.width, r.height].map { Double($0) }
-            func xy(_ p: CGPoint) -> [Double] { [Double(p.x), Double(p.y)] }
-            let segments: [[String: Any]] = (sh?.segments ?? []).map { sg in
-                ["start": xy(sg.start), "end": xy(sg.end), "radius": Double(sg.radius), "length": Double(sg.length),
-                 "width": Double(sg.width), "ellipse": sg.isEllipse,
-                 "area": [sg.area.minX, sg.area.minY, sg.area.width, sg.area.height].map { Double($0) },
-                 "ellipseBox": [sg.ellipseBox.minX, sg.ellipseBox.minY, sg.ellipseBox.width, sg.ellipseBox.height].map { Double($0) }, "handles": sg.visibleHandles.map(xy)]
-            }
-            let transitions: [[[Double]]] = (sh?.transitions ?? []).map { [xy($0.0), xy($0.1)] }
-            var hovered: Any = NSNull()
-            if let p = w.hoverPoint, let (hs, k) = w.hoveredSegment(at: p), hs.note.id == n.id { hovered = k }
-            let points: [[String: Any]] = n.points.map { p in
-                ["beat": g.index[p.loc.beat] ?? -1, "tau": p.loc.tau.description, "pre": Double(p.pre), "post": Double(p.post)]
-            }
+            let r = sh?.area ?? .zero
             let ta = g.time(a, sampleRate: audio.sampleRate), tb = g.time(b, sampleRate: audio.sampleRate)
-            out.append(["points": points,
+            out.append(["start": ["beat": g.index[n.start.beat] ?? -1, "tau": n.start.tau.description, "pitch": Double(n.startPitch)],
                         "end": ["beat": g.index[n.end.beat] ?? -1, "tau": n.end.tau.description, "pitch": Double(n.endPitch)],
-                        "midi": Double(n.points[0].post), "startTime": ta, "endTime": tb,
+                        "startTime": ta, "endTime": tb,
                         "startSample": roundSample(ta * audio.sampleRate), "endSample": roundSample(tb * audio.sampleRate),
-                        "usedBeats": [used.lowerBound, used.upperBound], "rect": rect,
-                        "segments": segments, "transitions": transitions, "hoveredSegment": hovered,
-                        "selected": n.points.indices.filter { state.selectedSegments.contains(SegmentRef(note: n.id, segment: $0)) }])
+                        "usedBeats": [used.lowerBound, used.upperBound],
+                        "rect": [r.minX, r.minY, r.width, r.height].map { Double($0) },
+                        "shape": shapeDump(sh), "hovered": hovered == n.id, "selected": state.selectedNotes.contains(n.id)])
         }
         return out
+    }
+
+    /// Milestone 15: the note being created (nil without a creation drag).
+    private static func creationDump(_ w: WaveformNSView) -> Any {
+        guard let c = w.creation else { return NSNull() }
+        let h = w.creationHandle()
+        return ["startPos": c.startPos.description, "endPos": c.endPos.description,
+                "startPitch": Double(c.startPitch), "endPitch": Double(c.endPitch), "valid": c.valid,
+                "handle": h.map { [Double($0.centre.x), Double($0.centre.y), Double($0.diameter)] } ?? NSNull(),
+                "shape": shapeDump(w.creationShape())]
     }
 
     private static func waveformDump() -> [String: Any] {
@@ -423,7 +422,7 @@ enum VerificationHooks {
                     "notes": notes,
                     "dashPhase": w.dashPhase, "dashesMoving": w.dashesMoving,
                     "noteBand": w.noteBand.map { [$0.minX, $0.minY, $0.width, $0.height].map { Double($0) } } ?? NSNull(),
-                    "selectedSegments": (w.state?.selectedSegmentList ?? []).map { [$0.0, $0.1] },
+                    "selectedNotes": w.state?.selectedNoteIndices ?? [],
                     "noteHarmonics": w.noteHarmonicOutlines().map { r -> [Double] in
                         let b = r.boundingBoxOfPath
                         return [b.minX, b.minY, b.width, b.height].map { Double($0) } },
@@ -434,6 +433,11 @@ enum VerificationHooks {
                                 "harmonicRects": w.harmonicShifts().map { s -> [Double] in
                                     let h = w.rect(of: c, shift: s)
                                     return [h.minX, h.minY, h.width, h.height].map { Double($0) } }] } ?? NSNull(),
+                    "creation": creationDump(w),
+                    "handleEdit": w.handleEdit.map { e -> Any in
+                        ["note": w.state?.notes.firstIndex(where: { $0.id == e.note }) ?? -1,
+                         "kind": e.kind.rawValue, "offset": e.offset] } ?? NSNull(),
+                    "handleNote": w.handleNote().map { h -> Any in w.state?.notes.firstIndex(where: { $0.id == h.note.id }) ?? -1 } ?? NSNull(),
                     "zoomAxis": w.zoomTimeAxis.map { $0 ? "time" : "amplitude" } ?? NSNull(),
                 ] as [String: Any]
             }

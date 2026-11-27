@@ -12,8 +12,8 @@ struct SessionFileError: LocalizedError {
 /// beats and the notes. Only the current format is read; anything else is rejected.
 ///
 ///     {"beats": [{"sample": 22050, "firstBeat": "auto"|"start", "timeSignature": "3/4"?}, …],
-///      "notes": [{"points": [{"beat": 3, "tau": "1/2", "pre": 60, "post": 60}, …],
-///                 "end": {"beat": 4, "tau": "0/1", "pitch": 60}}, …]}
+///      "notes": [{"start": {"beat": 3, "tau": "1/2", "pitch": 60},
+///                 "end": {"beat": 4, "tau": "0/1", "pitch": 62}}, …]}
 ///
 /// Beats are in ascending sample order; notes refer to them by index. `tau` is an exact fraction
 /// "n/d" with 0 ≤ tau < 1 (tau > 0 needs a next beat); pitches are MIDI note numbers.
@@ -24,7 +24,7 @@ enum SessionFile {
     }
 
     /// The session of the audio file; nil if there is no session file.
-    static func load(for audio: URL, frameCount: Int) throws -> (beats: [Beat], notes: [NoteTrajectory])? {
+    static func load(for audio: URL, frameCount: Int) throws -> (beats: [Beat], notes: [Note])? {
         let url = url(for: audio)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let data: Data
@@ -34,7 +34,7 @@ enum SessionFile {
 
     private static func fail(_ m: String) -> SessionFileError { SessionFileError(message: m) }
 
-    static func parse(_ data: Data, frameCount: Int) throws -> (beats: [Beat], notes: [NoteTrajectory]) {
+    static func parse(_ data: Data, frameCount: Int) throws -> (beats: [Beat], notes: [Note]) {
         guard let json = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
             throw fail("It is not valid JSON.")
         }
@@ -100,24 +100,16 @@ enum SessionFile {
         return (GridLoc(beat: beats[i].id, tau: tau), Rational(i, 1) + tau)
     }
 
-    private static func parseNote(_ raw: Any, number: Int, beats: [Beat]) throws -> NoteTrajectory {
+    private static func parseNote(_ raw: Any, number: Int, beats: [Beat]) throws -> Note {
         let n = "Note \(number)"
         guard let e = raw as? [String: Any] else { throw fail("\(n) is not an object.") }
-        guard let rawPoints = e["points"] as? [Any], !rawPoints.isEmpty else { throw fail("\(n): “points” must be a non-empty array.") }
-        var points: [NotePoint] = []
-        var last: Rational?
-        for (k, r) in rawPoints.enumerated() {
-            let what = "\(n), point \(k + 1)"
-            guard let p = r as? [String: Any] else { throw fail("\(what) is not an object.") }
-            let (loc, pos) = try parseLoc(p, what, beats: beats)
-            if let last, pos <= last { throw fail("\(what) is not after the previous point.") }
-            last = pos
-            points.append(NotePoint(pre: try parsePitch(p["pre"], "\(what): “pre”"), post: try parsePitch(p["post"], "\(what): “post”"), loc: loc))
-        }
+        guard let start = e["start"] as? [String: Any] else { throw fail("\(n): “start” is missing.") }
         guard let end = e["end"] as? [String: Any] else { throw fail("\(n): “end” is missing.") }
-        let (loc, pos) = try parseLoc(end, "\(n), end", beats: beats)
-        if let last, pos <= last { throw fail("\(n): the end is not after the last point.") }
-        return NoteTrajectory(points: points, endPitch: try parsePitch(end["pitch"], "\(n), end: “pitch”"), end: loc)
+        let (l0, p0) = try parseLoc(start, "\(n), start", beats: beats)
+        let (l1, p1) = try parseLoc(end, "\(n), end", beats: beats)
+        if p1 <= p0 { throw fail("\(n): the end is not after the start.") }
+        return Note(start: l0, startPitch: try parsePitch(start["pitch"], "\(n), start: “pitch”"),
+                    end: l1, endPitch: try parsePitch(end["pitch"], "\(n), end: “pitch”"))
     }
 
     static func isValidTimeSignature(_ s: String) -> Bool {
@@ -128,7 +120,7 @@ enum SessionFile {
     }
 
     /// The session's JSON (`timeSignature` left out when absent). Notes whose beats are gone are left out.
-    static func encode(beats: [Beat], notes: [NoteTrajectory]) throws -> Data {
+    static func encode(beats: [Beat], notes: [Note]) throws -> Data {
         let index = Dictionary(uniqueKeysWithValues: beats.enumerated().map { ($1.id, $0) })
         func loc(_ l: GridLoc) -> [String: Any]? { index[l.beat].map { ["beat": $0, "tau": "\(l.tau.num)/\(l.tau.den)"] } }
         let b: [[String: Any]] = beats.map { b in
@@ -137,10 +129,10 @@ enum SessionFile {
             return d
         }
         let n: [[String: Any]] = notes.compactMap { n in
-            let pts = n.points.compactMap { p in loc(p.loc).map { $0.merging(["pre": Double(p.pre), "post": Double(p.post)]) { a, _ in a } } }
-            guard pts.count == n.points.count, var end = loc(n.end) else { return nil }
+            guard var start = loc(n.start), var end = loc(n.end) else { return nil }
+            start["pitch"] = Double(n.startPitch)
             end["pitch"] = Double(n.endPitch)
-            return ["points": pts, "end": end]
+            return ["start": start, "end": end]
         }
         return try JSONSerialization.data(withJSONObject: ["beats": b, "notes": n], options: [.prettyPrinted, .sortedKeys])
     }

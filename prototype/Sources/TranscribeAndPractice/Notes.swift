@@ -9,54 +9,31 @@ struct GridLoc: Equatable {
     var tau: Rational
 }
 
-/// A point of a note trajectory: the pitch changes from `pre` to `post` around the grid location.
-/// Pitches are MIDI note numbers (fractional values: between semitones).
-struct NotePoint: Equatable {
-    var pre: Float
-    var post: Float
-    var loc: GridLoc
-}
-
-/// A played note: one or more segments between grid locations. The pitch is interpolated
-/// linearly (in MIDI note numbers) from a point's `post` to the next point's `pre` (or
-/// `endPitch`); around each point it changes from `pre` to `post` within the transition window
-/// (`NoteConstants`).
-struct NoteTrajectory: Equatable {
+/// A note (milestone 15: a single segment, the only building block): from `start` to `end` on
+/// the beat grid, the pitch going linearly from `startPitch` to `endPitch` (MIDI note numbers;
+/// fractional values: between semitones).
+struct Note: Equatable {
     /// Identity in memory (not stored).
     let id: Int
-    /// At least one; strictly increasing locations.
-    var points: [NotePoint]
-    var endPitch: Float
-    var end: GridLoc
+    var start: GridLoc, end: GridLoc
+    var startPitch: Float, endPitch: Float
 
-    init(points: [NotePoint], endPitch: Float, end: GridLoc) {
-        id = NoteTrajectory.makeID()
-        self.points = points
-        self.endPitch = endPitch
+    init(start: GridLoc, startPitch: Float, end: GridLoc, endPitch: Float) {
+        id = Note.makeID()
+        self.start = start
         self.end = end
-    }
-
-    /// A single segment at a constant pitch (what a click places in this milestone).
-    init(pitch: Float, from start: GridLoc, to end: GridLoc) {
-        self.init(points: [NotePoint(pre: pitch, post: pitch, loc: start)], endPitch: pitch, end: end)
+        self.startPitch = startPitch
+        self.endPitch = endPitch
     }
 
     /// Same content (ignoring the id).
-    func sameNote(as o: NoteTrajectory) -> Bool { points == o.points && endPitch == o.endPitch && end == o.end }
+    func sameNote(as o: Note) -> Bool {
+        start == o.start && end == o.end && startPitch == o.startPitch && endPitch == o.endPitch
+    }
 
     nonisolated(unsafe) private static var lastID = 0
     private static func makeID() -> Int { lastID += 1; return lastID }
 }
-
-enum NoteConstants {
-    /// The longest pre → post transition, in beats: beat_note / 8 (one eighth of a beat). It is
-    /// also limited to an eighth of the preceding segment; the first point has no preceding
-    /// segment, so its transition lies before the point (the note starts sounding earlier).
-    static let maxTransitionBeats = Rational(1, 8)
-}
-
-/// A note segment: segment k of a note runs from point k to point k + 1 (or the end).
-struct SegmentRef: Hashable { var note: Int; var segment: Int }
 
 /// Beat positions: beat index + tau (exact).
 struct BeatGrid {
@@ -89,34 +66,15 @@ struct BeatGrid {
         return t0 + frac * (Double(beats[i + 1].sample) / fs - t0)
     }
 
-    /// The trajectory's start and end positions.
-    func span(_ n: NoteTrajectory) -> (start: Rational, end: Rational)? {
-        guard let a = n.points.first.flatMap({ position($0.loc) }), let b = position(n.end) else { return nil }
+    /// The note's start and end positions.
+    func span(_ n: Note) -> (start: Rational, end: Rational)? {
+        guard let a = position(n.start), let b = position(n.end) else { return nil }
         return (a, b)
     }
 
-    /// Beat indices the trajectory uses: from its first point's beat to the beat at or after its end.
-    func usedBeats(_ n: NoteTrajectory) -> ClosedRange<Int>? {
+    /// Beat indices the note uses: from its start's beat to the beat at or after its end.
+    func usedBeats(_ n: Note) -> ClosedRange<Int>? {
         span(n).map { $0.start.floor...$0.end.ceil }
-    }
-
-    /// The pitch curve as breakpoints (position in beats, MIDI pitch), linear between them; see
-    /// `NoteTrajectory`. Transitions with equal pre and post pitch are left out.
-    func pitchCurve(_ n: NoteTrajectory) -> [(pos: Double, pitch: Float)] {
-        let pos = n.points.map { position($0.loc)?.doubleValue }
-        guard let endPos = position(n.end)?.doubleValue, !pos.contains(where: { $0 == nil }) else { return [] }
-        let x = pos.map { $0! }
-        let maxT = NoteConstants.maxTransitionBeats.doubleValue
-        var out: [(Double, Float)] = []
-        for (i, p) in n.points.enumerated() {
-            if p.pre != p.post {
-                let d = i == 0 ? maxT : min(maxT, (x[i] - x[i - 1]) / 8)
-                out.append((x[i] - d, p.pre))
-            }
-            out.append((x[i], p.post))
-        }
-        out.append((endPos, n.endPitch))
-        return out
     }
 }
 
@@ -149,87 +107,57 @@ extension AppState {
         noteBeatRanges.contains { $0.lowerBound <= i && i + 1 <= $0.upperBound }
     }
 
-    // Selection (milestone 14): by note segment.
+    // Selection (milestone 14): a set of notes by id.
 
-    /// Click: only this segment.
-    func selectOnlySegment(_ r: SegmentRef) { selectedSegments = [r] }
-    /// ⌘-click: toggles the segment.
-    func toggleSegment(_ r: SegmentRef) { if selectedSegments.remove(r) == nil { selectedSegments.insert(r) } }
-    /// Double-click: only the whole note (all its segments).
-    func selectOnlyNote(id: Int) {
-        guard let n = notes.first(where: { $0.id == id }) else { return }
-        selectedSegments = Set(n.points.indices.map { SegmentRef(note: id, segment: $0) })
-    }
-    func clearNoteSelection() { if !selectedSegments.isEmpty { selectedSegments = [] } }
+    /// Click: only this note.
+    func selectOnlyNote(id: Int) { selectedNotes = [id] }
+    /// ⌘-click: toggles the note.
+    func toggleNote(id: Int) { if selectedNotes.remove(id) == nil { selectedNotes.insert(id) } }
+    func clearNoteSelection() { if !selectedNotes.isEmpty { selectedNotes = [] } }
 
-    /// Drops selected segments whose note or segment is gone.
-    func pruneSegmentSelection() {
-        let counts = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0.points.count) })
-        let kept = selectedSegments.filter { (counts[$0.note] ?? 0) > $0.segment }
-        if kept != selectedSegments { selectedSegments = kept }
+    /// Drops selected notes that are gone.
+    func pruneNoteSelection() {
+        let ids = Set(notes.map(\.id))
+        if !selectedNotes.isSubset(of: ids) { selectedNotes.formIntersection(ids) }
     }
 
-    /// The selected segments as (note index, segment index), sorted.
-    var selectedSegmentList: [(Int, Int)] {
-        notes.enumerated().flatMap { i, n in
-            n.points.indices.filter { selectedSegments.contains(SegmentRef(note: n.id, segment: $0)) }.map { (i, $0) }
-        }
-    }
+    /// Indices of the selected notes, ascending.
+    var selectedNoteIndices: [Int] { notes.indices.filter { selectedNotes.contains(notes[$0].id) } }
 
-    /// Backspace: deletes the selected segments. Each remaining run of consecutive segments of a
-    /// note becomes a note of its own: it ends at the location of the point after the run (with
-    /// that point's pre-pitch; the note's end for the last run); a run that started at an inner
-    /// point gets pre = post there (no pre → post capsule at its new start).
-    func deleteSelectedSegments() {
-        guard !selectedSegments.isEmpty else { return }
-        var out: [NoteTrajectory] = []
-        for n in notes {
-            let gone = Set(n.points.indices.filter { selectedSegments.contains(SegmentRef(note: n.id, segment: $0)) })
-            if gone.isEmpty { out.append(n); continue }
-            var k = 0
-            while k < n.points.count {
-                if gone.contains(k) { k += 1; continue }
-                var m = k
-                while m + 1 < n.points.count, !gone.contains(m + 1) { m += 1 }
-                var pts = Array(n.points[k...m])
-                if k > 0, gone.contains(k - 1) { pts[0].pre = pts[0].post }
-                let last = m + 1 < n.points.count
-                let end = last ? n.points[m + 1].loc : n.end
-                let endPitch = last ? n.points[m + 1].pre : n.endPitch
-                out.append(k == 0 && m == n.points.count - 1 ? n : NoteTrajectory(points: pts, endPitch: endPitch, end: end))
-                k = m + 1
-            }
-        }
-        selectedSegments = []
-        notes = out
+    /// Backspace: deletes the selected notes.
+    func deleteSelectedNotes() {
+        guard !selectedNotes.isEmpty else { return }
+        let gone = selectedNotes
+        selectedNotes = []
+        notes.removeAll { gone.contains($0.id) }
         saveSession()
     }
 
-    /// Click on the spectrogram: a single-segment note in the grid cell (none if the same note
-    /// is already there).
-    func placeNote(in cell: GridCell) {
-        let g = beatGrid
-        let n = NoteTrajectory(pitch: Float(cell.note), from: g.loc(at: cell.startPos), to: g.loc(at: cell.endPos))
-        guard cell.startPos < cell.endPos, !notes.contains(where: { $0.sameNote(as: n) }) else { return }
+    /// Adds a note unless the same one is there, and saves.
+    func addNote(_ n: Note) {
+        guard !notes.contains(where: { $0.sameNote(as: n) }) else { return }
         notes.append(n)
         saveSession()
     }
 }
 
-// MARK: Drawing (milestone 14: segments, pre → post capsules, handles)
+// MARK: Drawing
 
-/// One segment of a note as drawn: the white outline's end-circle centres (the black one is
-/// offset by (+1, +1)), their radius, and the segment's area on whole points.
-struct NoteSegmentShape {
+/// A note as drawn: the white outline's end-circle centres (the black one is offset by (+1, +1)),
+/// their radius, and the note's area on whole points.
+struct NoteShape {
+    var note: Note
     var start: CGPoint, end: CGPoint
     var radius: CGFloat
-    /// From the segment's start to its end in time, across both end pitches ± ½.
+    /// From the note's start to its end in time, across both pitches ± ½.
     var area: NSRect
     /// Length along the time axis and the cross size (one semitone).
     var length: CGFloat, width: CGFloat
-    /// Shorter than wide: drawn as an ellipse in `ellipseBox` (no pre → post capsules next to it).
+    /// Shorter than wide: drawn as an ellipse in `ellipseBox`.
     var isEllipse: Bool { length < width }
     var ellipseBox: NSRect
+    /// The white outline: the capsule or the ellipse.
+    var outline: CGPath
     /// The geometric centres of the end circles (between the white and the black outline) and the
     /// middle: the handles.
     var handleCentres: [CGPoint] {
@@ -245,19 +173,8 @@ struct NoteSegmentShape {
     }
 }
 
-/// A note as drawn: its segments and the pre → post capsules (pairs of white centres).
-struct NoteShape {
-    var note: NoteTrajectory
-    var segments: [NoteSegmentShape]
-    var transitions: [(CGPoint, CGPoint)]
-    var radius: CGFloat
-    /// The white outline (the union of all capsules and ellipses).
-    var outline: CGPath
-    var bounds: NSRect { segments.map(\.area).reduce(segments[0].area) { $0.union($1) } }
-}
-
 enum NoteDrawing {
-    /// Reach (points) around a segment's capsule within which the pointer hovers it.
+    /// Reach (points) around a note's capsule within which the pointer hovers it.
     static let hoverReach: CGFloat = 3
     /// Opacity of a selected note's accent fill.
     static let selectedFillOpacity: CGFloat = 0.35
@@ -318,70 +235,32 @@ extension WaveformNSView {
     }
 
     /// The note's shape in view coordinates (nil if its beats are gone).
-    func shape(of n: NoteTrajectory) -> NoteShape? {
+    func shape(of n: Note) -> NoteShape? {
         guard let state, let audio = state.audio else { return nil }
         let g = state.beatGrid
-        var locs: [Rational] = []
-        for p in n.points { guard let x = g.position(p.loc) else { return nil }; locs.append(x) }
-        guard let endPos = g.position(n.end) else { return nil }
-        locs.append(endPos)
-        let axes = locs.map { axis(ofTime: g.time($0, sampleRate: audio.sampleRate)).rounded() }
-        var segments: [NoteSegmentShape] = []
-        var radius: CGFloat = 0
-        for k in 0..<n.points.count {
-            let p0 = n.points[k].post, p1 = k + 1 < n.points.count ? n.points[k + 1].pre : n.endPitch
-            let a0 = axes[k], a1 = axes[k + 1]
-            let (c0, r, h) = circleCentre(axis: a0, pitch: p0)
-            let (c1, _, _) = circleCentre(axis: a1 - h, pitch: p1)
-            radius = r
-            let e0 = pitchEdges(p0), e1 = pitchEdges(p1)
-            let area = viewRect(axis: a0, a1, cross: min(e0.lo, e1.lo), max(e0.hi, e1.hi))
-            let em = pitchEdges((p0 + p1) / 2)
-            segments.append(NoteSegmentShape(start: c0, end: c1, radius: r, area: area, length: a1 - a0, width: h,
-                                             ellipseBox: viewRect(axis: a0, a1, cross: em.lo, em.hi)))
-        }
-        // Pre → post capsules: at an inner point between the neighbouring segments' circles; at
-        // the first point across it, from a circle at the pre-pitch just before it.
-        var transitions: [(CGPoint, CGPoint)] = []
-        for (k, p) in n.points.enumerated() where p.pre != p.post && !segments[k].isEllipse {
-            if k == 0 {
-                let h = segments[0].width
-                let (c, _, _) = circleCentre(axis: axes[0] - h, pitch: p.pre)
-                transitions.append((c, segments[0].start))
-            } else if !segments[k - 1].isEllipse {
-                transitions.append((segments[k - 1].end, segments[k].start))
-            }
-        }
-        var outline = CGMutablePath() as CGPath
-        var first = true
-        func add(_ path: CGPath) { outline = first ? path : outline.union(path); first = false }
-        for sg in segments {
-            if sg.isEllipse {
-                let b = sg.ellipseBox
-                let e = CGMutablePath()
-                e.addEllipse(in: NSRect(x: b.minX, y: b.minY, width: b.width - 1, height: b.height - 1).insetBy(dx: 0.5, dy: 0.5))
-                add(e)
-            } else {
-                add(NoteDrawing.capsule(sg.start, sg.end, sg.radius))
-            }
-        }
-        for (a, b) in transitions { add(NoteDrawing.capsule(a, b, radius)) }
-        return NoteShape(note: n, segments: segments, transitions: transitions, radius: radius, outline: outline)
-    }
-
-    /// A segment's own capsule (or ellipse), as the white outline's path.
-    func segmentPath(_ sg: NoteSegmentShape) -> CGPath {
-        if sg.isEllipse {
-            let b = sg.ellipseBox
+        guard let (p0, p1) = g.span(n) else { return nil }
+        let a0 = axis(ofTime: g.time(p0, sampleRate: audio.sampleRate)).rounded()
+        let a1 = axis(ofTime: g.time(p1, sampleRate: audio.sampleRate)).rounded()
+        let (c0, r, h) = circleCentre(axis: a0, pitch: n.startPitch)
+        let (c1, _, _) = circleCentre(axis: a1 - h, pitch: n.endPitch)
+        let e0 = pitchEdges(n.startPitch), e1 = pitchEdges(n.endPitch)
+        let area = viewRect(axis: a0, a1, cross: min(e0.lo, e1.lo), max(e0.hi, e1.hi))
+        let em = pitchEdges((n.startPitch + n.endPitch) / 2)
+        let box = viewRect(axis: a0, a1, cross: em.lo, em.hi)
+        let outline: CGPath
+        if a1 - a0 < h {
             let e = CGMutablePath()
-            e.addEllipse(in: NSRect(x: b.minX, y: b.minY, width: b.width - 1, height: b.height - 1).insetBy(dx: 0.5, dy: 0.5))
-            return e
+            e.addEllipse(in: NSRect(x: box.minX, y: box.minY, width: box.width - 1, height: box.height - 1).insetBy(dx: 0.5, dy: 0.5))
+            outline = e
+        } else {
+            outline = NoteDrawing.capsule(c0, c1, r)
         }
-        return NoteDrawing.capsule(sg.start, sg.end, sg.radius)
+        return NoteShape(note: n, start: c0, end: c1, radius: r, area: area, length: a1 - a0, width: h,
+                         ellipseBox: box, outline: outline)
     }
 
-    /// The note's bounding area (all its segments).
-    func rect(of n: NoteTrajectory) -> NSRect? { shape(of: n)?.bounds }
+    /// The note's bounding area.
+    func rect(of n: Note) -> NSRect? { shape(of: n)?.area }
 
     /// The visible notes' shapes.
     func noteShapes() -> [NoteShape] {
@@ -389,86 +268,83 @@ extension WaveformNSView {
         return state.notes.compactMap { n in shape(of: n).flatMap { $0.outline.boundingBoxOfPath.insetBy(dx: -2, dy: -2).intersects(bounds) ? $0 : nil } }
     }
 
-    /// The segment under the point: the nearest one whose capsule (or ellipse) is within reach.
-    func hoveredSegment(at p: CGPoint) -> (note: NoteShape, segment: Int)? {
+    /// The note under the point: the nearest one whose capsule (or ellipse) is within reach.
+    func hoveredNote(at p: CGPoint) -> NoteShape? {
         if isBandDragging { return nil }
-        var best: (NoteShape, Int, CGFloat)?
+        var best: (NoteShape, CGFloat)?
         for sh in noteShapes() {
-            for (k, sg) in sh.segments.enumerated() {
-                let c = sg.handleCentres
-                let d: CGFloat
-                if sg.isEllipse {
-                    let b = sg.ellipseBox.insetBy(dx: -NoteDrawing.hoverReach, dy: -NoteDrawing.hoverReach)
-                    d = b.contains(p) ? 0 : .infinity
-                } else {
-                    d = max(NoteDrawing.distance(p, c[0], c[2]) - sg.radius - 0.5, 0)
-                }
-                if d <= NoteDrawing.hoverReach, best == nil || d < best!.2 { best = (sh, k, d) }
+            let d: CGFloat
+            if sh.isEllipse {
+                d = sh.ellipseBox.insetBy(dx: -NoteDrawing.hoverReach, dy: -NoteDrawing.hoverReach).contains(p) ? 0 : .infinity
+            } else {
+                let c = sh.handleCentres
+                d = max(NoteDrawing.distance(p, c[0], c[2]) - sh.radius - 0.5, 0)
             }
+            if d <= NoteDrawing.hoverReach, best == nil || d < best!.1 { best = (sh, d) }
         }
-        return best.map { ($0.0, $0.1) }
+        return best?.0
     }
 
-    /// The handle under the point (of the hovered segment), as its centre.
+    /// The handle under the point (of the hovered note), as its centre.
     func handle(at p: CGPoint) -> CGPoint? {
-        guard let (sh, k) = hoveredSegment(at: p) else { return nil }
-        let r = sh.segments[k].width / 4
-        return sh.segments[k].visibleHandles.first { hypot($0.x - p.x, $0.y - p.y) <= r + 1 }
+        guard let sh = hoveredNote(at: p) else { return nil }
+        let r = sh.width / 4
+        return sh.visibleHandles.first { hypot($0.x - p.x, $0.y - p.y) <= r + 1 }
     }
 
-    /// Each note: the union of its capsules as a black 1-point outline and a white one over it,
-    /// offset by (−1, −1); no fill. Then the hovered segment's handles (moving dashes circles at
-    /// full opacity, half the capsule's diameter, with a black-and-white cross as wide).
+    /// Each note as a black 1-point outline and a white one over it, offset by (−1, −1); no fill
+    /// (selected: an accent fill and a 2-point accent outline instead of the white one). Then the
+    /// note being created, and the handles of the hovered (or edited) note and of the note being
+    /// created.
     func drawNotes() {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.saveGState()
-        ctx.setLineWidth(1)
-        let selected = state?.selectedSegments ?? []
+        let selected = state?.selectedNotes ?? []
         let accent = NSColor.controlAccentColor
-        for sh in noteShapes() {
-            let sel = sh.segments.indices.filter { selected.contains(SegmentRef(note: sh.note.id, segment: $0)) }
-            let whole = sel.count == sh.segments.count
+        func outline(_ sh: NoteShape, selected: Bool) {
             var shift = CGAffineTransform(translationX: 1, y: 1)
             if let black = sh.outline.copy(using: &shift) {
                 ctx.addPath(black); ctx.setStrokeColor(NSColor.black.cgColor); ctx.setLineWidth(1); ctx.strokePath()
             }
-            ctx.addPath(sh.outline); ctx.setStrokeColor(NSColor.white.cgColor); ctx.setLineWidth(1); ctx.strokePath()
-            // Selected: a translucent accent fill and a 2-point accent outline: around the whole
-            // note when all its segments are selected, else around each selected segment.
-            let paths = whole ? [sh.outline] : sel.map { segmentPath(sh.segments[$0]) }
-            for p in paths {
-                ctx.addPath(p); ctx.setFillColor(accent.withAlphaComponent(NoteDrawing.selectedFillOpacity).cgColor); ctx.fillPath()
-                ctx.addPath(p); ctx.setStrokeColor(accent.cgColor); ctx.setLineWidth(2); ctx.strokePath()
+            if selected {
+                ctx.addPath(sh.outline); ctx.setFillColor(accent.withAlphaComponent(NoteDrawing.selectedFillOpacity).cgColor); ctx.fillPath()
+                ctx.addPath(sh.outline); ctx.setStrokeColor(accent.cgColor); ctx.setLineWidth(2); ctx.strokePath()
+            } else {
+                ctx.addPath(sh.outline); ctx.setStrokeColor(NSColor.white.cgColor); ctx.setLineWidth(1); ctx.strokePath()
             }
         }
+        for sh in noteShapes() { outline(sh, selected: selected.contains(sh.note.id)) }
+        if let created = creationShape() { outline(created, selected: false) }
         ctx.restoreGState()
-        if let p = hoverPoint, let (sh, k) = hoveredSegment(at: p) {
-            let sg = sh.segments[k], d = sg.width / 2
-            let path = NSBezierPath()
-            for c in sg.visibleHandles { path.appendOval(in: NSRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)) }
-            strokeAlternating(path, opacity: 1)
-            // A cross (+) in each, as wide as the circle: black, then white over it offset by
-            // (−1, −1), like the note outline; on whole points.
-            let black = NSBezierPath(), white = NSBezierPath()
-            let w = d.rounded()
-            for c in sg.visibleHandles {
-                // The white cross is centred half a point up-left of the handle's centre.
-                let x0 = (c.x - 0.5 - w / 2).rounded(), y0 = (c.y - 0.5 - w / 2).rounded()
-                let cx = (c.x - 1).rounded(), cy = (c.y - 1).rounded()
-                for (path, off) in [(black, CGFloat(1)), (white, CGFloat(0))] {
-                    path.appendRect(NSRect(x: x0 + off, y: cy + off, width: w, height: 1))
-                    path.appendRect(NSRect(x: cx + off, y: y0 + off, width: 1, height: w))
-                }
-            }
-            NSColor.black.setFill(); black.fill()
-            NSColor.white.setFill(); white.fill()
-        }
+        if let sh = handleNote() { drawHandles(sh.visibleHandles, diameter: sh.width / 2) }
+        if let h = creationHandle() { drawHandles([h.centre], diameter: h.diameter) }
     }
 
-    /// The hovered note's outline moved 12 · log2(i) semitones higher for i = 2 … harmonics (the
-    /// white outline's path; up in horizontal mode, right in vertical mode).
+    /// Handles: moving dashes circles at full opacity, with a cross (+) in each, as wide as the
+    /// circle: black, then white over it offset by (−1, −1), like the note outline; on whole points.
+    func drawHandles(_ centres: [CGPoint], diameter d: CGFloat) {
+        let path = NSBezierPath()
+        for c in centres { path.appendOval(in: NSRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)) }
+        strokeAlternating(path, opacity: 1)
+        let black = NSBezierPath(), white = NSBezierPath()
+        let w = d.rounded()
+        for c in centres {
+            // The white cross is centred half a point up-left of the handle's centre.
+            let x0 = (c.x - 0.5 - w / 2).rounded(), y0 = (c.y - 0.5 - w / 2).rounded()
+            let cx = (c.x - 1).rounded(), cy = (c.y - 1).rounded()
+            for (path, off) in [(black, CGFloat(1)), (white, CGFloat(0))] {
+                path.appendRect(NSRect(x: x0 + off, y: cy + off, width: w, height: 1))
+                path.appendRect(NSRect(x: cx + off, y: y0 + off, width: 1, height: w))
+            }
+        }
+        NSColor.black.setFill(); black.fill()
+        NSColor.white.setFill(); white.fill()
+    }
+
+    /// The hovered (or edited, or created) note's outline moved 12 · log2(i) semitones higher for
+    /// i = 2 … harmonics (the white outline's path; up in horizontal mode, right in vertical mode).
     func noteHarmonicOutlines() -> [CGPath] {
-        guard let p = hoverPoint, let (sh, _) = hoveredSegment(at: p) else { return [] }
+        guard let sh = creation != nil ? creationShape() : handleNote() else { return [] }
         return harmonicShifts().compactMap { semis in
             let d = CGFloat(semis * SpectrogramConstants.pointsPerSemitone)
             var t = orientation == .horizontal ? CGAffineTransform(translationX: 0, y: -d) : CGAffineTransform(translationX: d, y: 0)
@@ -483,14 +359,12 @@ extension WaveformNSView {
         strokeAlternating(path)
     }
 
-    /// Segments whose drawn capsule (or ellipse; both outlines) lies inside the rectangle (view
-    /// coordinates). Pre → post capsules don't count.
-    func segments(inside r: NSRect) -> [SegmentRef] {
-        noteShapes().flatMap { sh in
-            sh.segments.indices.filter { k in
-                let white = segmentPath(sh.segments[k]).boundingBoxOfPath.insetBy(dx: -0.5, dy: -0.5)
-                return r.contains(white.union(white.offsetBy(dx: 1, dy: 1)))
-            }.map { SegmentRef(note: sh.note.id, segment: $0) }
-        }
+    /// Notes (ids) whose drawn capsule or ellipse (both outlines) lies inside the rectangle (view
+    /// coordinates).
+    func notes(inside r: NSRect) -> Set<Int> {
+        Set(noteShapes().filter { sh in
+            let white = sh.outline.boundingBoxOfPath.insetBy(dx: -0.5, dy: -0.5)
+            return r.contains(white.union(white.offsetBy(dx: 1, dy: 1)))
+        }.map(\.note.id))
     }
 }
