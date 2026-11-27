@@ -1158,82 +1158,67 @@ and under the spectrum pane in vertical mode (the vertical view now ends at 12 s
 `*_render_note_harmonics.png`, `*_render_segment.png`, `*_render_whole.png`,
 `*_render_band.png`, `*_delete_after_delete.png`.
 
-## 15. Creating and editing multi-segment notes
+## 15. Single-segment notes: creating by dragging, editing pitches
 
-When user clicks on a grid cell, a single-segment note is created, that's already working.
+Started as "creating and editing multi-segment notes" (press-drag with a 1-second hold timer on
+the handles to add segments; implemented, tried, then dropped): note trajectories don't work in
+practice. Notes become single segments, the only building block: a start and an end, each a grid
+location and a pitch. Details: the spec, "Notes" and "Session file".
 
-When the user clicks into an empty grid cell and holds the button, we already create a single-segment note, that will be the "current segment". Let's also maintain a UI state which tells us whether the current note segment's first point is fixed or not. In this case, just after click-and-hold the first point is fixed.
+1. Remove note trajectories (points with pre- and post-pitches, pre → post transitions, the
+   multi-segment model, rendering, selection by segment, splitting on delete, the hold timer and
+   its pie) from the code, the session file and the UI.
+2. Session file notes: `{"start": {beat, tau, pitch}, "end": {beat, tau, pitch}}` (no backward
+   compatibility).
+3. Drawing: one capsule from the start pitch to the end pitch (an ellipse when short).
+4. Selection and deletion by note (click, ⌘-click, ⇧-drag rectangle; a double-click is a click).
+5. Creating by dragging: a press in the hover cell starts a note; dragging over later cells
+   extends it to the pointer cell's end, with the end pitch at the pointer's note (a glide);
+   invalid places (before the start, no cell, under the spectrum pane) keep the last note and a
+   release there adds nothing; Escape cancels; a click places the one-cell note.
+6. Editing pitches with the handles: start handle the start pitch, end handle the end pitch,
+   middle handle both; whole semitones; selects that note; Escape restores; no time movement.
 
-When we have a current segment and the first point is fixed we do this:
-
-- The user can freely move the pointer over the grid. We always locate the current grid and draw the segment with the second point at the end of the current grid cell, at the current pitch. If the user releases the button, we finalize the created note segment (or the entire multi-segment trajectory, if there is one).
-- In this state (first point fixed) we always draw the handle (same as in hover) of the second point.
-- If the user hovers over the second point, we start a timer (1 second) with an animated icon which exactly shows when the 1 second is elapsed (like a growing pie chart, for example). If the mouse stays hovered over the handle when the timer elapsed, we finalize the current segment and open the next segment in the next grid subdivision, but with "the first point not fixed"
-
-When the first point is not fixed, we do this:
-
-- The user can still freely move the mouse to any grid cell. We draw the extra segment, the transition from pre and post pitches for the current segment, the post pitch being the mouse's current pitch, then draw the segment itself at the same constant pitch, to the end of the current grid cell. If the user releases the button, that's the segment which will be finalized along with the multi-segment trajectory if there's any.
-- In this case (first point is not fixed) we draw the handle of the first point and the user can hover above it, with the same timer. If the timer elapses and its still hovered we change the state to "first point is fixed".
-
-If the user drags the mouse where no grid cell is, or into previous grid cells, we just don't update the latest current pitch and current grid cell. If the mouse is release in that state, the current segment is thrown away but the already finalized segments remain.
-
-If the there no more beats to draw the next segment until, the note is finalized.
-
-Clarified (see the spec, "Creating notes by dragging" and "Editing pitches with the handles"):
-pitch snaps to semitones; the hold timer is a pie beside the pointer; Escape during creation
-drops only the current segment; notes may overlap. Editing existing notes: dragging a handle
-changes pitches only (start handle: the point's post-pitch; end handle: the next point's
-pre-pitch or the end pitch; middle handle: both), selecting that segment; no time movement, no
-joining, no hold timer on existing notes.
-
-Status: `criteria approved`
+Status: `criteria proposed`
 
 Acceptance criteria:
 
 Only the milestone 15 checks are run (`verify_m15.py`, run from `prototype/`). Test audio: the
-milestone 13 WAV with its 38 beats 0.5 s apart; Grid 1/8 (two cells per beat); for the editing
-checks, notes A, B and D of milestone 14 in the session file. Mouse input uses the synthetic-event
-driver (with pauses for the timer); the dump gains the creation state (current segment, first
-point fixed or not, valid, finalised points, drawn handle, timer progress and pie rect) and
-handle-drag state. Everything runs in both orientations.
+milestone 13 WAV with its 38 beats 0.5 s apart (the last at 19 s); Grid 1/8 (two cells per beat).
+Mouse input uses the synthetic-event driver; the dump has the notes (start, end, shape, hovered,
+selected), the creation state and the handle-drag state. Everything runs in both orientations.
 
-1. Builds. (CLI)
-2. Dragging one segment: a press in an empty cell, then moving three cells later and two
-   semitones up: the current segment runs from the press cell's start to the pointer cell's end,
-   ending two semitones higher, first point fixed, the second point's handle drawn, no hover
-   cell; on release one note with one point (pre = post = the press note), end pitch +2, end at
-   that cell's end, saved, nothing selected. A click without moving still places the one-cell
-   note. (synthetic events + dump + the session file)
-3. Invalid places: during a drag the pointer before the start cell, under the spectrum pane and
-   after the last beat leave the current segment as it was, marked invalid; back over a valid
-   cell it follows again; a release while invalid (no finalised segments) adds nothing. The drag
-   may pass over an existing note and ends overlapping it. (synthetic events + dump)
-4. Hold timer: on the second point's handle the timer runs (progress grows, pie beside the
-   pointer); leaving after 0.5 s stops and hides it and changes nothing; staying 1 s finalises the
-   segment: a new point at its end, the next segment covering the next cell, first point not
-   fixed, invalid, the first point's handle drawn, no timer running although the pointer is over
-   a handle position. A release right then adds the note with only the finalised segment.
-   (synthetic events + pauses + dump)
-5. Multi-segment note: after finalising, moving two cells on and three semitones down: the
-   segment is flat at the new note with pre = the previous end pitch, post = the new note; the
-   timer on the first point's handle fixes the first point; then moving one cell on and one
-   semitone up makes a glide; the release adds a two-point note with those pitches and locations,
-   saved. Escape during a later drag drops only the current segment. With Harmonics 3 the
-   created note's copies are drawn. (synthetic events + pauses + key events + dump + the session
-   file)
-6. End of the beats: a segment dragged to end at the last beat, then the timer on its handle:
-   the note is added and saved at once; moving and releasing change nothing more. (synthetic
-   events + pauses + dump + the session file)
-7. Editing: on B's middle segment, dragging the start handle 2 semitones up changes only point
-   1's post-pitch, the end handle only point 2's pre-pitch, the middle handle both; the last
-   segment's end handle changes the end pitch; the first segment's start handle moves point 0's
-   pre and post together; D's only handle moves both of its pitches; each drag selects only that
-   segment, shows the closed hand while dragging and saves on release; Escape mid-drag restores
-   the pitches; resting 1.5 s on a handle of an existing note starts no timer; time locations
-   never change. (synthetic events + key events + dump + the session file)
-8. Appearance (dark mode): a glide being dragged with its handle, the pie mid-timer, the not-fixed
-   segment with its pre → post capsule, a finished multi-segment note with harmonic copies, a
-   handle drag in progress; both orientations. (screenshots, checked by the human)
+1. Builds; no note-trajectory types or code are left (no points, pre/post pitches, transitions,
+   segment references, hold timer). (CLI: build + source search)
+2. Session file: a file with notes in the new format loads (start and end locations and
+   pitches as written); a change writes them back in the same format; a file in the old
+   `points` format is rejected with the "Could not read the session" alert. (session files +
+   dump, without input events)
+3. Drawing and hover: a flat note, a glide (its end circle the pitch difference × 14 points
+   higher, ± 1) and a short note (an ellipse) as written; hovering shows the handles (three,
+   one or none by length) with the open hand over them, and the note's harmonic copies.
+   (synthetic events + dump)
+4. Selection and deletion: a click selects one note (a double-click too); ⌘-click adds and
+   removes; a ⇧-drag rectangle selects the notes fully inside it, live; Escape clears; Backspace
+   deletes the selected notes, saved, and their beats can be deleted then. (synthetic events +
+   key events + dump + the session file)
+5. Creating by dragging: a press in an empty cell, then three cells later and two semitones up:
+   the note being created runs from the press cell's start to the pointer cell's end, ending two
+   semitones higher, its end handle drawn, no hover cell; on release it is added (start pitch =
+   the press note, end pitch +2), saved, nothing selected. A click without moving places the
+   one-cell note. (synthetic events + dump + the session file)
+6. Invalid places and Escape: the pointer before the start cell, under the spectrum pane and
+   after the last beat leave the note as it was, marked invalid; back over a valid cell it
+   follows again; a release while invalid adds nothing; Escape mid-drag adds nothing; a drag may
+   end overlapping an existing note. (synthetic events + key events + dump)
+7. Editing: dragging a glide's start handle 2 semitones up changes only its start pitch, the end
+   handle only the end pitch, the middle handle both; a short note's only handle moves both;
+   each drag selects only that note, shows the closed hand while dragging and saves on release;
+   Escape mid-drag restores; locations never change. (synthetic events + key events + dump + the
+   session file)
+8. Appearance (dark mode): flat, gliding and short notes, a hovered note with handles, a glide
+   being dragged out, a handle drag in progress, selected notes; both orientations.
+   (screenshots, checked by the human)
 
 ## Fine-tuning (to do later)
 
