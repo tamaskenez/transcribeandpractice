@@ -1179,7 +1179,7 @@ location and a pitch. Details: the spec, "Notes" and "Session file".
 6. Editing pitches with the handles: start handle the start pitch, end handle the end pitch,
    middle handle both; whole semitones; selects that note; Escape restores; no time movement.
 
-Status: `criteria proposed`
+Status: `criteria approved`
 
 Acceptance criteria:
 

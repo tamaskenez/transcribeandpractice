@@ -50,10 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Escape during a note drag (milestone 15): ends it first.
             if event.keyCode == 53, WaveformNSView.cancelNoteDrag() { return nil }
             switch event.keyCode {
-            case 51 where !state.selectedSegments.isEmpty: state.deleteSelectedSegments() // Backspace: notes first
+            case 51 where !state.selectedNotes.isEmpty: state.deleteSelectedNotes() // Backspace: notes first
             case 51 where !state.isPlaying && (state.hoveredBeatSample != nil || !state.selectedBeats.isEmpty):
                 state.deleteHoveredBeat()                                        // Backspace
-            case 53 where !state.selectedSegments.isEmpty: state.clearNoteSelection() // Escape: notes first
+            case 53 where !state.selectedNotes.isEmpty: state.clearNoteSelection() // Escape: notes first
             case 53 where !state.selectedBeats.isEmpty: state.clearBeatSelection() // then beats
             case 53 where state.selection != nil: state.clearSelectionWithKey()  // Escape
             case 49: state.playOrStop()                                          // Space
