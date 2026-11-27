@@ -1179,7 +1179,7 @@ location and a pitch. Details: the spec, "Notes" and "Session file".
 6. Editing pitches with the handles: start handle the start pitch, end handle the end pitch,
    middle handle both; whole semitones; selects that note; Escape restores; no time movement.
 
-Status: `criteria approved`
+Status: `verified`
 
 Acceptance criteria:
 
@@ -1219,6 +1219,15 @@ selected), the creation state and the handle-drag state. Everything runs in both
 8. Appearance (dark mode): flat, gliding and short notes, a hovered note with handles, a glide
    being dragged out, a handle drag in progress, selected notes; both orientations.
    (screenshots, checked by the human)
+
+Verification results (`python3 verify/verify_m15.py`; screenshots in `verify/out/m15/`): full run
+67/74; the 7 failures were all in criterion 6 and test-side (the driver's drags pass
+intermediate points over valid cells, which the note rightly followed, before reaching the
+invalid place; the checks now compare within the invalid area). Rerun of criterion 6 (`ONLY=6`):
+20/20. So all 74 checks pass (criteria 1–7; criterion 8 is the human check). Screenshots:
+`*_notes_notes.png`, `*_notes_hover_glide.png`, `*_notes_selected.png`, `*_notes_band.png`,
+`*_drag_glide_drag.png`, `*_edit_handle_drag.png`. The milestone 13 and 14 scripts use the old
+session format and no longer run (earlier milestones are not re-verified).
 
 ## Fine-tuning (to do later)
 

@@ -322,14 +322,20 @@ for o in ORIENTATIONS:
     # 6. Invalid places, Escape, overlap.
     if run(6):
         n0 = len(saved_notes())
-        s.input(f'down {at(s, 2.6, M)}', f'dragto {at(s, 2.9, M)}')
+        # The driver's drags pass intermediate points: compare within the invalid area.
+        s.input(f'down {at(s, 2.6, M)}', f'dragto {at(s, 2.9, M)}', f'dragto {at(s, 2.4, M)}')
         before = cr(s)
-        s.input(f'dragto {at(s, 2.4, M + 3)}')
+        s.input(f'dragto {at(s, 2.3, M + 3)}')
         c = cr(s)
         check(6, f'{o}: the pointer before the start cell: the note stays as it was, invalid',
               c['endPos'] == before['endPos'] and c['endPitch'] == before['endPitch'] and not c['valid'], json.dumps(c))
-        spec = (8.0, scr(s, vp(s, 3.5, M))[1]) if hz else (scr(s, vp(s, 3.5, M))[0], scr(s, (0, main(s)['size']['height'] - 8))[1])
-        s.input(f'dragto {P(spec)}')
+        s.input(f'dragto {at(s, 2.9, M + 1)}')
+        before = cr(s)
+        spec = [(8.0 + dx, scr(s, vp(s, 3.5, M + dm))[1]) if hz else
+                (scr(s, vp(s, 3.5, M + dm))[0], scr(s, (0, main(s)['size']['height'] - 8 + dx))[1]) for dx, dm in ((0, 0), (4, 3))]
+        s.input(f'dragto {P(spec[0])}')
+        before = cr(s)
+        s.input(f'dragto {P(spec[1])}')
         c = cr(s)
         check(6, f'{o}: under the spectrum pane: the note stays, invalid', c['endPos'] == before['endPos'] and not c['valid'],
               json.dumps(c))
@@ -355,9 +361,9 @@ for o in ORIENTATIONS:
         write_session([])
         s = session(f'{o}_end', o, '16,20' if hz else '17,20.05')
         M = mid_note(s)
-        s.input(f'down {at(s, 18.3, M)}', f'dragto {at(s, 18.4, M)}')
+        s.input(f'down {at(s, 18.3, M)}', f'dragto {at(s, 18.4, M)}', f'dragto {at(s, 19.1, M)}')
         before = cr(s)
-        s.input(f'dragto {at(s, 19.1, M)}')
+        s.input(f'dragto {at(s, 19.15, M + 3)}')
         c = cr(s)
         check(6, f'{o}: after the last beat: the note stays, invalid', c['endPos'] == before['endPos'] and not c['valid'],
               json.dumps(c))
